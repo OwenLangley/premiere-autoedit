@@ -15,7 +15,7 @@ autoedit = "autoedit.cli:main"
 [tool.setuptools]
 # recipes/ sits alongside the package as editable config, not importable code,
 # so package discovery has to be told explicitly.
-packages = ["autoedit", "autoedit.providers"]
+packages = ["autoedit"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
