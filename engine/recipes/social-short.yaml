@@ -1,0 +1,44 @@
+name: social-short
+description: >
+  Vertical short-form for TikTok / Reels / Shorts. The one place aggressive
+  filler removal is correct: the format punishes any dead air, and viewers
+  expect the clipped cadence rather than being jarred by it.
+
+sequence:
+  timebase: "30"
+  video_tracks: 3          # V1 speaker, V2 b-roll, V3 captions/graphics
+  audio_tracks: 2
+  name_template: "{job}_short_v1"
+  crossfade_frames: 1      # anything longer reads as sloppy at this pace
+
+detection:
+  min_silence: 0.25        # dead air is the format's main failure mode
+  lead_in: 0.06
+  tail: 0.04
+  trim_head_tail: true
+
+  filler_mode: aggressive  # removes 'like', 'you know', 'basically'
+  keep_fillers: ["right"]  # too often a genuine beat at the end of a sentence
+  remove_stutters: true
+  stutter_max_gap: 0.45
+
+  min_clip_length: 0.25
+  min_confidence: 0.60     # tighter cuts need a more trustworthy transcript
+  protect_margin: 0.20
+
+transcription:
+  provider: whisper-local
+  model: large-v3
+  language: en
+  word_timestamps: true
+
+roles:
+  speaker: { video_track: 0, audio_track: 0 }
+  broll:   { video_track: 1, audio_track: -1 }
+
+brand:
+  lut: brand-punch
+  mogrts:
+    captions: kinetic-captions
+    hook: hook-title
+  loudness_target_lufs: -14   # platform normalisation target

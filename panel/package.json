@@ -1,0 +1,16 @@
+{
+  "name": "autoedit-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "UXP panel that applies an EditPlan to a Premiere Pro sequence",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@adobe/premierepro": "^26.3.0",
+    "@types/node": "^26.2.0",
+    "typescript": "^5.6.0"
+  }
+}

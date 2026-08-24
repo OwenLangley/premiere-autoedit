@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --bg: #1e1e1e; --panel: #262626; --line: #3a3a3a;
+        --text: #e8e8e8; --dim: #9a9a9a; --accent: #4a90d9;
+        --warn: #d9a441; --bad: #d95c5c; --good: #5cb85c;
+      }
+      body {
+        margin: 0; padding: 10px; background: var(--bg); color: var(--text);
+        font-family: "Adobe Clean", sans-serif; font-size: 12px; line-height: 1.45;
+      }
+      h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+           color: var(--dim); margin: 16px 0 6px; font-weight: 600; }
+      h2:first-child { margin-top: 0; }
+      section { background: var(--panel); border: 1px solid var(--line);
+                border-radius: 4px; padding: 10px; margin-bottom: 10px; }
+      .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+      .row:last-child { margin-bottom: 0; }
+      .grow { flex: 1; min-width: 0; }
+      .path { color: var(--dim); font-size: 11px; overflow: hidden;
+              text-overflow: ellipsis; white-space: nowrap; }
+      .path.unset { color: var(--bad); }
+      button { background: #383838; color: var(--text); border: 1px solid var(--line);
+               border-radius: 3px; padding: 5px 10px; font-size: 12px; }
+      button:hover:not(:disabled) { background: #444; }
+      button:disabled { opacity: .4; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.primary:hover:not(:disabled) { background: #5a9fe4; }
+      select { background: #383838; color: var(--text); border: 1px solid var(--line);
+               border-radius: 3px; padding: 4px; font-size: 12px; width: 100%; }
+      .stat { display: flex; justify-content: space-between; padding: 2px 0; }
+      .stat span:last-child { color: var(--dim); }
+      .msg { border-left: 3px solid var(--warn); padding: 5px 8px; margin: 5px 0;
+             background: rgba(217,164,65,.09); font-size: 11px; }
+      .msg.bad { border-color: var(--bad); background: rgba(217,92,92,.09); }
+      .sect { display: flex; align-items: center; gap: 7px; padding: 5px 0;
+              border-bottom: 1px solid var(--line); }
+      .sect:last-child { border-bottom: none; }
+      .sect .meta { color: var(--dim); font-size: 11px; }
+      #log { font-family: monospace; font-size: 11px; max-height: 150px;
+             overflow-y: auto; color: var(--dim); }
+      #log div { padding: 1px 0; }
+      #log .ok { color: var(--good); }
+      #log .err { color: var(--bad); }
+      .hint { color: var(--dim); font-size: 11px; margin-top: 6px; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h2>Setup</h2>
+    <section>
+      <div class="row">
+        <button id="pick-media">Media root</button>
+        <div class="grow path unset" id="media-path">not set</div>
+      </div>
+      <div class="row">
+        <button id="pick-jobs">Jobs folder</button>
+        <div class="grow path unset" id="jobs-path">not set</div>
+      </div>
+      <div class="hint">
+        Plans store paths relative to the media root, so moving to a NAS later
+        means changing this one setting.
+      </div>
+    </section>
+
+    <h2>Plan</h2>
+    <section>
+      <div class="row">
+        <select id="plan-list"><option>No jobs folder set</option></select>
+        <button id="refresh">Refresh</button>
+      </div>
+      <div id="plan-summary" class="hidden"></div>
+      <div id="plan-messages"></div>
+    </section>
+
+    <div id="sections-block" class="hidden">
+      <h2>Include</h2>
+      <section id="sections"></section>
+    </div>
+
+    <section>
+      <div class="row">
+        <button id="apply" class="primary grow" disabled>Build sequence</button>
+      </div>
+      <div class="hint">
+        Always builds a new sequence. Each stage is one undo step.
+      </div>
+    </section>
+
+    <h2>Log</h2>
+    <section><div id="log"><div>Ready.</div></div></section>
+
+    <script src="src/main.js"></script>
+  </body>
+</html>

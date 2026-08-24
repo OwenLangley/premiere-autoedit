@@ -1,0 +1,21 @@
+[project]
+name = "autoedit-engine"
+version = "0.1.0"
+description = "Analysis engine that turns rushes into an EditPlan for Premiere Pro"
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0", "jsonschema>=4.0"]
+
+[project.optional-dependencies]
+whisper = ["faster-whisper>=1.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+autoedit = "autoedit.cli:main"
+
+[tool.setuptools]
+# recipes/ sits alongside the package as editable config, not importable code,
+# so package discovery has to be told explicitly.
+packages = ["autoedit", "autoedit.providers"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

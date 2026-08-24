@@ -1,0 +1,1006 @@
+{
+  "_comment": "Shared conformance vectors for frame/second conversion. The Python engine and the JS panel must both reproduce these exactly -- a divergence puts clips on the wrong frame with nothing to catch it.",
+  "cases": [
+    {
+      "timebase": {
+        "fpsNum": 24000,
+        "fpsDen": 1001,
+        "dropFrame": false
+      },
+      "toFrames": [
+        {
+          "seconds": 0.0,
+          "frames": 0
+        },
+        {
+          "seconds": 0.04,
+          "frames": 1
+        },
+        {
+          "seconds": 0.5,
+          "frames": 12
+        },
+        {
+          "seconds": 1.017,
+          "frames": 24
+        },
+        {
+          "seconds": 7.0,
+          "frames": 168
+        },
+        {
+          "seconds": 59.94,
+          "frames": 1437
+        },
+        {
+          "seconds": 123.456,
+          "frames": 2960
+        },
+        {
+          "seconds": 600.5,
+          "frames": 14398
+        },
+        {
+          "seconds": 3600.0,
+          "frames": 86314
+        }
+      ],
+      "snap": [
+        {
+          "seconds": 0.0,
+          "snapped": 0.0
+        },
+        {
+          "seconds": 0.04,
+          "snapped": 0.041708333
+        },
+        {
+          "seconds": 0.5,
+          "snapped": 0.5005
+        },
+        {
+          "seconds": 1.017,
+          "snapped": 1.001
+        },
+        {
+          "seconds": 7.0,
+          "snapped": 7.007
+        },
+        {
+          "seconds": 59.94,
+          "snapped": 59.934875
+        },
+        {
+          "seconds": 123.456,
+          "snapped": 123.456666667
+        },
+        {
+          "seconds": 600.5,
+          "snapped": 600.516583333
+        },
+        {
+          "seconds": 3600.0,
+          "snapped": 3600.013083333
+        }
+      ],
+      "toSeconds": [
+        {
+          "frames": 0,
+          "seconds": 0.0
+        },
+        {
+          "frames": 1,
+          "seconds": 0.041708333
+        },
+        {
+          "frames": 25,
+          "seconds": 1.042708333
+        },
+        {
+          "frames": 1500,
+          "seconds": 62.5625
+        },
+        {
+          "frames": 1801,
+          "seconds": 75.116708333
+        },
+        {
+          "frames": 107892,
+          "seconds": 4499.9955
+        },
+        {
+          "frames": 250000,
+          "seconds": 10427.083333333
+        }
+      ],
+      "timecode": [
+        {
+          "frames": 0,
+          "timecode": "00:00:00:00"
+        },
+        {
+          "frames": 1,
+          "timecode": "00:00:00:01"
+        },
+        {
+          "frames": 25,
+          "timecode": "00:00:01:01"
+        },
+        {
+          "frames": 1500,
+          "timecode": "00:01:02:12"
+        },
+        {
+          "frames": 1801,
+          "timecode": "00:01:15:01"
+        },
+        {
+          "frames": 107892,
+          "timecode": "01:14:55:12"
+        },
+        {
+          "frames": 250000,
+          "timecode": "02:53:36:16"
+        }
+      ]
+    },
+    {
+      "timebase": {
+        "fpsNum": 24,
+        "fpsDen": 1,
+        "dropFrame": false
+      },
+      "toFrames": [
+        {
+          "seconds": 0.0,
+          "frames": 0
+        },
+        {
+          "seconds": 0.04,
+          "frames": 1
+        },
+        {
+          "seconds": 0.5,
+          "frames": 12
+        },
+        {
+          "seconds": 1.017,
+          "frames": 24
+        },
+        {
+          "seconds": 7.0,
+          "frames": 168
+        },
+        {
+          "seconds": 59.94,
+          "frames": 1439
+        },
+        {
+          "seconds": 123.456,
+          "frames": 2963
+        },
+        {
+          "seconds": 600.5,
+          "frames": 14412
+        },
+        {
+          "seconds": 3600.0,
+          "frames": 86400
+        }
+      ],
+      "snap": [
+        {
+          "seconds": 0.0,
+          "snapped": 0.0
+        },
+        {
+          "seconds": 0.04,
+          "snapped": 0.041666667
+        },
+        {
+          "seconds": 0.5,
+          "snapped": 0.5
+        },
+        {
+          "seconds": 1.017,
+          "snapped": 1.0
+        },
+        {
+          "seconds": 7.0,
+          "snapped": 7.0
+        },
+        {
+          "seconds": 59.94,
+          "snapped": 59.958333333
+        },
+        {
+          "seconds": 123.456,
+          "snapped": 123.458333333
+        },
+        {
+          "seconds": 600.5,
+          "snapped": 600.5
+        },
+        {
+          "seconds": 3600.0,
+          "snapped": 3600.0
+        }
+      ],
+      "toSeconds": [
+        {
+          "frames": 0,
+          "seconds": 0.0
+        },
+        {
+          "frames": 1,
+          "seconds": 0.041666667
+        },
+        {
+          "frames": 25,
+          "seconds": 1.041666667
+        },
+        {
+          "frames": 1500,
+          "seconds": 62.5
+        },
+        {
+          "frames": 1801,
+          "seconds": 75.041666667
+        },
+        {
+          "frames": 107892,
+          "seconds": 4495.5
+        },
+        {
+          "frames": 250000,
+          "seconds": 10416.666666667
+        }
+      ],
+      "timecode": [
+        {
+          "frames": 0,
+          "timecode": "00:00:00:00"
+        },
+        {
+          "frames": 1,
+          "timecode": "00:00:00:01"
+        },
+        {
+          "frames": 25,
+          "timecode": "00:00:01:01"
+        },
+        {
+          "frames": 1500,
+          "timecode": "00:01:02:12"
+        },
+        {
+          "frames": 1801,
+          "timecode": "00:01:15:01"
+        },
+        {
+          "frames": 107892,
+          "timecode": "01:14:55:12"
+        },
+        {
+          "frames": 250000,
+          "timecode": "02:53:36:16"
+        }
+      ]
+    },
+    {
+      "timebase": {
+        "fpsNum": 25,
+        "fpsDen": 1,
+        "dropFrame": false
+      },
+      "toFrames": [
+        {
+          "seconds": 0.0,
+          "frames": 0
+        },
+        {
+          "seconds": 0.04,
+          "frames": 1
+        },
+        {
+          "seconds": 0.5,
+          "frames": 13
+        },
+        {
+          "seconds": 1.017,
+          "frames": 25
+        },
+        {
+          "seconds": 7.0,
+          "frames": 175
+        },
+        {
+          "seconds": 59.94,
+          "frames": 1499
+        },
+        {
+          "seconds": 123.456,
+          "frames": 3086
+        },
+        {
+          "seconds": 600.5,
+          "frames": 15013
+        },
+        {
+          "seconds": 3600.0,
+          "frames": 90000
+        }
+      ],
+      "snap": [
+        {
+          "seconds": 0.0,
+          "snapped": 0.0
+        },
+        {
+          "seconds": 0.04,
+          "snapped": 0.04
+        },
+        {
+          "seconds": 0.5,
+          "snapped": 0.52
+        },
+        {
+          "seconds": 1.017,
+          "snapped": 1.0
+        },
+        {
+          "seconds": 7.0,
+          "snapped": 7.0
+        },
+        {
+          "seconds": 59.94,
+          "snapped": 59.96
+        },
+        {
+          "seconds": 123.456,
+          "snapped": 123.44
+        },
+        {
+          "seconds": 600.5,
+          "snapped": 600.52
+        },
+        {
+          "seconds": 3600.0,
+          "snapped": 3600.0
+        }
+      ],
+      "toSeconds": [
+        {
+          "frames": 0,
+          "seconds": 0.0
+        },
+        {
+          "frames": 1,
+          "seconds": 0.04
+        },
+        {
+          "frames": 25,
+          "seconds": 1.0
+        },
+        {
+          "frames": 1500,
+          "seconds": 60.0
+        },
+        {
+          "frames": 1801,
+          "seconds": 72.04
+        },
+        {
+          "frames": 107892,
+          "seconds": 4315.68
+        },
+        {
+          "frames": 250000,
+          "seconds": 10000.0
+        }
+      ],
+      "timecode": [
+        {
+          "frames": 0,
+          "timecode": "00:00:00:00"
+        },
+        {
+          "frames": 1,
+          "timecode": "00:00:00:01"
+        },
+        {
+          "frames": 25,
+          "timecode": "00:00:01:00"
+        },
+        {
+          "frames": 1500,
+          "timecode": "00:01:00:00"
+        },
+        {
+          "frames": 1801,
+          "timecode": "00:01:12:01"
+        },
+        {
+          "frames": 107892,
+          "timecode": "01:11:55:17"
+        },
+        {
+          "frames": 250000,
+          "timecode": "02:46:40:00"
+        }
+      ]
+    },
+    {
+      "timebase": {
+        "fpsNum": 30000,
+        "fpsDen": 1001,
+        "dropFrame": true
+      },
+      "toFrames": [
+        {
+          "seconds": 0.0,
+          "frames": 0
+        },
+        {
+          "seconds": 0.04,
+          "frames": 1
+        },
+        {
+          "seconds": 0.5,
+          "frames": 15
+        },
+        {
+          "seconds": 1.017,
+          "frames": 30
+        },
+        {
+          "seconds": 7.0,
+          "frames": 210
+        },
+        {
+          "seconds": 59.94,
+          "frames": 1796
+        },
+        {
+          "seconds": 123.456,
+          "frames": 3700
+        },
+        {
+          "seconds": 600.5,
+          "frames": 17997
+        },
+        {
+          "seconds": 3600.0,
+          "frames": 107892
+        }
+      ],
+      "snap": [
+        {
+          "seconds": 0.0,
+          "snapped": 0.0
+        },
+        {
+          "seconds": 0.04,
+          "snapped": 0.033366667
+        },
+        {
+          "seconds": 0.5,
+          "snapped": 0.5005
+        },
+        {
+          "seconds": 1.017,
+          "snapped": 1.001
+        },
+        {
+          "seconds": 7.0,
+          "snapped": 7.007
+        },
+        {
+          "seconds": 59.94,
+          "snapped": 59.926533333
+        },
+        {
+          "seconds": 123.456,
+          "snapped": 123.456666667
+        },
+        {
+          "seconds": 600.5,
+          "snapped": 600.4999
+        },
+        {
+          "seconds": 3600.0,
+          "snapped": 3599.9964
+        }
+      ],
+      "toSeconds": [
+        {
+          "frames": 0,
+          "seconds": 0.0
+        },
+        {
+          "frames": 1,
+          "seconds": 0.033366667
+        },
+        {
+          "frames": 25,
+          "seconds": 0.834166667
+        },
+        {
+          "frames": 1500,
+          "seconds": 50.05
+        },
+        {
+          "frames": 1801,
+          "seconds": 60.093366667
+        },
+        {
+          "frames": 107892,
+          "seconds": 3599.9964
+        },
+        {
+          "frames": 250000,
+          "seconds": 8341.666666667
+        }
+      ],
+      "timecode": [
+        {
+          "frames": 0,
+          "timecode": "00:00:00;00"
+        },
+        {
+          "frames": 1,
+          "timecode": "00:00:00;01"
+        },
+        {
+          "frames": 25,
+          "timecode": "00:00:00;25"
+        },
+        {
+          "frames": 1500,
+          "timecode": "00:00:50;00"
+        },
+        {
+          "frames": 1801,
+          "timecode": "00:01:00;03"
+        },
+        {
+          "frames": 107892,
+          "timecode": "01:00:00;00"
+        },
+        {
+          "frames": 250000,
+          "timecode": "02:19:01;22"
+        }
+      ]
+    },
+    {
+      "timebase": {
+        "fpsNum": 30,
+        "fpsDen": 1,
+        "dropFrame": false
+      },
+      "toFrames": [
+        {
+          "seconds": 0.0,
+          "frames": 0
+        },
+        {
+          "seconds": 0.04,
+          "frames": 1
+        },
+        {
+          "seconds": 0.5,
+          "frames": 15
+        },
+        {
+          "seconds": 1.017,
+          "frames": 31
+        },
+        {
+          "seconds": 7.0,
+          "frames": 210
+        },
+        {
+          "seconds": 59.94,
+          "frames": 1798
+        },
+        {
+          "seconds": 123.456,
+          "frames": 3704
+        },
+        {
+          "seconds": 600.5,
+          "frames": 18015
+        },
+        {
+          "seconds": 3600.0,
+          "frames": 108000
+        }
+      ],
+      "snap": [
+        {
+          "seconds": 0.0,
+          "snapped": 0.0
+        },
+        {
+          "seconds": 0.04,
+          "snapped": 0.033333333
+        },
+        {
+          "seconds": 0.5,
+          "snapped": 0.5
+        },
+        {
+          "seconds": 1.017,
+          "snapped": 1.033333333
+        },
+        {
+          "seconds": 7.0,
+          "snapped": 7.0
+        },
+        {
+          "seconds": 59.94,
+          "snapped": 59.933333333
+        },
+        {
+          "seconds": 123.456,
+          "snapped": 123.466666667
+        },
+        {
+          "seconds": 600.5,
+          "snapped": 600.5
+        },
+        {
+          "seconds": 3600.0,
+          "snapped": 3600.0
+        }
+      ],
+      "toSeconds": [
+        {
+          "frames": 0,
+          "seconds": 0.0
+        },
+        {
+          "frames": 1,
+          "seconds": 0.033333333
+        },
+        {
+          "frames": 25,
+          "seconds": 0.833333333
+        },
+        {
+          "frames": 1500,
+          "seconds": 50.0
+        },
+        {
+          "frames": 1801,
+          "seconds": 60.033333333
+        },
+        {
+          "frames": 107892,
+          "seconds": 3596.4
+        },
+        {
+          "frames": 250000,
+          "seconds": 8333.333333333
+        }
+      ],
+      "timecode": [
+        {
+          "frames": 0,
+          "timecode": "00:00:00:00"
+        },
+        {
+          "frames": 1,
+          "timecode": "00:00:00:01"
+        },
+        {
+          "frames": 25,
+          "timecode": "00:00:00:25"
+        },
+        {
+          "frames": 1500,
+          "timecode": "00:00:50:00"
+        },
+        {
+          "frames": 1801,
+          "timecode": "00:01:00:01"
+        },
+        {
+          "frames": 107892,
+          "timecode": "00:59:56:12"
+        },
+        {
+          "frames": 250000,
+          "timecode": "02:18:53:10"
+        }
+      ]
+    },
+    {
+      "timebase": {
+        "fpsNum": 50,
+        "fpsDen": 1,
+        "dropFrame": false
+      },
+      "toFrames": [
+        {
+          "seconds": 0.0,
+          "frames": 0
+        },
+        {
+          "seconds": 0.04,
+          "frames": 2
+        },
+        {
+          "seconds": 0.5,
+          "frames": 25
+        },
+        {
+          "seconds": 1.017,
+          "frames": 51
+        },
+        {
+          "seconds": 7.0,
+          "frames": 350
+        },
+        {
+          "seconds": 59.94,
+          "frames": 2997
+        },
+        {
+          "seconds": 123.456,
+          "frames": 6173
+        },
+        {
+          "seconds": 600.5,
+          "frames": 30025
+        },
+        {
+          "seconds": 3600.0,
+          "frames": 180000
+        }
+      ],
+      "snap": [
+        {
+          "seconds": 0.0,
+          "snapped": 0.0
+        },
+        {
+          "seconds": 0.04,
+          "snapped": 0.04
+        },
+        {
+          "seconds": 0.5,
+          "snapped": 0.5
+        },
+        {
+          "seconds": 1.017,
+          "snapped": 1.02
+        },
+        {
+          "seconds": 7.0,
+          "snapped": 7.0
+        },
+        {
+          "seconds": 59.94,
+          "snapped": 59.94
+        },
+        {
+          "seconds": 123.456,
+          "snapped": 123.46
+        },
+        {
+          "seconds": 600.5,
+          "snapped": 600.5
+        },
+        {
+          "seconds": 3600.0,
+          "snapped": 3600.0
+        }
+      ],
+      "toSeconds": [
+        {
+          "frames": 0,
+          "seconds": 0.0
+        },
+        {
+          "frames": 1,
+          "seconds": 0.02
+        },
+        {
+          "frames": 25,
+          "seconds": 0.5
+        },
+        {
+          "frames": 1500,
+          "seconds": 30.0
+        },
+        {
+          "frames": 1801,
+          "seconds": 36.02
+        },
+        {
+          "frames": 107892,
+          "seconds": 2157.84
+        },
+        {
+          "frames": 250000,
+          "seconds": 5000.0
+        }
+      ],
+      "timecode": [
+        {
+          "frames": 0,
+          "timecode": "00:00:00:00"
+        },
+        {
+          "frames": 1,
+          "timecode": "00:00:00:01"
+        },
+        {
+          "frames": 25,
+          "timecode": "00:00:00:25"
+        },
+        {
+          "frames": 1500,
+          "timecode": "00:00:30:00"
+        },
+        {
+          "frames": 1801,
+          "timecode": "00:00:36:01"
+        },
+        {
+          "frames": 107892,
+          "timecode": "00:35:57:42"
+        },
+        {
+          "frames": 250000,
+          "timecode": "01:23:20:00"
+        }
+      ]
+    },
+    {
+      "timebase": {
+        "fpsNum": 60000,
+        "fpsDen": 1001,
+        "dropFrame": false
+      },
+      "toFrames": [
+        {
+          "seconds": 0.0,
+          "frames": 0
+        },
+        {
+          "seconds": 0.04,
+          "frames": 2
+        },
+        {
+          "seconds": 0.5,
+          "frames": 30
+        },
+        {
+          "seconds": 1.017,
+          "frames": 61
+        },
+        {
+          "seconds": 7.0,
+          "frames": 420
+        },
+        {
+          "seconds": 59.94,
+          "frames": 3593
+        },
+        {
+          "seconds": 123.456,
+          "frames": 7400
+        },
+        {
+          "seconds": 600.5,
+          "frames": 35994
+        },
+        {
+          "seconds": 3600.0,
+          "frames": 215784
+        }
+      ],
+      "snap": [
+        {
+          "seconds": 0.0,
+          "snapped": 0.0
+        },
+        {
+          "seconds": 0.04,
+          "snapped": 0.033366667
+        },
+        {
+          "seconds": 0.5,
+          "snapped": 0.5005
+        },
+        {
+          "seconds": 1.017,
+          "snapped": 1.017683333
+        },
+        {
+          "seconds": 7.0,
+          "snapped": 7.007
+        },
+        {
+          "seconds": 59.94,
+          "snapped": 59.943216667
+        },
+        {
+          "seconds": 123.456,
+          "snapped": 123.456666667
+        },
+        {
+          "seconds": 600.5,
+          "snapped": 600.4999
+        },
+        {
+          "seconds": 3600.0,
+          "snapped": 3599.9964
+        }
+      ],
+      "toSeconds": [
+        {
+          "frames": 0,
+          "seconds": 0.0
+        },
+        {
+          "frames": 1,
+          "seconds": 0.016683333
+        },
+        {
+          "frames": 25,
+          "seconds": 0.417083333
+        },
+        {
+          "frames": 1500,
+          "seconds": 25.025
+        },
+        {
+          "frames": 1801,
+          "seconds": 30.046683333
+        },
+        {
+          "frames": 107892,
+          "seconds": 1799.9982
+        },
+        {
+          "frames": 250000,
+          "seconds": 4170.833333333
+        }
+      ],
+      "timecode": [
+        {
+          "frames": 0,
+          "timecode": "00:00:00:00"
+        },
+        {
+          "frames": 1,
+          "timecode": "00:00:00:01"
+        },
+        {
+          "frames": 25,
+          "timecode": "00:00:00:25"
+        },
+        {
+          "frames": 1500,
+          "timecode": "00:00:25:00"
+        },
+        {
+          "frames": 1801,
+          "timecode": "00:00:30:01"
+        },
+        {
+          "frames": 107892,
+          "timecode": "00:29:58:12"
+        },
+        {
+          "frames": 250000,
+          "timecode": "01:09:26:40"
+        }
+      ]
+    }
+  ]
+}

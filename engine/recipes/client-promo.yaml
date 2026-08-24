@@ -1,0 +1,45 @@
+name: client-promo
+description: >
+  Branded promo or commercial. Pacing here is music-led, not speech-led, so the
+  automated pass deliberately does less: it assembles usable takes and applies
+  the brand look, then leaves rhythm to the editor. Cutting to the transcript
+  would fight the track.
+
+sequence:
+  timebase: "25"
+  video_tracks: 4          # V1 interview, V2 b-roll, V3 graphics, V4 logo
+  audio_tracks: 4
+  name_template: "{job}_promo_v1"
+  crossfade_frames: 2
+
+detection:
+  min_silence: 0.70        # long pauses are often intentional against music
+  lead_in: 0.20
+  tail: 0.15
+  trim_head_tail: true
+
+  filler_mode: conservative
+  remove_stutters: true
+  stutter_max_gap: 0.60
+
+  min_clip_length: 0.60    # promos favour longer, calmer clips
+  min_confidence: 0.60
+  protect_margin: 0.30
+
+transcription:
+  provider: whisper-local
+  model: large-v3
+  language: en
+  word_timestamps: true
+
+roles:
+  interview: { video_track: 0, audio_track: 0 }
+  broll:     { video_track: 1, audio_track: -1 }
+  music:     { video_track: -1, audio_track: 2 }
+
+brand:
+  lut: brand-neutral
+  mogrts:
+    lower_third: lower-third
+    endcard: brand-endcard
+  loudness_target_lufs: -16

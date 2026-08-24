@@ -1,0 +1,47 @@
+name: podcast-2cam
+description: >
+  Two-camera interview or podcast. Tuned to stay conversational: listeners
+  notice an over-cut podcast immediately, and it reads as artificial long
+  before they can say why. Under-cutting costs the editor a few minutes;
+  over-cutting costs the episode its voice.
+
+sequence:
+  timebase: "25"
+  video_tracks: 3          # V1 cam-a, V2 cam-b, V3 graphics
+  audio_tracks: 4          # A1/A2 isolated mics, A3 room, A4 music
+  name_template: "{job}_rough_v1"
+  crossfade_frames: 2
+
+detection:
+  min_silence: 0.50        # conversation breathes; tighter than this sounds clipped
+  lead_in: 0.15
+  tail: 0.10
+  trim_head_tail: true
+
+  filler_mode: conservative   # hesitation sounds only, never real words
+  remove_stutters: true
+  stutter_max_gap: 0.60
+
+  min_clip_length: 0.40
+  min_confidence: 0.55
+  protect_margin: 0.25
+
+transcription:
+  provider: whisper-local
+  model: large-v3
+  language: en
+  word_timestamps: true
+  diarize: prefer-channels   # isolated mics beat speaker diarisation when present
+
+roles:
+  cam-a:    { video_track: 0, audio_track: 0 }
+  cam-b:    { video_track: 1, audio_track: 1 }
+  music:    { video_track: -1, audio_track: 3 }
+
+brand:
+  lut: brand-neutral
+  mogrts:
+    lower_third: lower-third
+    intro: podcast-intro
+    outro: podcast-outro
+  loudness_target_lufs: -16   # spoken-word streaming standard
