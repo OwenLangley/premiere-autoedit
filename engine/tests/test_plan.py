@@ -160,3 +160,26 @@ def test_end_to_end_from_transcript_to_validated_plan(mktranscript):
     assert validate_plan(plan) == [], validate_plan(plan)
     assert plan["timeline"], "a normal transcript must produce clips"
     assert plan["transcripts"][0]["mediaId"] == "A001"
+
+
+def test_out_point_never_exceeds_the_source_duration():
+    """Regression: snapping the final clip's out point rounded to the nearest
+    frame, which lands past the end of the media. Premiere rejects such a clip,
+    so the whole plan failed validation over 2ms."""
+    tb = Timebase(25)
+    b = EditPlanBuilder(job_id="j", recipe="r", timebase=tb, sequence_name="S")
+    b.add_media(MediaEntry(id="A", rel_path="a.mov", duration=13.838, timebase=tb))
+    b.append_cuts("A", CutPlan(keeps=[Keep(0.0, 13.838)]))
+    plan = b.build()
+    assert plan["timeline"][0]["outSeconds"] <= 13.838
+    assert validate_plan(plan) == [], validate_plan(plan)
+
+
+def test_out_point_floor_is_frame_aligned():
+    tb = Timebase(25)
+    b = EditPlanBuilder(job_id="j", recipe="r", timebase=tb, sequence_name="S")
+    b.add_media(MediaEntry(id="A", rel_path="a.mov", duration=10.037, timebase=tb))
+    b.append_cuts("A", CutPlan(keeps=[Keep(0.0, 10.037)]))
+    out = b.build()["timeline"][0]["outSeconds"]
+    assert abs(out / 0.04 - round(out / 0.04)) < 1e-6
+    assert out <= 10.037

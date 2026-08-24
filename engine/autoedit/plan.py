@@ -119,8 +119,10 @@ class EditPlanBuilder:
 
         for i, keep in enumerate(cut_plan.keeps):
             # Snap source points to the source grid so Premiere is not left to round.
+            # The out point floors against the media end: snapping to nearest can
+            # land a frame past the last frame that exists, and Premiere rejects it.
             in_s = src_tb.snap(max(0.0, keep.start))
-            out_s = src_tb.snap(min(media.duration, keep.end))
+            out_s = min(src_tb.snap(keep.end), src_tb.floor(media.duration))
             frames = self.timebase.to_frames(out_s - in_s)
             if frames < 1:
                 continue

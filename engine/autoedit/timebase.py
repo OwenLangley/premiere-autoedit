@@ -81,6 +81,15 @@ class Timebase:
         """Round a time to the nearest whole frame boundary."""
         return self.to_seconds(self.to_frames(seconds))
 
+    def floor(self, seconds: float) -> float:
+        """Largest whole frame boundary at or before `seconds`.
+
+        Needed for out points at the end of a clip: `snap` rounds to nearest and
+        can land a frame PAST the end of the media, which Premiere then refuses.
+        """
+        frames = int(seconds * self.fps_num / self.fps_den + 1e-9)
+        return self.to_seconds(frames)
+
     def to_dict(self) -> dict:
         return {"fpsNum": self.fps_num, "fpsDen": self.fps_den, "dropFrame": self.drop_frame}
 

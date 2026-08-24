@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -19,6 +20,17 @@ from .probe import ProbeError, content_hash, probe
 from .recipe import RecipeError, list_recipes, load_recipe
 from .transcribe import TranscriptionError, extract_audio, get_provider
 from .transcript import Transcript
+
+
+def _transcript_cache_key(media_hash: str, provider: str, options: dict) -> str:
+    """Key a cached transcript on the media plus anything that would change it.
+
+    Deliberately ignores recipe cut settings: those are applied after transcription,
+    so tuning them must not invalidate the cache -- that is the entire point.
+    """
+    relevant = {k: options.get(k) for k in ("model", "language", "vad_filter", "diarize")}
+    stamp = json.dumps([media_hash, provider, relevant], sort_keys=True)
+    return hashlib.sha256(stamp.encode()).hexdigest()[:24]
 
 
 def _media_id(index: int, path: Path) -> str:
@@ -91,7 +103,8 @@ def cmd_plan(args) -> int:
         audio_tracks=recipe.sequence.audio_tracks,
     )
 
-    work_dir = Path(args.work_dir or ".autoedit-cache") / args.job
+    cache_root = Path(args.work_dir or ".autoedit-cache")
+    work_dir = cache_root / args.job
     work_dir.mkdir(parents=True, exist_ok=True)
 
     for i, raw in enumerate(args.media):
@@ -118,19 +131,38 @@ def cmd_plan(args) -> int:
             print(f"  {path.name}: no audio, cannot transcript-cut -- skipped", file=sys.stderr)
             continue
 
-        print(f"  {path.name}: extracting audio", file=sys.stderr)
-        try:
-            wav = extract_audio(path, work_dir / f"{mid}.wav")
-            options = dict(recipe.transcription)
-            options["duration"] = info.duration
-            options["media_path"] = str(path)
-            if args.transcript:
-                options["path"] = args.transcript
-            print(f"  {path.name}: transcribing via {provider_name}", file=sys.stderr)
-            transcript: Transcript = provider.transcribe(wav, mid, options)
-        except TranscriptionError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 1
+        options = dict(recipe.transcription)
+        options["duration"] = info.duration
+        options["media_path"] = str(path)
+        if args.model:
+            options["model"] = args.model
+        if args.language:
+            options["language"] = args.language
+        if args.transcript:
+            options["path"] = args.transcript
+
+        # Cache transcripts on content hash + provider settings. Transcription is
+        # by far the slowest step and recipe tuning is an iterative loop -- without
+        # this, nudging min_silence by 0.05s means re-transcribing hours of rushes.
+        cache_key = _transcript_cache_key(content_hash(path), provider_name, options)
+        cache_file = cache_root / "transcripts" / f"{cache_key}.json"
+        transcript: Transcript
+
+        if cache_file.exists() and not args.no_cache:
+            print(f"  {path.name}: transcript from cache", file=sys.stderr)
+            transcript = Transcript.from_dict(json.loads(cache_file.read_text()))
+            transcript.media_id = mid
+        else:
+            print(f"  {path.name}: extracting audio", file=sys.stderr)
+            try:
+                wav = extract_audio(path, work_dir / f"{mid}.wav")
+                print(f"  {path.name}: transcribing via {provider_name}", file=sys.stderr)
+                transcript = provider.transcribe(wav, mid, options)
+            except TranscriptionError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps(transcript.to_dict(), indent=2))
 
         cuts = plan_cuts(transcript, info.duration, recipe.detection)
         print(f"  {path.name}: {cuts.summary(info.duration)}", file=sys.stderr)
@@ -184,8 +216,11 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--role", nargs="*", help="role per media file, matching recipe roles")
     pl.add_argument("--media-root", help="paths in the plan are recorded relative to this")
     pl.add_argument("--provider", help="override the recipe transcription provider")
+    pl.add_argument("--model", help="override the transcription model, e.g. small, medium, large-v3")
+    pl.add_argument("--language", help="override the spoken language, e.g. en, ja")
     pl.add_argument("--transcript", help="explicit sidecar transcript path")
-    pl.add_argument("--work-dir", help="cache directory for extracted audio")
+    pl.add_argument("--work-dir", help="cache directory for extracted audio and transcripts")
+    pl.add_argument("--no-cache", action="store_true", help="re-transcribe even if a cached transcript exists")
     pl.add_argument("--out", help="output path (default <job>.editplan.json)")
     pl.set_defaults(func=cmd_plan)
     return p

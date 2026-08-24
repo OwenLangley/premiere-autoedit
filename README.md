@@ -45,20 +45,68 @@ adds two floats to decide where a clip lands, so a 200-cut assembly cannot drift
 
 ## Quick start
 
+See **Running it with real footage** below.
+
+## Running it with real footage
+
+### One-time setup
+
 ```bash
-python3 -m venv .venv && ./.venv/bin/pip install -e engine pytest jsonschema PyYAML
+python3 -m venv .venv && ./.venv/bin/pip install -e engine faster-whisper pytest jsonschema PyYAML
 ```
 
 ```bash
-./.venv/bin/autoedit recipes
+./panel/install.sh
 ```
+
+Then restart Premiere, enable **Settings → Plugins → Enable developer mode** if the
+panel does not appear, and open **Window → UXP Plugins → AutoEdit**. In the panel,
+set **Media root** (where your footage lives) and **Jobs folder** (where plans land).
+Both persist.
+
+### Per job
+
+Point the engine at your rushes. The first run transcribes; everything after is cached.
 
 ```bash
-./.venv/bin/autoedit plan --job EP042 --recipe podcast-2cam --media rushes/*.mov --media-root rushes --out jobs/EP042.editplan.json
+./.venv/bin/autoedit plan --job EP001 --recipe podcast-2cam --media ~/Footage/EP001/*.mov --media-root ~/Footage --model large-v3 --out ~/AutoEdit-jobs/EP001.editplan.json
 ```
 
-Then in Premiere: load `panel/` via the UXP Developer Tool, point it at the media
-root and the jobs folder, pick the plan, review, and press **Build sequence**.
+Then in the panel: pick the plan, check the summary and warnings, press **Build sequence**.
+It always builds a *new* sequence, and one ⌘Z undoes the whole thing.
+
+### Multi-camera
+
+Roles map sources onto tracks, as defined in the recipe:
+
+```bash
+./.venv/bin/autoedit plan --job EP001 --recipe podcast-2cam --media camA.mov camB.mov --role cam-a cam-b --media-root ~/Footage --out ~/AutoEdit-jobs/EP001.editplan.json
+```
+
+### Tuning the cut
+
+Transcripts are cached on content hash, so re-running after a recipe change is
+instant — no re-transcription. Edit `engine/recipes/*.yaml`, re-run the same
+command, rebuild in the panel. Comparing all three recipes on one 14s clip:
+
+| Recipe | Removed | Result |
+|---|---|---|
+| `client-promo` | 10% | leaves pacing to the editor |
+| `podcast-2cam` | 12% | drops `um` and false starts, keeps voice |
+| `social-short` | 29% | also drops `So,` and `you know` |
+
+Add `--no-cache` to force re-transcription.
+
+### Two things that will surprise you
+
+**Model choice changes how much gets cut.** Cuts are gated on transcript
+confidence (`min_confidence`, default 0.55) — the engine refuses to cut on speech
+it cannot read, and says so in the warnings. A smaller model means lower
+confidence means fewer cuts. Use `--model large-v3` for real work; `small` is for
+iterating.
+
+**Nothing leaves your machine.** `whisper-local` runs entirely offline. The first
+run downloads the model (~460MB for `small`, ~3GB for `large-v3`), then never again.
 
 ## Recipes
 
