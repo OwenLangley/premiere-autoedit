@@ -25,6 +25,10 @@ declare module "uxp" {
     getFolder(options?: { initialDomain?: unknown }): Promise<Folder | null>;
     createPersistentToken(entry: Entry): Promise<string>;
     getEntryForPersistentToken(token: string): Promise<Entry & Folder & File>;
+    /** The plugin's own storage. Never requires a permission prompt. */
+    getDataFolder(): Promise<Folder>;
+    /** Arbitrary path access; requires manifest localFileSystem: "fullAccess". */
+    getEntryWithUrl(url: string): Promise<Entry & Folder & File>;
   }
   export const storage: { localFileSystem: FileSystem };
 }

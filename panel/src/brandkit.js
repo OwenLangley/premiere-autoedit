@@ -41,7 +41,7 @@ async function discoverMogrtParams(mogrtPath) {
   }
 
   const chain = await inserted[0].getComponentChain();
-  const count = await chain.getComponentCount();
+  const count = chain.getComponentCount();
 
   /** @type {{index:number,name:string}[]} */
   const order = [];
@@ -49,7 +49,7 @@ async function discoverMogrtParams(mogrtPath) {
   const params = {};
 
   for (let c = 0; c < count; c++) {
-    const component = await chain.getComponentAtIndex(c);
+    const component = chain.getComponentAtIndex(c);
     const matchName = await component.getMatchName();
     if (!matchName || matchName.indexOf("MGT") === -1) continue;
 

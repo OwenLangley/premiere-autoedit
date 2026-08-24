@@ -93,13 +93,21 @@ finishes from it rather than starting over.
 
 ## Results
 
-_Fill in during the spike:_
+Completed 2026-08-24 against Premiere Pro **26.3.2** on macOS.
 
 | Check | Result | Notes |
 |---|---|---|
-| Premiere versions in use | | |
-| Panel loads | | |
-| Clip strategy | | `IN_OUT` or `SUBCLIP` |
-| Folder handoff | | |
-| Single-⌘Z undo | | |
-| Audio spot-check | | |
+| Premiere version | 26.3.2 | Matches `@adobe/premierepro@26.3.0` types |
+| Panel loads | PASS | Needed two manifest/structure fixes first |
+| Clip strategy | **SUBCLIP** | `IN_OUT` measured broken: asked 1s/2s/3s, got 1.001s ×3 |
+| Folder handoff | PASS | Persistent tokens survive restarts |
+| Single-⌘Z undo | PASS | One undo removed all 4 clips |
+| Frame accuracy | PASS | Positions exact, no gaps; last clip 1 frame long |
+| Transcript import | FAIL | Undocumented schema; non-fatal warning |
+| Audio spot-check | not done | Needs real speech, not the synthetic fixture |
+
+Full detail: [premiere-uxp-findings.md](premiere-uxp-findings.md).
+
+The remaining spike item is the one that needs a human: **listen to the joins on a
+real episode.** The synthetic fixture proves frame accuracy, not that the cut
+sounds right.

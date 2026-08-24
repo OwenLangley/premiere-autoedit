@@ -13,6 +13,7 @@ const {
   LocalFolderTransport, pickFolder, folderFromToken,
   makeResolver, loadSettings, saveSettings,
 } = require("./transport");
+const { runSelfTest } = require("./selftest");
 
 /** @type {(id: string) => any} document.getElementById is typed HTMLElement; the
  * panel needs the concrete input/select members. */
@@ -168,10 +169,10 @@ function renderSections() {
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = true;
-    cb.onchange = () => {
+    cb.addEventListener("change", () => {
       if (cb.checked) state.disabled.delete(sect.id);
       else state.disabled.add(sect.id);
-    };
+    });
     const label = document.createElement("div");
     label.className = "grow";
     label.textContent = sect.label;
@@ -220,16 +221,16 @@ async function onApply() {
   }
 }
 
-$("pick-media").onclick = async () => {
+$("pick-media").addEventListener("click", async () => {
   const picked = await pickFolder("media root");
   if (picked) {
     state.settings = saveSettings({ mediaToken: picked.token });
     await refreshSetup();
     log(`Media root: ${picked.path}`);
   }
-};
+});
 
-$("pick-jobs").onclick = async () => {
+$("pick-jobs").addEventListener("click", async () => {
   const picked = await pickFolder("jobs folder");
   if (picked) {
     state.settings = saveSettings({ jobsToken: picked.token });
@@ -237,17 +238,46 @@ $("pick-jobs").onclick = async () => {
     await refreshPlans();
     log(`Jobs folder: ${picked.path}`);
   }
-};
+});
 
-$("refresh").onclick = refreshPlans;
-$("apply").onclick = onApply;
-$("plan-list").onchange = (e) => {
+$("selftest").addEventListener("click", async () => {
+  $("selftest").disabled = true;
+  log("Running self-test against this Premiere build...");
+  try {
+    const report = await runSelfTest((msg) => log(`  ${msg}`));
+    const { passed, failed, total } = report.summary;
+    for (const c of report.checks) {
+      log(`  ${c.pass ? "PASS" : "FAIL"}  ${c.name}`, c.pass ? "ok" : "err");
+      if (!c.pass && c.error) log(`        ${c.error}`, "err");
+      if (c.missing && c.missing.length) log(`        missing: ${c.missing.join(", ")}`, "err");
+    }
+    if (report.note) log(`  ${report.note}`);
+    log(`Self-test: ${passed}/${total} passed${failed ? `, ${failed} failed` : ""}`,
+        failed ? "err" : "ok");
+    if (report.strategy) log(`  clip strategy for this build: ${report.strategy}`, "ok");
+  } catch (err) {
+    log(`Self-test crashed: ${err && err.message ? err.message : String(err)}`, "err");
+  } finally {
+    $("selftest").disabled = false;
+  }
+});
+
+$("refresh").addEventListener("click", refreshPlans);
+$("apply").addEventListener("click", onApply);
+$("plan-list").addEventListener("change", (e) => {
   const value = /** @type {any} */ (e.target).value;
   const ref = state.plans.find((p) => p.name === value);
   if (ref) selectPlan(ref);
-};
+});
 
 (async function init() {
-  await refreshSetup();
-  await refreshPlans();
+  try {
+    await refreshSetup();
+    await refreshPlans();
+    log("Panel ready.");
+  } catch (err) {
+    // Surfacing this in the panel matters: a throw during init leaves every
+    // button inert with nothing in the UXP log to explain why.
+    log(`Init failed: ${err && err.message ? err.message : String(err)}`, "err");
+  }
 })();

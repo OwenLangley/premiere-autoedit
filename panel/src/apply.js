@@ -13,6 +13,9 @@
  *    timeline the editor has to unpick by hand.
  */
 
+/** @typedef {import("@adobe/premierepro").ProjectItem} ProjectItem */
+/** @typedef {import("@adobe/premierepro").ClipProjectItem} ClipProjectItem */
+
 const ppro = require("premierepro");
 const { validatePlan, summarize } = require("./plan");
 const { verifyBrandkit } = require("./brandkit");
@@ -21,16 +24,17 @@ const { toSeconds } = require("./timebase");
 /**
  * How a clip's source range gets applied.
  *
- * IN_OUT sets in/out on the master ProjectItem and then overwrites, which keeps
- * the bin clean. It relies on Premiere evaluating each action at the point it is
- * added to the CompoundAction rather than at commit; if it evaluates at commit,
- * every clip inherits the LAST in/out and the assembly is silently wrong.
+ * IN_OUT sets in/out on the master ProjectItem and then overwrites, which would
+ * keep the bin clean. **Measured broken on Premiere 26.3.2**: every clip in the
+ * transaction inherits a single in/out, so a three-range probe asking for 1s/2s/3s
+ * produced 1.001s/1.001s/1.001s. The timeline looks populated and only the ranges
+ * are wrong, which is the worst way for this to fail.
  *
  * SUBCLIP creates a real subclip per range first. Unambiguous, at the cost of a
- * bin full of subclips.
+ * bin full of subclips. This is the default because it is the one that works.
  *
- * `verifyStrategy()` below settles which one this Premiere build actually does.
- * Run it once during setup -- do not guess.
+ * `verifyStrategy()` re-measures this on any given build -- run it via the panel
+ * self-test when moving to a new Premiere version rather than assuming.
  */
 const STRATEGY = { IN_OUT: "in-out", SUBCLIP: "subclip" };
 
@@ -65,9 +69,10 @@ class ApplyError extends Error {
  * }} options
  */
 async function applyPlan(plan, options) {
+  /** @type {{stages: string[], warnings: string[], sequenceName: string|null, verification?: any, summary?: any}} */
   const report = { stages: [], warnings: [], sequenceName: null };
   const progress = options.onProgress || (() => {});
-  const strategy = options.strategy || STRATEGY.IN_OUT;
+  const strategy = options.strategy || STRATEGY.SUBCLIP;
 
   const problems = validatePlan(plan);
   if (problems.length) {
@@ -89,9 +94,11 @@ async function applyPlan(plan, options) {
     }
   }
 
-  // --- resolve every source before creating anything -----------------------
+  // --- validate and import before creating anything ------------------------
+  // Only paths are carried forward; live references are fetched after the
+  // sequence exists, because creating it invalidates any held earlier.
   progress("resolve", `resolving ${plan.media.length} source file(s)`);
-  const items = await resolveMedia(project, plan, options);
+  const mediaPaths = await resolveMedia(project, plan, options);
 
   // --- new sequence --------------------------------------------------------
   progress("sequence", `creating "${plan.sequence.name}"`);
@@ -101,6 +108,7 @@ async function applyPlan(plan, options) {
 
   // --- clips ---------------------------------------------------------------
   progress("clips", `placing ${plan.timeline.length} clip(s)`);
+  const items = await fetchItems(project, mediaPaths);
   const sources =
     strategy === STRATEGY.SUBCLIP
       ? await createSubclips(project, plan, items)
@@ -134,14 +142,57 @@ async function applyPlan(plan, options) {
   // --- transcript ----------------------------------------------------------
   if ((plan.transcripts || []).length) {
     progress("transcript", "importing transcript");
-    const tWarnings = await importTranscripts(project, plan, items);
+    const tWarnings = await importTranscripts(project, plan, await fetchItems(project, mediaPaths));
     report.warnings.push(...tWarnings);
     report.stages.push("transcript");
+  }
+
+  // --- verify what actually landed ----------------------------------------
+  progress("verify", "checking the timeline against the plan");
+  try {
+    const check = await verifyApplied(sequence, plan);
+    report.verification = check;
+    if (!check.ok) {
+      for (const g of check.gaps) {
+        report.warnings.push(
+          `${g.gapFrames}-frame gap after clip ${g.afterIndex} on V${g.track + 1} -- that is black on screen`
+        );
+      }
+      for (const m of check.mismatches) {
+        report.warnings.push(`timeline does not match plan: ${JSON.stringify(m)}`);
+      }
+    }
+  } catch (err) {
+    report.warnings.push(`could not verify the built timeline: ${err.message}`);
   }
 
   report.summary = summarize(plan);
   progress("done", `built "${plan.sequence.name}"`);
   return report;
+}
+
+/**
+ * Run a mutating transaction under locked access.
+ *
+ * Premiere requires this. Building an Action outside `lockedAccess` -- even just
+ * calling createSetInOutPointsAction, with no transaction in sight -- throws
+ * "The script object is no longer valid". Reads (getMediaFilePath, getStartTime)
+ * work anywhere; anything that creates or commits an Action does not.
+ *
+ * The callback is synchronous by necessity: lockedAccess guarantees the project
+ * will not change while it runs, so fetch every reference you need before
+ * calling it and do only action-building inside.
+ *
+ * @param {any} project
+ * @param {(compound: any) => void} build
+ * @param {string} undoLabel
+ */
+function transact(project, build, undoLabel) {
+  let committed = false;
+  project.lockedAccess(() => {
+    committed = project.executeTransaction(build, undoLabel);
+  });
+  return committed;
 }
 
 // --------------------------------------------------------------- media
@@ -160,7 +211,7 @@ function normalizePath(p) {
  * useless for the "do I have this file yet?" question -- hence the manual walk.
  */
 async function indexProjectMedia(project) {
-  /** @type {Map<string, any>} */
+  /** @type {Map<string, ProjectItem>} */
   const index = new Map();
   const root = await project.getRootItem();
   const queue = [root];
@@ -198,14 +249,23 @@ async function indexProjectMedia(project) {
   return index;
 }
 
-/** Find each source already in the project, importing only what is missing. */
+/**
+ * Ensure every source is present in the project, importing what is missing, and
+ * return a mediaId -> absolute path map.
+ *
+ * Deliberately returns PATHS rather than live ProjectItem references. Premiere
+ * invalidates object references when the project mutates -- creating a sequence
+ * is enough -- and using one afterwards throws "The script object is no longer
+ * valid." Paths survive; object references must be re-fetched just before use.
+ * @returns {Promise<Map<string, string>>}
+ */
 async function resolveMedia(project, plan, options) {
-  /** @type {Map<string, any>} */
-  const found = new Map();
+  /** @type {Map<string, string>} */
+  const paths = new Map();
   /** @type {{id:string, abs:string}[]} */
   const missing = [];
 
-  let index = await indexProjectMedia(project);
+  const index = await indexProjectMedia(project);
 
   for (const m of plan.media) {
     let abs;
@@ -217,9 +277,8 @@ async function resolveMedia(project, plan, options) {
         "resolve"
       );
     }
-    const hit = index.get(normalizePath(abs));
-    if (hit) found.set(m.id, hit);
-    else missing.push({ id: m.id, abs });
+    paths.set(m.id, abs);
+    if (!index.has(normalizePath(abs))) missing.push({ id: m.id, abs });
   }
 
   if (missing.length) {
@@ -232,19 +291,37 @@ async function resolveMedia(project, plan, options) {
         "import"
       );
     }
-    index = await indexProjectMedia(project);
+    const after = await indexProjectMedia(project);
     for (const entry of missing) {
-      const hit = index.get(normalizePath(entry.abs));
-      if (!hit) {
+      if (!after.has(normalizePath(entry.abs))) {
         throw new ApplyError(
           `imported ${entry.abs} but could not find it in the project afterwards`,
           "import"
         );
       }
-      found.set(entry.id, hit);
     }
   }
-  return found;
+  return paths;
+}
+
+/**
+ * Fetch live ProjectItem references for the given paths.
+ *
+ * Call this immediately before the transaction that uses them, never before a
+ * project mutation. See resolveMedia for why.
+ * @param {any} project @param {Map<string,string>} paths
+ * @returns {Promise<Map<string, ProjectItem>>}
+ */
+async function fetchItems(project, paths) {
+  const index = await indexProjectMedia(project);
+  /** @type {Map<string, ProjectItem>} */
+  const items = new Map();
+  for (const [id, abs] of paths) {
+    const hit = index.get(normalizePath(abs));
+    if (!hit) throw new ApplyError(`media for ${id} vanished from the project: ${abs}`, "resolve");
+    items.set(id, hit);
+  }
+  return items;
 }
 
 async function createSequence(project, plan) {
@@ -258,9 +335,13 @@ async function createSequence(project, plan) {
 
 // --------------------------------------------------------------- clips
 
-/** SUBCLIP strategy: materialise one subclip per source range. */
+/**
+ * SUBCLIP strategy: materialise one subclip per source range.
+ * @param {any} project @param {any} plan @param {Map<string, ProjectItem>} items
+ * @returns {Promise<Map<string, ProjectItem>>}
+ */
 async function createSubclips(project, plan, items) {
-  /** @type {Map<string, any>} */
+  /** @type {Map<string, ProjectItem>} */
   const byKey = new Map();
   const wanted = [];
 
@@ -272,14 +353,25 @@ async function createSubclips(project, plan, items) {
     }
   });
 
-  project.executeTransaction((compound) => {
+  // Premiere's subclip out point is inclusive of the last frame, so a range
+  // passed verbatim comes back exactly one frame short. Measured: asking for
+  // 25/50/25 frames yielded 24/49/24, positions exact. Nudge the end by one
+  // frame of the SOURCE timebase (a 23.976 source in a 25fps sequence would
+  // otherwise be corrected by the wrong amount).
+  const sourceFrame = (mediaId) => {
+    const m = (plan.media || []).find((x) => x.id === mediaId);
+    const tb = (m && m.timebase) || plan.timebase;
+    return tb.fpsDen / tb.fpsNum;
+  };
+
+  transact(project, (compound) => {
     for (const { clip, index } of wanted) {
       const master = ppro.ClipProjectItem.cast(items.get(clip.mediaId));
       compound.addAction(
         master.createSubClipAction(
           `${clip.mediaId}_${String(index).padStart(4, "0")}`,
           ppro.TickTime.createWithSeconds(clip.inSeconds),
-          ppro.TickTime.createWithSeconds(clip.outSeconds),
+          ppro.TickTime.createWithSeconds(clip.outSeconds + sourceFrame(clip.mediaId)),
           true,
           { takeVideo: true, takeAudio: true }
         )
@@ -298,11 +390,15 @@ async function createSubclips(project, plan, items) {
   return byKey;
 }
 
+/**
+ * @param {any} project @param {any} sequence @param {any} plan
+ * @param {Map<string, ProjectItem>} sources @param {string} strategy
+ */
 async function placeClips(project, sequence, plan, sources, strategy) {
   const editor = ppro.SequenceEditor.getEditor(sequence);
   const tb = plan.timebase;
 
-  project.executeTransaction((compound) => {
+  transact(project, (compound) => {
     for (const clip of plan.timeline) {
       const at = ppro.TickTime.createWithSeconds(toSeconds(tb, clip.atFrame));
 
@@ -311,9 +407,13 @@ async function placeClips(project, sequence, plan, sources, strategy) {
         source = sources.get(`${clip.mediaId}@${clip.inSeconds}-${clip.outSeconds}`);
       } else {
         source = sources.get(clip.mediaId);
+        if (!source) continue;
+        // createSetInOutPointsAction is defined on ClipProjectItem, not on the
+        // plain ProjectItem the resolver hands back, so the cast is required.
+        const asClip = ppro.ClipProjectItem.cast(source);
         // Order matters: the in/out must be set before the overwrite that reads it.
         compound.addAction(
-          source.createSetInOutPointsAction(
+          asClip.createSetInOutPointsAction(
             ppro.TickTime.createWithSeconds(clip.inSeconds),
             ppro.TickTime.createWithSeconds(clip.outSeconds)
           )
@@ -326,6 +426,72 @@ async function placeClips(project, sequence, plan, sources, strategy) {
       );
     }
   }, UNDO.clips);
+}
+
+/**
+ * Read the built timeline back and compare it to the plan.
+ *
+ * Runs after every apply, not just in tests. The failure this catches is the
+ * quiet one: a clip landing a frame short leaves a single black frame between
+ * cuts, which survives review and shows up in the delivered master.
+ *
+ * @param {any} sequence @param {any} plan
+ * @returns {Promise<{ok: boolean, gaps: any[], mismatches: any[]}>}
+ */
+async function verifyApplied(sequence, plan) {
+  const tb = plan.timebase;
+  const toFrames = (seconds) => Math.round((seconds * tb.fpsNum) / tb.fpsDen);
+  /** @type {any[]} */
+  const mismatches = [];
+  /** @type {any[]} */
+  const gaps = [];
+
+  const wanted = new Map();
+  for (const c of plan.timeline) {
+    const list = wanted.get(c.videoTrack) || [];
+    list.push(c);
+    wanted.set(c.videoTrack, list);
+  }
+
+  for (const [trackIndex, planned] of wanted) {
+    const track = await sequence.getVideoTrack(trackIndex);
+    if (!track) {
+      mismatches.push({ track: trackIndex, error: "track missing" });
+      continue;
+    }
+    const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false) || [];
+    /** @type {{at:number,dur:number}[]} */
+    const actual = [];
+    for (const item of items) {
+      const start = await item.getStartTime();
+      const end = await item.getEndTime();
+      actual.push({ at: toFrames(start.seconds), dur: toFrames(end.seconds - start.seconds) });
+    }
+    actual.sort((a, b) => a.at - b.at);
+
+    planned.sort((a, b) => a.atFrame - b.atFrame);
+    if (actual.length !== planned.length) {
+      mismatches.push({ track: trackIndex, expectedClips: planned.length, actualClips: actual.length });
+    }
+    planned.forEach((c, i) => {
+      const got = actual[i];
+      if (!got) return;
+      if (got.at !== c.atFrame || got.dur !== c.durationFrames) {
+        mismatches.push({
+          track: trackIndex, index: i,
+          expected: { at: c.atFrame, dur: c.durationFrames },
+          actual: got,
+        });
+      }
+    });
+
+    // Gaps between consecutive clips, in frames.
+    for (let i = 1; i < actual.length; i++) {
+      const gap = actual[i].at - (actual[i - 1].at + actual[i - 1].dur);
+      if (gap > 0) gaps.push({ track: trackIndex, afterIndex: i - 1, gapFrames: gap });
+    }
+  }
+  return { ok: mismatches.length === 0 && gaps.length === 0, gaps, mismatches };
 }
 
 // --------------------------------------------------------------- graphics
@@ -394,10 +560,11 @@ async function setMogrtFields(trackItem, graphic, entry) {
       continue;
     }
     try {
-      const param = component.getParam(index);
-      const keyframe = param.createKeyframe(value);
-      // Direct commit: these are per-field and already outside the clip transaction.
-      await param.createSetValueAction(keyframe, true);
+      const project = await ppro.Project.getActiveProject();
+      transact(project, (compound) => {
+        const param = component.getParam(index);
+        compound.addAction(param.createSetValueAction(param.createKeyframe(value), true));
+      }, `AutoEdit: set ${graphic.mogrt}.${field}`);
     } catch (err) {
       warnings.push(`"${graphic.mogrt}".${field}: ${err.message}`);
     }
@@ -406,9 +573,9 @@ async function setMogrtFields(trackItem, graphic, entry) {
 }
 
 async function findMogrtComponent(chain) {
-  const count = chain.getComponentCount ? await chain.getComponentCount() : 0;
+  const count = chain.getComponentCount ? chain.getComponentCount() : 0;
   for (let i = 0; i < count; i++) {
-    const c = await chain.getComponentAtIndex(i);
+    const c = chain.getComponentAtIndex(i);
     const name = await c.getMatchName();
     if (name && name.indexOf("MGT") !== -1) return c;
   }
@@ -442,7 +609,7 @@ async function applyEffects(project, sequence, plan) {
       continue;
     }
 
-    project.executeTransaction((compound) => {
+    transact(project, (compound) => {
       for (const item of trackItems) {
         try {
           compound.addAction(item.__chain.createAppendComponentAction(component));
@@ -468,7 +635,7 @@ async function collectTrackItems(sequence, target) {
   if (target.kind !== "track" || target.media !== "v") return out;
   const track = await sequence.getVideoTrack(target.index);
   if (!track) return out;
-  const items = await track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
+  const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
   for (const item of items || []) {
     try {
       item.__chain = await item.getComponentChain();
@@ -492,7 +659,7 @@ async function addMarkers(project, sequence, plan) {
     Segmentation: ppro.Marker.MARKER_TYPE_COMMENT,
   };
 
-  project.executeTransaction((compound) => {
+  transact(project, (compound) => {
     for (const m of plan.markers) {
       compound.addAction(
         markers.createAddMarkerAction(
@@ -531,7 +698,7 @@ async function importTranscripts(project, plan, items) {
     }
     try {
       const segments = ppro.Transcript.importFromJSON(JSON.stringify(toPremiereTranscript(t)));
-      project.executeTransaction((compound) => {
+      transact(project, (compound) => {
         compound.addAction(ppro.Transcript.createImportTextSegmentsAction(segments, clipItem));
       }, UNDO.transcript);
     } catch (err) {
@@ -541,7 +708,16 @@ async function importTranscripts(project, plan, items) {
   return warnings;
 }
 
-/** Group words into sentence-ish segments, which is the shape Premiere expects. */
+/**
+ * Group words into sentence-ish segments.
+ *
+ * NOTE: this shape is NOT yet accepted -- Premiere answers
+ * "Failed to parse input string into JSON", and the expected schema is
+ * undocumented. The self-test's transcript/schema-discovered check dumps the
+ * real shape from any clip that already has a transcript; until that has been
+ * captured on a machine with one, transcript import degrades to a warning and
+ * the rest of the build proceeds.
+ */
 function toPremiereTranscript(t) {
   const segments = [];
   let current = null;
@@ -573,17 +749,23 @@ function toPremiereTranscript(t) {
  * Run once during setup and record the answer -- this is exactly the kind of
  * thing that is cheap to measure and expensive to assume.
  */
-async function verifyStrategy(projectItem) {
+async function verifyStrategy(mediaPath) {
   const project = await ppro.Project.getActiveProject();
   const sequence = await project.createSequence("AutoEdit strategy probe");
   const editor = ppro.SequenceEditor.getEditor(sequence);
+
+  // Fetched AFTER createSequence: a reference obtained before it is already dead.
+  const index = await indexProjectMedia(project);
+  const projectItem = index.get(normalizePath(mediaPath));
+  if (!projectItem) throw new ApplyError(`probe media not in project: ${mediaPath}`, "strategy");
+  const asClip = ppro.ClipProjectItem.cast(projectItem);
   const ranges = [[0, 1], [2, 4], [5, 8]];
 
-  project.executeTransaction((compound) => {
+  transact(project, (compound) => {
     let at = 0;
     for (const [inS, outS] of ranges) {
       compound.addAction(
-        projectItem.createSetInOutPointsAction(
+        asClip.createSetInOutPointsAction(
           ppro.TickTime.createWithSeconds(inS),
           ppro.TickTime.createWithSeconds(outS)
         )
@@ -596,7 +778,7 @@ async function verifyStrategy(projectItem) {
   }, "AutoEdit: strategy probe");
 
   const track = await sequence.getVideoTrack(0);
-  const placed = await track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
+  const placed = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
   const durations = [];
   for (const item of placed || []) {
     const s = await item.getStartTime();
@@ -615,4 +797,4 @@ async function verifyStrategy(projectItem) {
   };
 }
 
-module.exports = { applyPlan, verifyStrategy, ApplyError, STRATEGY, UNDO };
+module.exports = { applyPlan, verifyStrategy, verifyApplied, fetchItems, indexProjectMedia, normalizePath, ApplyError, STRATEGY, UNDO };

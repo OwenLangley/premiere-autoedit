@@ -117,27 +117,40 @@ static on `ProjectItem`).
 Python and JavaScript timebases must reproduce. If those two implementations ever
 drift, clips land on the wrong frame and nothing else would catch it.
 
-## What is verified, and what is not
+## What is verified
 
-Verified on this machine:
+Engine, on this machine:
 
-- Engine end to end on real media: probe → ffmpeg → transcript → cuts → validated plan
+- End to end on real media: probe → ffmpeg → transcript → cuts → validated plan
 - 72 Python tests, 24 JS tests, clean type check
-- Cross-language timebase agreement
+- 224 cross-language timebase conformance assertions
 
-**Not yet verified — needs a Mac with Premiere 2025/2026:**
+Panel, **against Premiere Pro 26.3.2**:
 
-- That the panel loads at all
-- **Which clip-placement strategy this Premiere build requires.** `apply.js`
-  defaults to setting in/out on the master item then overwriting, which assumes
-  Premiere evaluates each action as it is added to the CompoundAction. If it
-  evaluates at commit instead, every clip inherits the *last* in/out and the
-  assembly is silently wrong. `verifyStrategy()` settles this empirically — run
-  it first. The `SUBCLIP` fallback is implemented.
-- MOGRT parameter indices, which are positional and per-template. Run
-  `discoverMogrtParams()` and paste the result into `brandkit/brandkit.json`.
+- Plugin loads; panel renders and is interactive
+- Media root and jobs folder persist across restarts (persistent tokens)
+- A plan written by the engine loads, validates, and summarises correctly
+- `EP042_rough_v1` built from a real plan: **4 clips, frame-exact positions, no gaps**
+- **One ⌘Z removes the whole assembly** — transaction grouping is correct
+- Post-build verification reads the timeline back and reports any drift
 
-See `docs/spike.md` for the checklist.
+Type-checking against `@adobe/premierepro` caught two real API errors before any
+code ran: `findItemsMatchingMediaPath` and `createSetInOutPointsAction` both live
+on `ClipProjectItem`, not `ProjectItem`.
+
+**[docs/premiere-uxp-findings.md](docs/premiere-uxp-findings.md) records everything
+measured about Premiere's UXP behaviour** — several points contradict Adobe's docs
+and their own samples. Read it before touching `apply.js`. The headline: every
+action must be built inside `project.lockedAccess()`, and per-clip in/out inside a
+single transaction silently does not work, so clips are placed as subclips.
+
+## Known defects
+
+- **Transcript import does not work.** Premiere rejects our JSON shape and the
+  expected schema is undocumented. Non-fatal: the build completes and warns. The
+  self-test captures the real schema from any clip that already has a transcript.
+- **Final clip lands one frame long** (44 requested, 45 placed) while every earlier
+  clip is exact. No gap or overlap results. The verifier reports it.
 
 ## Known API gaps
 

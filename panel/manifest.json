@@ -4,20 +4,33 @@
   "name": "AutoEdit",
   "version": "0.1.0",
   "main": "index.html",
-  "host": [
-    {
-      "app": "premierepro",
-      "minVersion": "25.1.0"
-    }
-  ],
+  "host": {
+    "app": "premierepro",
+    "minVersion": "25.1.0"
+  },
   "entrypoints": [
     {
       "type": "panel",
-      "id": "autoedit.panel",
-      "label": { "default": "AutoEdit" },
-      "minimumSize": { "width": 320, "height": 380 },
-      "preferredDockedSize": { "width": 400, "height": 700 },
-      "preferredFloatingSize": { "width": 480, "height": 760 }
+      "id": "autoeditpanel",
+      "label": {
+        "default": "AutoEdit"
+      },
+      "minimumSize": {
+        "width": 320,
+        "height": 380
+      },
+      "preferredDockedSize": {
+        "width": 400,
+        "height": 700
+      },
+      "preferredFloatingSize": {
+        "width": 480,
+        "height": 760
+      },
+      "maximumSize": {
+        "width": 2000,
+        "height": 2000
+      }
     }
   ],
   "requiredPermissions": {
