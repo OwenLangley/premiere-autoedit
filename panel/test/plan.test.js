@@ -221,3 +221,47 @@ test("a segment is capped even when nothing punctuates it", () => {
   const out = toPremiereTranscript(words("en", ...many));
   assert.ok(out.segments.length > 1, "a 20s run with no full stop must still break");
 });
+
+// --- telling a master from a subclip ---------------------------------------
+//
+// The defect: a subclip reports the SAME media file path as its master, and the
+// media index kept the LAST item walked. After a couple of builds that was one
+// of our own subclips, so createSubClipAction ran against a SUBCLIP -- whose
+// in/out points are relative to its own start, not the media's. Ranges
+// compounded every build, ran past the end of the file, and Premiere played the
+// media's last frame, held, for the clip's whole duration.
+//
+// Durations were right, positions were right, the verifier was clean. Only the
+// pictures were wrong.
+
+const { isMasterFor, basenameOf } = require("../src/plan");
+
+test("an item named after its file is the master", () => {
+  assert.ok(isMasterFor({ name: "C1367.MP4" }, "/Volumes/rushes/C1367.MP4"));
+});
+
+test("one of our own subclips is not a master", () => {
+  // subclipName() produces names of this shape
+  assert.ok(!isMasterFor({ name: "C1367__1101-6573__12n2x4l" }, "/rushes/C1367.MP4"));
+});
+
+test("an editor's hand-named subclip is not a master either", () => {
+  assert.ok(!isMasterFor({ name: "goal - wide" }, "/rushes/C1367.MP4"));
+});
+
+test("Japanese filenames survive the comparison", () => {
+  // NFC on both sides: macOS hands back decomposed forms from some APIs.
+  assert.ok(isMasterFor({ name: "ダンス.MP4" }, "/rushes/ダンス.MP4"));
+  assert.ok(!isMasterFor({ name: "ダンス__0-500__ab12" }, "/rushes/ダンス.MP4"));
+});
+
+test("a missing or nameless item is never mistaken for a master", () => {
+  assert.ok(!isMasterFor(null, "/rushes/C1367.MP4"));
+  assert.ok(!isMasterFor({}, "/rushes/C1367.MP4"));
+});
+
+test("basenameOf handles both separators and bare names", () => {
+  assert.strictEqual(basenameOf("/a/b/C1367.MP4"), "C1367.MP4");
+  assert.strictEqual(basenameOf("C:\\rushes\\C1367.MP4"), "C1367.MP4");
+  assert.strictEqual(basenameOf("C1367.MP4"), "C1367.MP4");
+});

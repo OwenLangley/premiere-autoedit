@@ -293,7 +293,49 @@ function wordJoiner(language) {
  */
 const SENTENCE_END = /[.!?。！？]$/;
 
+/**
+ * The last path segment, for either separator.
+ * @param {string} p
+ */
+function basenameOf(p) {
+  const parts = String(p).split(/[\\/]/);
+  return parts[parts.length - 1] || String(p);
+}
+
+/**
+ * Is this project item the master for its media, rather than a subclip of it?
+ *
+ * This distinction is the fix for a defect that made whole clips play as one
+ * frozen frame, and it is worth spelling out because nothing downstream could
+ * see it.
+ *
+ * A subclip reports the SAME `getMediaFilePath()` as the master it came from.
+ * The media index was built with a plain `set()`, so the LAST item walked won --
+ * and after a build or two, that was one of our own subclips. `createSubclips`
+ * then called `createSubClipAction` on a SUBCLIP, whose in/out points are
+ * relative to that subclip's own start rather than to the media. The ranges
+ * compounded with every build, marched past the end of the file, and Premiere
+ * showed the last frame of the media, held, for the clip's entire duration.
+ *
+ * Everything downstream looked healthy: durations right, positions right, the
+ * verifier clean. Only the pictures were wrong, which is why this survived so
+ * long -- the checks in place could not see content.
+ *
+ * There is no `isSubclip()` on ClipProjectItem and `getContentType()` only
+ * separates MEDIA from SEQUENCE, so the name is the available signal: an item
+ * imported from disk carries its filename, and a subclip carries whatever it
+ * was christened.
+ *
+ * @param {any} item @param {string} mediaPath
+ */
+function isMasterFor(item, mediaPath) {
+  const name = String((item && item.name) || "").normalize("NFC");
+  return name === basenameOf(mediaPath).normalize("NFC");
+}
+
 module.exports = {
+  isMasterFor,
+  basenameOf,
   toPremiereTranscript,
   subclipName,
   planTag,

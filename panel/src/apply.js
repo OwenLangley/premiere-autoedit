@@ -35,7 +35,7 @@ function note(messageKey, params, message) {
 /** @typedef {import("@adobe/premierepro").ClipProjectItem} ClipProjectItem */
 
 const ppro = require("premierepro");
-const { validatePlan, summarize, subclipName, toPremiereTranscript } = require("./plan");
+const { validatePlan, summarize, subclipName, toPremiereTranscript, isMasterFor, basenameOf } = require("./plan");
 const { verifyBrandkit } = require("./brandkit");
 const { toSeconds, toFrames, ticksForFrames, ticksForSeconds } = require("./timebase");
 
@@ -360,7 +360,13 @@ async function indexProjectMedia(project) {
         const clip = ppro.ClipProjectItem.cast(item);
         if (!clip) continue;
         const mediaPath = await clip.getMediaFilePath();
-        if (mediaPath) index.set(normalizePath(mediaPath), item);
+        if (mediaPath) {
+          const key = normalizePath(mediaPath);
+          const name = String(item.name || "").normalize("NFC");
+          // A master is named after its file; a subclip never is. See below.
+          const isMaster = name === basenameOf(mediaPath).normalize("NFC");
+          if (isMaster || !index.has(key)) index.set(key, item);
+        }
       } catch {
         /* sequences and other non-media items have no media path */
       }
@@ -368,6 +374,8 @@ async function indexProjectMedia(project) {
   }
   return index;
 }
+
+
 
 /**
  * Ensure every source is present in the project, importing what is missing, and
@@ -502,6 +510,23 @@ async function createSubclips(project, plan, items) {
   // frame, and applying it to the music bed made it land one frame long, which
   // the verifier caught as 499 frames against a planned 498.
 
+
+  // Never build a subclip from a subclip. When the resolver hands back the wrong
+  // item the result is silent and awful -- correct durations, correct positions,
+  // and a single frozen frame where the picture should be -- so this is checked
+  // rather than assumed.
+  const mediaPaths = plan.media.reduce((m, e) => m.set(e.id, e.relPath || e.id), new Map());
+  for (const { clip } of wanted) {
+    const item = items.get(clip.mediaId);
+    if (item && !isMasterFor(item, mediaPaths.get(clip.mediaId) || "")) {
+      throw new ApplyError(
+        `${clip.mediaId} resolved to "${item.name}", which is not the master clip for ` +
+        `${mediaPaths.get(clip.mediaId)}. Subclipping that would compound its source ` +
+        `range and play a frozen frame. Remove stale subclips from the project bin.`,
+        "clips"
+      );
+    }
+  }
 
   transact(project, (compound) => {
     for (const { clip } of wanted) {

@@ -187,6 +187,40 @@ changes nothing on screen until the editor turns on Toggle Proxies in the progra
 monitor, and there is no API for that toggle. Attaching silently and saying
 nothing looks identical to the proxy not working.
 
+## 5e. A subclip reports the same media path as its master
+
+`getMediaFilePath()` on a subclip returns the path of the file the master points
+at. So an index built as `index.set(normalizePath(path), item)` while walking the
+project keeps whichever item it happened to walk LAST -- and in a project that
+has been built into a few times, that is a subclip.
+
+The consequence was severe and completely silent. `createSubClipAction` was then
+called on a subclip, and its in/out points are relative to *that subclip's* start
+rather than to the media. Ranges compounded on every build, marched past the end
+of the file, and Premiere played the media's last frame, held, for the clip's
+entire duration. One clip in the reported job survived: the only one whose in
+point was 0.000, because zero compounds to zero.
+
+**Nothing in the pipeline could see it.** The plan was internally consistent, the
+durations were right, the positions were right, and the post-build verifier
+passed clean -- it checks where clips are and how long they are, and this defect
+changes neither. The first evidence came from exporting the sequence and running
+`freezedetect` over the file, then matching the frozen frame against the source
+numerically.
+
+There is no `isSubclip()` on `ClipProjectItem`, and `getContentType()` only
+separates MEDIA from SEQUENCE. `findItemsMatchingMediaPath(path, ignoreSubclips)`
+exists but is an instance method on `ClipProjectItem`, which is awkward when the
+thing you are trying to find IS the item. The available discriminator is the
+name: an item imported from disk carries its filename; a subclip carries whatever
+it was christened. `isMasterFor()` in `panel/src/plan.js` uses that, and
+`createSubclips` now refuses to run against a non-master rather than producing a
+frozen picture.
+
+**The lesson for the verifier:** it checked geometry and called that "verified".
+Geometry was never wrong. Any check that cannot see content will pass a sequence
+made entirely of stills.
+
 ## 6. Several APIs are synchronous despite the async house style
 
 `getTrackItems()`, `getComponentCount()`, `getComponentAtIndex()` return values
