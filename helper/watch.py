@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
 
 from autoedit.cli import main as engine_main            # noqa: E402
 from autoedit.options import ASPECT_LABELS, PACING      # noqa: E402
+from autoedit.probe import ProbeError, probe            # noqa: E402
 from autoedit.recipe import list_recipes, load_recipe   # noqa: E402
 
 REQUEST_SUFFIX = ".request.json"
@@ -90,6 +91,44 @@ def write_capabilities(jobs: Path) -> None:
             {"value": "about", "label": "About"},
         ],
         "looks": [{"value": k, "label": v} for k, v in looks.items()],
+    }, indent=2) + "\n")
+
+
+MEDIA_EXTENSIONS = {
+    ".mp4", ".mov", ".mxf", ".avi", ".m4v", ".mkv", ".mts", ".m2ts",
+    ".wav", ".mp3", ".m4a", ".aac", ".aif", ".aiff", ".flac",
+}
+
+
+def write_media_index(jobs: Path, media_root: Path) -> None:
+    """Index the media root so the panel can tell footage from a music bed.
+
+    The panel cannot probe -- UXP has no ffprobe -- so extension alone would have
+    to decide, and that is not enough: the music track that turned up in real use
+    was a .mp4 with no video stream, which showed up in the clip picker as if it
+    were footage.
+    """
+    entries = []
+    for path in sorted(media_root.iterdir()):
+        if not path.is_file() or path.name.startswith(".") or path.suffix.lower() not in MEDIA_EXTENSIONS:
+            continue
+        try:
+            info = probe(path)
+        except ProbeError:
+            continue
+        entries.append({
+            "name": path.name,
+            "hasVideo": info.has_video,
+            "hasAudio": info.has_audio,
+            "durationSeconds": round(info.duration, 2),
+            "width": info.width,
+            "height": info.height,
+        })
+    (jobs / "media-index.json").write_text(json.dumps({
+        "schemaVersion": "1.0",
+        "mediaRoot": str(media_root),
+        "updatedAt": _now(),
+        "files": entries,
     }, indent=2) + "\n")
 
 
@@ -228,10 +267,17 @@ def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True)
 def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_SECONDS) -> None:
     jobs.mkdir(parents=True, exist_ok=True)
     write_capabilities(jobs)
+    write_media_index(jobs, media_root)
     print(f"watching {jobs} (media root {media_root})", file=sys.stderr)
+    ticks = 0
     while True:
         try:
             run_once(jobs, media_root, work_dir)
+            # Refresh the index periodically so newly ingested footage appears
+            # without restarting the helper.
+            ticks += 1
+            if ticks % 15 == 0:
+                write_media_index(jobs, media_root)
         except Exception:
             traceback.print_exc()
         time.sleep(interval)
@@ -257,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     jobs.mkdir(parents=True, exist_ok=True)
     if args.once:
         write_capabilities(jobs)
+        write_media_index(jobs, media_root)
         print(f"processed {run_once(jobs, media_root, work_dir)} request(s)", file=sys.stderr)
         return 0
 

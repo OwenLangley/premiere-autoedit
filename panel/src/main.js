@@ -31,6 +31,7 @@ const state = {
   disabled: new Set(),
   capabilities: null,
   mediaFiles: [],
+  mediaIndex: new Map(),
   selectedMedia: new Set(),
   watching: null,          // interval id while a job is being worked on
 };
@@ -267,7 +268,10 @@ function fillSelect(id, entries, fallback) {
     opt.textContent = item.label;
     el.appendChild(opt);
   }
+  // UXP does not implicitly select the first option, so a freshly filled select
+  // renders blank and reads as an empty value until the editor opens it.
   if (previous && list.some((i) => i.value === previous)) el.value = previous;
+  else if (list.length) el.value = list[0].value;
 }
 
 async function loadCapabilities() {
@@ -286,6 +290,10 @@ async function loadCapabilities() {
   fillSelect("opt-recipe", (caps.recipes || []).map((r) => ({ value: r.name, label: r.name })), []);
   fillSelect("opt-aspect", caps.aspects, [{ value: "source", label: "Match source" }]);
   fillSelect("opt-pacing", caps.pacing, [{ value: "standard", label: "Standard" }]);
+  // Neutral defaults: the first entry in a list is not necessarily the sane one.
+  if (!$("opt-pacing").value || $("opt-pacing").value === caps.pacing[0].value) {
+    $("opt-pacing").value = "standard";
+  }
   fillSelect("opt-duration-mode", caps.durationModes, [{ value: "none", label: "No limit" }]);
   fillSelect("opt-look", [{ value: "", label: "None" }, ...(caps.looks || [])], [{ value: "", label: "None" }]);
   renderSummary_();
@@ -299,7 +307,16 @@ async function loadMediaList() {
     return;
   }
   try {
-    state.mediaFiles = await listMediaFiles(state.settings.mediaToken, isVideoFile);
+    // Prefer the helper's index: it knows which files actually carry video, which
+    // an extension check cannot. Fall back to extensions when it has not run.
+    const index = state.transport ? await state.transport.listMediaIndex() : null;
+    if (index && Array.isArray(index.files)) {
+      state.mediaIndex = new Map(index.files.map((f) => [f.name, f]));
+      state.mediaFiles = index.files.filter((f) => f.hasVideo).map((f) => f.name);
+    } else {
+      state.mediaIndex = new Map();
+      state.mediaFiles = await listMediaFiles(state.settings.mediaToken, isVideoFile);
+    }
   } catch (err) {
     box.innerHTML = `<div class="empty">Could not read the media root: ${err.message}</div>`;
     return;
@@ -319,7 +336,10 @@ async function loadMediaList() {
       renderSummary_();
     });
     const text = document.createElement("span");
-    text.textContent = name;
+    const meta = state.mediaIndex && state.mediaIndex.get(name);
+    text.textContent = meta && meta.durationSeconds
+      ? `${name}  (${Math.round(meta.durationSeconds)}s)`
+      : name;
     label.append(cb, text);
     box.appendChild(label);
   }
@@ -335,6 +355,7 @@ function currentForm() {
     aspect: $("opt-aspect").value,
     pacing: $("opt-pacing").value,
     look: $("opt-look").value || null,
+    visual: $("opt-visual").checked,
     durationMode: $("opt-duration-mode").value,
     durationSeconds: Number.isFinite(seconds) ? seconds : null,
   };
@@ -444,10 +465,14 @@ $("media-none").addEventListener("click", () => {
   state.selectedMedia.clear();
   loadMediaList();
 });
+$("opt-visual").addEventListener("change", renderSummary_);
 for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing",
                   "opt-look", "opt-duration-mode", "opt-duration-seconds"]) {
   $(id).addEventListener("change", renderSummary_);
   $(id).addEventListener("input", renderSummary_);
+  // Scrolling the panel past a dropdown would otherwise cycle its value, so an
+  // editor scrolling to reach Create silently changes what they are asking for.
+  $(id).addEventListener("wheel", (e) => e.preventDefault());
 }
 $("apply").addEventListener("click", onApply);
 $("plan-list").addEventListener("change", (e) => {

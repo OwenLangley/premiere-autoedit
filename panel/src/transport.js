@@ -87,6 +87,18 @@ class LocalFolderTransport {
     }
   }
 
+  /** The helper's index of the media root, or null if it has not run. */
+  async listMediaIndex() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return null;
+    try {
+      const file = await folder.getEntry("media-index.json");
+      return JSON.parse(await file.read());
+    } catch {
+      return null;
+    }
+  }
+
   /** Write a job request for the helper to pick up. */
   async writeRequest(name, request) {
     const folder = await folderFromToken(this.jobsToken);

@@ -8,9 +8,13 @@
         --text: #e8e8e8; --dim: #9a9a9a; --accent: #4a90d9;
         --warn: #d9a441; --bad: #d95c5c; --good: #5cb85c;
       }
+      /* The panel is often docked into a short column; without an explicit
+         scroll the Create button sits below the fold and is simply unreachable. */
+      html, body { height: 100%; }
       body {
         margin: 0; padding: 10px; background: var(--bg); color: var(--text);
         font-family: "Adobe Clean", sans-serif; font-size: 12px; line-height: 1.45;
+        overflow-y: auto; overflow-x: hidden; box-sizing: border-box;
       }
       h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
            color: var(--dim); margin: 16px 0 6px; font-weight: 600; }
@@ -56,7 +60,7 @@
       }
       .split { display: flex; gap: 6px; }
       .split > * { flex: 1; min-width: 0; }
-      #media-list { max-height: 170px; overflow-y: auto; border: 1px solid var(--line);
+      #media-list { max-height: 120px; overflow-y: auto; border: 1px solid var(--line);
                     border-radius: 3px; padding: 4px; background: #202020; }
       #media-list label { display: flex; gap: 6px; align-items: center; padding: 3px 4px;
                           font-size: 11px; }
@@ -116,6 +120,16 @@
       <div class="split">
         <label class="field"><span>Pacing</span><select id="opt-pacing"></select></label>
         <label class="field"><span>Look</span><select id="opt-look"></select></label>
+      </div>
+
+      <label class="field" style="margin-top:4px">
+        <span style="display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="opt-visual" />
+          Cut from the pictures, ignoring speech
+        </span>
+      </label>
+      <div class="hint" style="margin:-4px 0 8px">
+        For promos and b-roll. Leave off to cut to what is said.
       </div>
 
       <div class="summary-line" id="request-summary"></div>

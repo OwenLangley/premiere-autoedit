@@ -128,6 +128,7 @@ function describeRequest(request, capabilities) {
   }
   if (o.pacing && o.pacing !== "standard") bits.push(label(caps.pacing, o.pacing).toLowerCase());
   if (o.look) bits.push(`look: ${o.look}`);
+  if (o.visual) bits.push("from pictures");
   if (o.music === "none") bits.push("no music");
   return bits.join(" · ");
 }
