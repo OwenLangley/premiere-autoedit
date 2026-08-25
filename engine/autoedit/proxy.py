@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 PROXY_DIR = "proxies"
-PROXY_HEIGHT = 1080
+PROXY_LONG_EDGE = 1920
 
 
 def proxy_path(work_dir: Path, source: Path) -> Path:
@@ -38,6 +38,10 @@ def proxy_path(work_dir: Path, source: Path) -> Path:
         stamp = f"{source}|{st.st_size}|{st.st_mtime_ns}"
     except OSError:
         stamp = str(source)
+    # The recipe for the transcode is part of the identity. Without it, changing
+    # how proxies are built silently reuses the ones made by the old rule -- which
+    # is how 608x1080 proxies survived the fix that was supposed to replace them.
+    stamp = f"{stamp}|v2|{PROXY_LONG_EDGE}|prores_proxy"
     key = hashlib.sha256(stamp.encode()).hexdigest()[:20]
     return work_dir / PROXY_DIR / f"{source.stem}_{key}.mov"
 
@@ -53,7 +57,12 @@ def build_proxy(source: Path, dest: Path) -> bool:
     cmd = [
         "ffmpeg", "-v", "error", "-y", "-i", str(source),
         "-c:v", "prores_ks", "-profile:v", "0",       # 0 = Proxy
-        "-vf", f"scale=-2:{PROXY_HEIGHT}",
+        # Scale the LONG edge, not the height. ffmpeg applies the rotation flag
+        # on decode, so a vertical clip arrives as 2160x3840 -- and scaling its
+        # height to 1080 gave a 608x1080 proxy, narrower than the sequence it was
+        # meant to stand in for. `-2` keeps the other edge even.
+        "-vf", (f"scale='if(gt(iw,ih),{PROXY_LONG_EDGE},-2)'"
+                f":'if(gt(iw,ih),-2,{PROXY_LONG_EDGE})'"),
         "-c:a", "pcm_s16le",
         str(partial),
     ]

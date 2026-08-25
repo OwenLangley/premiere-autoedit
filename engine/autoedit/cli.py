@@ -228,7 +228,11 @@ def cmd_probe(args) -> int:
             print(f"{f}: {exc}", file=sys.stderr)
             return 1
         print(f"{Path(f).name}")
-        print(f"    {info.duration:.2f}s  {info.width}x{info.height}  {info.timebase or 'audio only'}")
+        turned = f"  (stored {info.width}x{info.height}, rotated {info.rotation})" if info.turned else ""
+        print(
+            f"    {info.duration:.2f}s  {info.display_width}x{info.display_height}"
+            f"  {info.timebase or 'audio only'}{turned}"
+        )
         print(f"    video={info.has_video} audio={info.has_audio} "
               f"ch={info.audio_channels}@{info.audio_rate} codec={info.codec or '-'}")
         if info.start_timecode:
@@ -433,7 +437,11 @@ def cmd_plan(args) -> int:
             id=mid, rel_path=rel, duration=info.duration,
             hash=content_hash(path), role=role,
             timebase=info.timebase, has_video=info.has_video, has_audio=info.has_audio,
-            width=info.width, height=info.height, proxy_path=proxy,
+            # Display dimensions, not stored ones: the panel's scale-to-fill maths
+            # reasons about the picture, and rotated rushes are stored the other
+            # way round. Using the raster made it zoom and crop verticals that
+            # were already the right shape.
+            width=info.display_width, height=info.display_height, proxy_path=proxy,
         ))
         for w in info.warnings:
             builder.add_warning("probe", w, mid)
@@ -452,9 +460,9 @@ def cmd_plan(args) -> int:
             # Fraction of the width a centre crop keeps. Only meaningful when the
             # output is narrower than the source; that is when detail gets thrown away.
             centre_ratio = None
-            if options.frame_size and info.width and info.height:
+            if options.frame_size and info.display_width and info.display_height:
                 target = options.frame_size[0] / options.frame_size[1]
-                source = info.width / info.height
+                source = info.display_width / info.display_height
                 if target < source - 1e-6:
                     centre_ratio = round(target / source, 4)
 
@@ -659,7 +667,7 @@ def cmd_plan(args) -> int:
         first = next((pr for pr in probes if pr.has_video and pr.width and pr.height), None)
         if first:
             # The footage's shape, not its pixel count -- see working_frame_size.
-            frame_size = working_frame_size(first.width, first.height)
+            frame_size = working_frame_size(first.display_width, first.display_height)
 
     if frame_size:
         width, height = frame_size

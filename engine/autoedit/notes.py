@@ -73,6 +73,9 @@ CATALOGUE: dict[str, str] = {
         "than the target",
 
     # --- reframing ---------------------------------------------------------
+    "reframe.fitted":
+        "{count} clip(s) resized to {width}x{height}; the shape already matched, so "
+        "nothing is cropped",
     "reframe.cropRisk":
         "{count} clip(s) flagged: detail sits outside the centre crop, so check those "
         "before delivering",

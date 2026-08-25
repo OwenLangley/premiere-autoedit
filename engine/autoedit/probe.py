@@ -39,6 +39,10 @@ class MediaInfo:
     variable_frame_rate: bool = False
     codec: str = ""
     pix_fmt: str = ""
+    # Degrees the picture must be turned to be viewed correctly. Cameras write
+    # this rather than rotating pixels, so `width`/`height` are the STORED
+    # dimensions and can be the wrong way round for what anyone actually sees.
+    rotation: int = 0
     # Seconds between keyframes, sampled. Long-GOP footage makes every cut point
     # that is not a keyframe expensive: the decoder has to run from the previous
     # one to show a single frame.
@@ -46,8 +50,30 @@ class MediaInfo:
     warnings: list[str] = field(default_factory=list)
 
     @property
+    def turned(self) -> bool:
+        """Does the rotation flag swap width and height?"""
+        return abs(int(self.rotation)) % 180 == 90
+
+    @property
+    def display_width(self) -> int:
+        """Width as it is actually seen, after any rotation flag.
+
+        Everything downstream -- the sequence frame size, the scale-to-fill
+        maths, proxy dimensions -- has to reason about the picture the editor
+        sees, not the raster on disk. Using the stored dimensions on rotated
+        footage produced landscape sequences for vertical rushes, proxies at
+        608x1080 instead of 1080x1920, and a scale-to-fill that zoomed and
+        cropped a picture that was already the right shape.
+        """
+        return self.height if self.turned else self.width
+
+    @property
+    def display_height(self) -> int:
+        return self.width if self.turned else self.height
+
+    @property
     def is_vertical(self) -> bool:
-        return self.height > self.width > 0
+        return self.display_height > self.display_width > 0
 
 
 def _ffprobe_bin() -> str:
@@ -87,6 +113,7 @@ def probe(path: str | Path) -> MediaInfo:
         info.has_video = True
         info.codec = video.get("codec_name", "")
         info.pix_fmt = video.get("pix_fmt", "")
+        info.rotation = _rotation_of(video)
         info.width = int(video.get("width") or 0)
         info.height = int(video.get("height") or 0)
 
@@ -134,6 +161,27 @@ def probe(path: str | Path) -> MediaInfo:
         )
 
     return info
+
+
+def _rotation_of(video: dict) -> int:
+    """Rotation in degrees, from either place ffprobe puts it.
+
+    Modern files carry a Display Matrix side-data entry; older ones carry a
+    `rotate` tag. Both are checked because both turn up in real rushes.
+    """
+    for entry in video.get("side_data_list") or []:
+        if "rotation" in entry:
+            try:
+                return int(round(float(entry["rotation"]))) % 360
+            except (TypeError, ValueError):
+                pass
+    tag = (video.get("tags") or {}).get("rotate")
+    if tag is not None:
+        try:
+            return int(round(float(tag))) % 360
+        except (TypeError, ValueError):
+            pass
+    return 0
 
 
 def measure_keyframe_interval(path: "str | Path", seconds: float = 6.0) -> float:

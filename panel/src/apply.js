@@ -919,6 +919,7 @@ async function applyCropToFill(project, sequence, plan) {
 
   const tracks = new Set(plan.timeline.filter((c) => c.videoTrack >= 0).map((c) => c.videoTrack));
   let scaled = 0;
+  let cropped = 0;
   let missingParam = false;
 
   for (const trackIndex of tracks) {
@@ -936,6 +937,11 @@ async function applyCropToFill(project, sequence, plan) {
       // Fill: the larger of the two ratios, so neither axis leaves a gap.
       const percent = Math.max(frameW / srcW, frameH / srcH) * 100;
       if (Math.abs(percent - 100) < 0.5) continue;
+      // Only a shape mismatch loses anything off the edges. A 4K vertical clip
+      // in a 1080 vertical sequence is a clean 2:1 reduction, and telling the
+      // editor their edges were cropped when they were not is a small lie that
+      // costs trust in every other warning.
+      if (Math.abs(srcW / srcH - frameW / frameH) > 0.01) cropped += 1;
 
       try {
         const chain = await items[i].getComponentChain();
@@ -961,12 +967,19 @@ async function applyCropToFill(project, sequence, plan) {
     );
   }
   if (scaled) {
-    warnings.push(note(
-      "reframe.scaled",
-      { count: scaled, width: frameW, height: frameH },
-      `${scaled} clip(s) scaled to fill ${frameW}x${frameH}; anything at the edge of ` +
-      "frame is now cropped out"
-    ));
+    warnings.push(cropped
+      ? note(
+          "reframe.scaled",
+          { count: cropped, width: frameW, height: frameH },
+          `${cropped} clip(s) scaled to fill ${frameW}x${frameH}; anything at the edge of ` +
+          "frame is now cropped out"
+        )
+      : note(
+          "reframe.fitted",
+          { count: scaled, width: frameW, height: frameH },
+          `${scaled} clip(s) resized to ${frameW}x${frameH}; the shape already matched, ` +
+          "so nothing is cropped"
+        ));
   }
   return warnings;
 }

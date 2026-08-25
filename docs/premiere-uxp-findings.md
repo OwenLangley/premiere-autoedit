@@ -221,6 +221,34 @@ frozen picture.
 Geometry was never wrong. Any check that cannot see content will pass a sequence
 made entirely of stills.
 
+## 5f. Cameras write a rotation flag instead of rotating pixels
+
+Every clip in the reported job was vertical, and every one of them was stored
+landscape: 3840x2160 with `rotation=90` in a Display Matrix side-data entry.
+ffprobe's `width`/`height` are the raster on disk, not the picture anyone sees,
+and reading them directly meant:
+
+- "Match source" produced a **landscape** sequence for vertical rushes;
+- scale-to-fill computed `max(1080/3840, 1920/2160)` = 88.9% and centre-cropped,
+  zooming into a picture that was already exactly the right shape (the correct
+  answer is `max(1080/2160, 1920/3840)` = 50%, an exact fit with no crop);
+- proxies came out **608x1080** rather than 1080x1920, because `scale=-2:1080`
+  scales the height, and ffmpeg had already applied the rotation on decode.
+
+`MediaInfo.display_width` / `display_height` swap the axes when the flag is a
+quarter turn, and everything downstream reasons about those. The stored values
+stay available, because the difference is exactly what you want to see when
+something looks wrong.
+
+Note the two places rotation hides: modern files use the Display Matrix side data
+(`rotation: 90`), older ones a `rotate` tag. Both turn up in real rushes.
+
+**A cache lesson too.** The first fix did not take, because proxy filenames were
+keyed on the source path, size and mtime -- none of which change when the *rule
+for building the proxy* changes. The old 608x1080 files were happily reused. The
+transcode recipe is now part of the key. Any cache of derived artefacts needs the
+deriving code's identity in its key, or a fix silently fails to apply.
+
 ## 6. Several APIs are synchronous despite the async house style
 
 `getTrackItems()`, `getComponentCount()`, `getComponentAtIndex()` return values

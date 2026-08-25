@@ -550,3 +550,67 @@ def test_a_proxy_path_is_stable_for_an_unchanged_file(tmp_path):
     source = tmp_path / "C1367.MP4"
     source.write_bytes(b"unchanged")
     assert proxy_path(tmp_path / "c", source) == proxy_path(tmp_path / "c", source)
+
+
+# --- footage that is stored one way round and shown another ------------------
+#
+# Cameras write a rotation flag rather than rotating pixels, so a vertical clip
+# arrives as 3840x2160 with rotation=90. Reading the stored dimensions gave a
+# landscape sequence for vertical rushes, proxies at 608x1080 instead of
+# 1080x1920, and a scale-to-fill that zoomed and cropped a picture that was
+# already exactly the right shape.
+
+
+def _rotated(**kw):
+    from autoedit.probe import MediaInfo
+    base = dict(path=Path("/tmp/x.mp4"), duration=10.0, has_video=True,
+                width=3840, height=2160, rotation=90)
+    base.update(kw)
+    return MediaInfo(**base)
+
+
+def test_a_rotated_clip_is_seen_the_way_it_is_shot():
+    m = _rotated()
+    assert (m.display_width, m.display_height) == (2160, 3840)
+    assert m.is_vertical
+
+
+def test_an_unrotated_clip_is_left_alone():
+    m = _rotated(rotation=0)
+    assert (m.display_width, m.display_height) == (3840, 2160)
+    assert not m.is_vertical
+
+
+def test_270_also_turns_the_picture():
+    assert _rotated(rotation=270).display_width == 2160
+
+
+def test_180_does_not_swap_the_axes():
+    m = _rotated(rotation=180)
+    assert (m.display_width, m.display_height) == (3840, 2160)
+
+
+def test_match_source_follows_the_shape_the_camera_shows(tmp_path):
+    """A vertical clip must not produce a landscape sequence."""
+    from autoedit.options import working_frame_size
+    m = _rotated()
+    assert working_frame_size(m.display_width, m.display_height) == (1080, 1920)
+    # ...which is exactly what reading the raster would have got wrong:
+    assert working_frame_size(m.width, m.height) == (1920, 1080)
+
+
+def test_rotation_is_read_from_the_display_matrix():
+    from autoedit.probe import _rotation_of
+    assert _rotation_of({"side_data_list": [
+        {"side_data_type": "Display Matrix", "rotation": 90}]}) == 90
+
+
+def test_rotation_is_read_from_the_older_tag_too():
+    from autoedit.probe import _rotation_of
+    assert _rotation_of({"tags": {"rotate": "270"}}) == 270
+
+
+def test_no_rotation_information_means_none():
+    from autoedit.probe import _rotation_of
+    assert _rotation_of({}) == 0
+    assert _rotation_of({"side_data_list": [{"side_data_type": "Other"}]}) == 0

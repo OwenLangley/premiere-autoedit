@@ -194,6 +194,8 @@ const EN = {
     "{file}: only {confidence} sure this is {language} — set the language in the panel if that is wrong",
   "warn.plan.lowConfidence":
     "{count} clip(s) scored low confidence — either speech the transcript was unsure about, or shots that only just passed the quality gates. Review those before trusting the cut.",
+  "warn.reframe.fitted":
+    "{count} clip(s) resized to {width}x{height}; the shape already matched, so nothing is cropped",
   "warn.reframe.scaled":
     "{count} clip(s) scaled to fill {width}x{height}; anything at the edge of frame is now cropped out",
   "warn.transcript.notImported":
@@ -388,6 +390,8 @@ const JA = {
     "{file}：{language} である確率は {confidence} です。異なる場合はパネルで言語を指定してください",
   "warn.plan.lowConfidence":
     "{count} 件のクリップの信頼度が低くなっています。文字起こしが不確かな音声か、画質の基準をぎりぎり満たしたショットです。書き出す前に該当箇所を確認してください。",
+  "warn.reframe.fitted":
+    "{count} 件のクリップを {width}x{height} にリサイズしました。比率が同じなので切れている部分はありません",
   "warn.reframe.scaled":
     "{count} 件のクリップを {width}x{height} に合わせて拡大しました。画面端に写っているものは切れています",
   "warn.transcript.notImported":
