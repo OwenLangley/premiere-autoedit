@@ -114,6 +114,32 @@ This is per-recipe (`auto_music: true`), and only `promo-silent` sets it. Podcas
 recipes declare a `music` role for a bed the editor adds by hand, and a rough cut
 that silently gained a soundtrack would be a nasty surprise.
 
+**Or choose the track in the panel.** Automatic covers one loose file beside the
+rushes; a real library does not look like that. The panel's **Music** dropdown
+lists every audio-only file under the media root, so keeping tracks in a `Music`
+folder works:
+
+```
+Footage/
+  C1367.MP4  C1371.MP4  C1376.MP4
+  Music/
+    million dollar baby.mp4      <- offered as "Music/million dollar baby - 1:00"
+    Cues/sting.mp4               <- and nested folders too, three deep
+```
+
+Audio-only is decided by the index's probe, not by extension, so a track exported
+as `.mp4` is offered as music rather than turning up in the clip list. The scan is
+capped at three folders deep and 400 files; hitting either is reported in the panel
+rather than quietly shortening the list.
+
+Picking a track is what makes pacing bite on silent footage -- the same two clips
+at `punchy`, up to 10s:
+
+| Music | Shots | Shot length |
+|---|---|---|
+| None or unfound | 4 | 34 frames, uniform |
+| `Music/Cues/sting.mp4` | 5 | 39-40 frames, on the 92 BPM grid |
+
 Add `--visual` to cut from the pictures even when the footage *does* have audio.
 
 The engine reports what it threw away and why, per shot:

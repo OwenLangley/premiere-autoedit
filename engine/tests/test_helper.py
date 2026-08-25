@@ -12,7 +12,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
 
-from watch import request_to_argv, validate_request, write_capabilities  # noqa: E402
+from watch import (  # noqa: E402
+    build_media_index, iter_media, request_to_argv, validate_request, write_capabilities,
+)
 
 
 def request(**options):
@@ -101,3 +103,90 @@ def test_capabilities_lists_what_the_engine_supports(tmp_path):
     assert "promo-silent" in names and "podcast-2cam" in names
     assert {a["value"] for a in caps["aspects"]} >= {"source", "vertical", "landscape"}
     assert {p["value"] for p in caps["pacing"]} == {"relaxed", "standard", "punchy"}
+
+
+# --- Media index -----------------------------------------------------------
+#
+# The index is what fills the panel's clip and music dropdowns. Music does not
+# live loose among the rushes, so a flat scan left the music picker empty for
+# anyone with an organised library.
+
+
+def _tree(root: Path, *rel: str) -> None:
+    for name in rel:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\0")
+
+
+def test_iter_media_descends_into_subfolders(tmp_path):
+    _tree(tmp_path, "A.mp4", "Music/theme.wav", "Music/Cues/sting.mp3")
+    found = {p.relative_to(tmp_path).as_posix() for p in iter_media(tmp_path)}
+    assert found == {"A.mp4", "Music/theme.wav", "Music/Cues/sting.mp3"}
+
+
+def test_iter_media_stops_at_the_depth_limit(tmp_path):
+    _tree(tmp_path, "deep/one/two/three/buried.wav")
+    assert list(iter_media(tmp_path, max_depth=2)) == []
+    assert len(list(iter_media(tmp_path, max_depth=4))) == 1
+
+
+def test_iter_media_is_breadth_first_so_rushes_come_before_a_music_folder(tmp_path):
+    _tree(tmp_path, "Music/theme.wav", "B.mp4", "A.mp4")
+    order = [p.name for p in iter_media(tmp_path)]
+    assert order == ["A.mp4", "B.mp4", "theme.wav"]
+
+
+def test_iter_media_skips_dotfiles_and_unknown_extensions(tmp_path):
+    _tree(tmp_path, "A.mp4", "._A.mp4", "notes.txt", ".hidden/B.mp4")
+    assert [p.name for p in iter_media(tmp_path)] == ["A.mp4"]
+
+
+def test_index_entries_carry_a_relative_path(tmp_path, monkeypatch):
+    _tree(tmp_path, "A.mp4", "Music/theme.wav")
+    _stub_probe(monkeypatch)
+    index = build_media_index(tmp_path)
+    assert {f["relPath"] for f in index["files"]} == {"A.mp4", "Music/theme.wav"}
+    # `name` stays the basename so the panel has something short to show.
+    assert {f["name"] for f in index["files"]} == {"A.mp4", "theme.wav"}
+
+
+def test_index_reports_truncation_rather_than_silently_stopping(tmp_path, monkeypatch):
+    _tree(tmp_path, *[f"C{i:03d}.mp4" for i in range(10)])
+    _stub_probe(monkeypatch)
+    assert build_media_index(tmp_path, max_files=100)["truncated"] is False
+    capped = build_media_index(tmp_path, max_files=4)
+    assert capped["truncated"] is True
+    assert len(capped["files"]) == 4
+
+
+def test_index_probes_each_file_once_across_refreshes(tmp_path, monkeypatch):
+    _tree(tmp_path, "A.mp4", "B.mp4")
+    calls = _stub_probe(monkeypatch)
+    build_media_index(tmp_path)
+    build_media_index(tmp_path)
+    # Two files, two probes -- the second pass is served from cache. Without this
+    # the recursive scan would re-spawn ffprobe for the whole tree every 30s.
+    assert len(calls) == 2
+
+
+def _stub_probe(monkeypatch):
+    """Replace ffprobe with something deterministic, and record what it saw."""
+    import watch
+
+    calls = []
+
+    class Info:
+        has_video = True
+        has_audio = True
+        duration = 1.0
+        width = 1920
+        height = 1080
+
+    def fake(path):
+        calls.append(Path(path))
+        return Info()
+
+    watch._PROBE_CACHE.clear()
+    monkeypatch.setattr(watch, "probe", fake)
+    return calls

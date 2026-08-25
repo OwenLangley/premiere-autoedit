@@ -209,6 +209,14 @@ def cmd_plan(args) -> int:
     # adds by hand, and a rough cut silently gaining a soundtrack is a surprise
     # nobody wants.
     music_path = Path(args.music).resolve() if args.music else None
+    if music_path is not None and options.music == "none":
+        # --no-music is the more emphatic of the two; honouring --music here would
+        # score a cut the editor just asked to be silent.
+        print("  music: --no-music overrides --music", file=sys.stderr)
+        music_path = None
+    if music_path is not None and not music_path.is_file():
+        print(f"error: music file not found: {music_path}", file=sys.stderr)
+        return 2
     if music_path is None and options.music != "none" and recipe.auto_music:
         search_dir = media_root or Path(args.media[0]).resolve().parent
         found, candidates = _find_music_bed(

@@ -14,6 +14,9 @@ const VIDEO_EXTENSIONS = [
   ".mp4", ".mov", ".mxf", ".avi", ".m4v", ".mkv", ".mts", ".m2ts", ".braw", ".r3d",
 ];
 
+const MUSIC_AUTO = "auto";
+const MUSIC_NONE = "none";
+
 const DEFAULTS = {
   aspect: "source",
   pacing: "standard",
@@ -26,6 +29,52 @@ function isVideoFile(name) {
   const lower = String(name || "").toLowerCase();
   if (lower.startsWith(".")) return false;   // ._ sidecars and dotfiles
   return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/** mm:ss, because "1:04" reads as a track length and "64.2" does not. */
+function formatDuration(seconds) {
+  const total = Math.round(Number(seconds) || 0);
+  const mins = Math.floor(total / 60);
+  return `${mins}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Display name for a track: the path without its extension, so two files called
+ * `theme.wav` in different folders stay tellable apart.
+ * @param {string} relPath
+ */
+function trackName(relPath) {
+  return String(relPath || "").replace(/\.[^./\\]+$/, "");
+}
+
+/**
+ * Options for the Music dropdown, built from the media index.
+ *
+ * Audio-only is decided by the index's probe rather than by extension: the track
+ * that turned up in real use was a `.mp4` with no video stream. Automatic is left
+ * unlabelled rather than naming the file it would find -- the engine's search is
+ * top-level only while this list is recursive, and a label that predicted the
+ * wrong track would be worse than one that predicts nothing.
+ *
+ * @param {{name?: string, relPath?: string, hasVideo?: boolean, hasAudio?: boolean, durationSeconds?: number}[]} files
+ */
+function musicChoices(files) {
+  const tracks = (files || [])
+    .filter((f) => f && f.hasAudio && !f.hasVideo)
+    .map((f) => {
+      const rel = f.relPath || f.name || "";
+      return {
+        value: rel,
+        label: f.durationSeconds
+          ? `${trackName(rel)} · ${formatDuration(f.durationSeconds)}`
+          : trackName(rel),
+      };
+    });
+  return [
+    { value: MUSIC_AUTO, label: "Automatic" },
+    { value: MUSIC_NONE, label: "No music" },
+    ...tracks,
+  ];
 }
 
 /**
@@ -95,6 +144,9 @@ function validateRequest(request) {
   }
 
   const o = request.options || {};
+  if (o.music !== undefined && typeof o.music !== "string") {
+    errors.push("Music must be a track name, 'auto' or 'none'");
+  }
   if (o.duration) {
     if (!(o.duration.seconds > 0)) errors.push("Length must be more than zero seconds");
     if (o.duration.seconds > 7200) errors.push("Length must be under two hours");
@@ -129,14 +181,20 @@ function describeRequest(request, capabilities) {
   if (o.pacing && o.pacing !== "standard") bits.push(label(caps.pacing, o.pacing).toLowerCase());
   if (o.look) bits.push(`look: ${o.look}`);
   if (o.visual) bits.push("from pictures");
-  if (o.music === "none") bits.push("no music");
+  if (o.music === MUSIC_NONE) bits.push("no music");
+  else if (o.music && o.music !== MUSIC_AUTO) bits.push(`music: ${trackName(o.music)}`);
   return bits.join(" · ");
 }
 
 module.exports = {
   SCHEMA_VERSION,
   VIDEO_EXTENSIONS,
+  MUSIC_AUTO,
+  MUSIC_NONE,
   isVideoFile,
+  formatDuration,
+  trackName,
+  musicChoices,
   normaliseJobId,
   buildRequest,
   validateRequest,

@@ -15,6 +15,7 @@ const {
 } = require("./transport");
 const {
   isVideoFile, buildRequest, validateRequest, requestFileName, describeRequest,
+  musicChoices,
 } = require("./request");
 const { runSelfTest } = require("./selftest");
 
@@ -32,6 +33,7 @@ const state = {
   capabilities: null,
   mediaFiles: [],
   mediaIndex: new Map(),
+  musicFiles: [],
   selectedMedia: new Set(),
   watching: null,          // interval id while a job is being worked on
 };
@@ -296,7 +298,22 @@ async function loadCapabilities() {
   }
   fillSelect("opt-duration-mode", caps.durationModes, [{ value: "none", label: "No limit" }]);
   fillSelect("opt-look", [{ value: "", label: "None" }, ...(caps.looks || [])], [{ value: "", label: "None" }]);
+  // Music comes from the media index rather than capabilities, but the dropdown
+  // must never render empty while waiting for it.
+  fillMusicSelect();
   renderSummary_();
+}
+
+/** Rebuild the Music dropdown from whatever the last index gave us. */
+function fillMusicSelect() {
+  const choices = state.musicFiles && state.musicFiles.length
+    ? state.musicFiles
+    : musicChoices([]);
+  fillSelect("opt-music", choices, choices);
+  const tracks = choices.length - 2;   // minus Automatic and No music
+  $("music-count").textContent = tracks
+    ? `(${tracks} track${tracks === 1 ? "" : "s"} found)`
+    : "(no tracks found)";
 }
 
 async function loadMediaList() {
@@ -311,12 +328,20 @@ async function loadMediaList() {
     // an extension check cannot. Fall back to extensions when it has not run.
     const index = state.transport ? await state.transport.listMediaIndex() : null;
     if (index && Array.isArray(index.files)) {
-      state.mediaIndex = new Map(index.files.map((f) => [f.name, f]));
-      state.mediaFiles = index.files.filter((f) => f.hasVideo).map((f) => f.name);
+      // Keyed by relPath, not name: the scan descends into subfolders now, so
+      // two `theme.wav` under different folders are different files.
+      state.mediaIndex = new Map(index.files.map((f) => [f.relPath || f.name, f]));
+      state.mediaFiles = index.files.filter((f) => f.hasVideo).map((f) => f.relPath || f.name);
+      state.musicFiles = musicChoices(index.files);
+      if (index.truncated) {
+        log(`Media index stopped at ${index.files.length} files -- some clips or tracks are not listed.`, "err");
+      }
     } else {
       state.mediaIndex = new Map();
       state.mediaFiles = await listMediaFiles(state.settings.mediaToken, isVideoFile);
+      state.musicFiles = musicChoices([]);
     }
+    fillMusicSelect();
   } catch (err) {
     box.innerHTML = `<div class="empty">Could not read the media root: ${err.message}</div>`;
     return;
@@ -358,6 +383,7 @@ function currentForm() {
     visual: $("opt-visual").checked,
     durationMode: $("opt-duration-mode").value,
     durationSeconds: Number.isFinite(seconds) ? seconds : null,
+    music: $("opt-music").value || "auto",
   };
 }
 
@@ -467,7 +493,8 @@ $("media-none").addEventListener("click", () => {
 });
 $("opt-visual").addEventListener("change", renderSummary_);
 for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing",
-                  "opt-look", "opt-duration-mode", "opt-duration-seconds"]) {
+                  "opt-look", "opt-duration-mode", "opt-duration-seconds",
+                  "opt-music"]) {
   $(id).addEventListener("change", renderSummary_);
   $(id).addEventListener("input", renderSummary_);
   // Scrolling the panel past a dropdown would otherwise cycle its value, so an

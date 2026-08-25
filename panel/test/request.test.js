@@ -3,6 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const {
   isVideoFile, normaliseJobId, buildRequest, validateRequest, describeRequest,
+  musicChoices, formatDuration,
 } = require("../src/request");
 
 const form = (over = {}) => ({
@@ -77,4 +78,77 @@ test("the summary reads as a sentence an editor can check", () => {
 
 test("a plain job summarises without noise", () => {
   assert.strictEqual(describeRequest(buildRequest(form()), {}), "1 clip");
+});
+
+// --- Music selection -------------------------------------------------------
+
+test("music choices always offer automatic and none", () => {
+  const choices = musicChoices([]);
+  assert.deepEqual(choices.map((c) => c.value), ["auto", "none"]);
+});
+
+test("music choices list audio-only files and skip footage", () => {
+  const choices = musicChoices([
+    { name: "C1367.MP4", relPath: "C1367.MP4", hasVideo: true, hasAudio: true, durationSeconds: 13.5 },
+    { name: "theme.wav", relPath: "Music/theme.wav", hasVideo: false, hasAudio: true, durationSeconds: 64.2 },
+    { name: "silent.mp4", relPath: "silent.mp4", hasVideo: true, hasAudio: false, durationSeconds: 4 },
+  ]);
+  assert.deepEqual(choices.map((c) => c.value), ["auto", "none", "Music/theme.wav"]);
+  assert.equal(choices[2].label, "Music/theme · 1:04");
+});
+
+test("a music file exported as .mp4 is still offered as music", () => {
+  // The real one: a track delivered as .mp4 with no video stream. Extension
+  // cannot tell; the index's probe can.
+  const choices = musicChoices([
+    { name: "million dollar baby.mp4", relPath: "million dollar baby.mp4",
+      hasVideo: false, hasAudio: true, durationSeconds: 60 },
+  ]);
+  assert.equal(choices[2].value, "million dollar baby.mp4");
+  assert.equal(choices[2].label, "million dollar baby · 1:00");
+});
+
+test("automatic is not labelled with a guessed track", () => {
+  // The engine's auto search is top-level only while this list recurses, so a
+  // label naming the file would sometimes name one auto would never pick.
+  const choices = musicChoices([
+    { name: "a.wav", relPath: "Music/a.wav", hasVideo: false, hasAudio: true, durationSeconds: 30 },
+  ]);
+  assert.equal(choices[0].label, "Automatic");
+});
+
+test("a chosen track reaches the request and the summary", () => {
+  const request = buildRequest({
+    jobId: "EP001", recipe: "social-short", media: ["a.mp4"],
+    music: "Music/theme.wav",
+  });
+  assert.equal(request.options.music, "Music/theme.wav");
+  assert.match(describeRequest(request, {}), /music: Music\/theme/);
+});
+
+test("automatic music is not mentioned in the summary", () => {
+  const request = buildRequest({ jobId: "EP001", recipe: "social-short", media: ["a.mp4"] });
+  assert.equal(request.options.music, "auto");
+  assert.doesNotMatch(describeRequest(request, {}), /music/);
+});
+
+test("no music is still called out in the summary", () => {
+  const request = buildRequest({
+    jobId: "EP001", recipe: "social-short", media: ["a.mp4"], music: "none",
+  });
+  assert.match(describeRequest(request, {}), /no music/);
+});
+
+test("a non-string music value is rejected", () => {
+  const request = buildRequest({ jobId: "EP001", recipe: "social-short", media: ["a.mp4"] });
+  // Deliberately the wrong shape -- the point is that validation catches it.
+  request.options.music = /** @type {any} */ ({ path: "theme.wav" });
+  assert.match(validateRequest(request).join(" "), /Music must be/);
+});
+
+test("durations round to the nearest second", () => {
+  assert.equal(formatDuration(0), "0:00");
+  assert.equal(formatDuration(9.4), "0:09");
+  assert.equal(formatDuration(59.6), "1:00");
+  assert.equal(formatDuration(605), "10:05");
 });

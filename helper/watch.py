@@ -96,11 +96,57 @@ def write_capabilities(jobs: Path) -> None:
 
 MEDIA_EXTENSIONS = {
     ".mp4", ".mov", ".mxf", ".avi", ".m4v", ".mkv", ".mts", ".m2ts",
-    ".wav", ".mp3", ".m4a", ".aac", ".aif", ".aiff", ".flac",
+    ".wav", ".mp3", ".m4a", ".aac", ".aif", ".aiff", ".flac", ".ogg",
 }
 
+# Music does not live loose among the rushes -- it lives in a Music folder beside
+# them -- so the index has to descend. Both limits are surfaced in the index and
+# on stderr rather than silently truncating: an editor whose track is missing
+# needs to know the scan stopped, not wonder why the dropdown is short.
+MAX_INDEX_DEPTH = 3
+MAX_INDEX_FILES = 400
 
-def write_media_index(jobs: Path, media_root: Path) -> None:
+# Probing is an ffprobe spawn each. Flat, that cost was invisible; recursive and
+# repeated every 30s it would not be, so remember results until the file changes.
+_PROBE_CACHE: dict[tuple[str, int, int], object] = {}
+
+
+def _cached_probe(path: Path):
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    if key not in _PROBE_CACHE:
+        try:
+            _PROBE_CACHE[key] = probe(path)
+        except ProbeError:
+            _PROBE_CACHE[key] = None
+    return _PROBE_CACHE[key]
+
+
+def iter_media(media_root: Path, max_depth: int = MAX_INDEX_DEPTH):
+    """Media files under the root, breadth-first so top-level rushes come first."""
+    queue: list[tuple[Path, int]] = [(media_root, 0)]
+    while queue:
+        folder, depth = queue.pop(0)
+        try:
+            entries = sorted(folder.iterdir())
+        except OSError:
+            continue
+        folders = []
+        for path in entries:
+            if path.name.startswith("."):
+                continue
+            if path.is_dir():
+                if depth < max_depth:
+                    folders.append((path, depth + 1))
+            elif path.suffix.lower() in MEDIA_EXTENSIONS:
+                yield path
+        queue.extend(folders)
+
+
+def build_media_index(media_root: Path, max_files: int = MAX_INDEX_FILES) -> dict:
     """Index the media root so the panel can tell footage from a music bed.
 
     The panel cannot probe -- UXP has no ffprobe -- so extension alone would have
@@ -108,28 +154,43 @@ def write_media_index(jobs: Path, media_root: Path) -> None:
     was a .mp4 with no video stream, which showed up in the clip picker as if it
     were footage.
     """
-    entries = []
-    for path in sorted(media_root.iterdir()):
-        if not path.is_file() or path.name.startswith(".") or path.suffix.lower() not in MEDIA_EXTENSIONS:
-            continue
-        try:
-            info = probe(path)
-        except ProbeError:
+    entries: list[dict] = []
+    truncated = False
+    for path in iter_media(media_root):
+        if len(entries) >= max_files:
+            truncated = True
+            break
+        info = _cached_probe(path)
+        if info is None:
             continue
         entries.append({
             "name": path.name,
+            "relPath": str(path.relative_to(media_root)),
             "hasVideo": info.has_video,
             "hasAudio": info.has_audio,
             "durationSeconds": round(info.duration, 2),
             "width": info.width,
             "height": info.height,
         })
-    (jobs / "media-index.json").write_text(json.dumps({
+    return {
         "schemaVersion": "1.0",
         "mediaRoot": str(media_root),
         "updatedAt": _now(),
+        "scanDepth": MAX_INDEX_DEPTH,
+        "truncated": truncated,
         "files": entries,
-    }, indent=2) + "\n")
+    }
+
+
+def write_media_index(jobs: Path, media_root: Path) -> None:
+    index = build_media_index(media_root)
+    if index["truncated"]:
+        print(
+            f"warning: media index stopped at {MAX_INDEX_FILES} files; "
+            f"some footage or music under {media_root} is not listed in the panel",
+            file=sys.stderr,
+        )
+    (jobs / "media-index.json").write_text(json.dumps(index, indent=2) + "\n")
 
 
 def request_to_argv(request: dict, jobs: Path, media_root: Path, work_dir: Path) -> list[str]:
