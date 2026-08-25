@@ -83,6 +83,40 @@ Roles map sources onto tracks, as defined in the recipe:
 ./.venv/bin/autoedit plan --job EP001 --recipe podcast-2cam --media camA.mov camB.mov --role cam-a cam-b --media-root ~/Footage --out ~/AutoEdit-jobs/EP001.editplan.json
 ```
 
+### Silent footage: promos and b-roll
+
+Footage with no usable speech is cut from the pictures instead. Shot detection
+finds the boundaries, quality scoring throws away the black, frozen, soft and
+shaky ones, and a music bed puts the cuts on the beat.
+
+```bash
+./.venv/bin/autoedit plan --job PROMO01 --recipe promo-silent --media ~/Footage/broll/*.mp4 --music ~/Footage/track.wav --media-root ~/Footage --out ~/AutoEdit-jobs/PROMO01.editplan.json
+```
+
+`--music` is optional; without it, takes are a fixed length from the recipe.
+Add `--visual` to cut from the pictures even when the footage *does* have audio.
+
+The engine reports what it threw away and why, per shot:
+
+```
+C1367.MP4: 3 shots, 3 usable, 3 clips, kept 4.8s of 13.5s (removed 64%)
+promo_reel.mp4: 5 shots, 3 usable  --  2 rejected: black frames, frozen frame
+```
+
+If everything gets rejected, the thresholds are wrong for your footage rather
+than the footage being unusable. Lower `min_sharpness` and `min_brightness` in
+the recipe's `visual:` block first.
+
+**Speed.** Analysis decodes the source three times, which on 4K HEVC is the whole
+cost — about 55s for 19s of footage even with VideoToolbox and downscaled
+analysis. Cutting from proxies is dramatically faster and the measurements are
+the same.
+
+**Beat detection is honest about ambiguity.** Half-versus-double tempo is a real
+musical question at the extremes of the range, so the grid flags it rather than
+silently picking. If a cut feels twice or half as fast as the track, halve or
+double `beats_per_shot`.
+
 ### Tuning the cut
 
 Transcripts are cached on content hash, so re-running after a recipe change is
@@ -94,6 +128,7 @@ command, rebuild in the panel. Comparing all three recipes on one 14s clip:
 | `client-promo` | 10% | leaves pacing to the editor |
 | `podcast-2cam` | 12% | drops `um` and false starts, keeps voice |
 | `social-short` | 29% | also drops `So,` and `you know` |
+| `promo-silent` | n/a | no speech: cuts from shots, quality and beats |
 
 Add `--no-cache` to force re-transcription.
 
