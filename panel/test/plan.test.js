@@ -127,3 +127,50 @@ test("a clip on neither track is rejected", () => {
   const errs = validatePlan(plan({ timeline: [clip({ videoTrack: -1, audioTrack: -1 })] }));
   assert.ok(errs.some((e) => e.includes("neither a video nor an audio track")));
 });
+
+// --- Subclip naming --------------------------------------------------------
+//
+// The bug this guards: subclips were named by position in the plan, so a
+// rebuild after the plan changed found the PREVIOUS build's subclip under the
+// same name and silently used its ranges.
+
+const { subclipName, planTag } = require("../src/plan");
+
+const PLAN_A = { jobId: "musictest", createdAt: "2026-08-25T07:07:49Z" };
+const PLAN_B = { jobId: "musictest", createdAt: "2026-08-25T07:18:02Z" };
+
+test("a subclip is named by its source range", () => {
+  assert.match(
+    subclipName({ mediaId: "MUSIC", inSeconds: 0, outSeconds: 19.92 }, PLAN_A),
+    /^MUSIC__0-19920__/
+  );
+});
+
+test("a changed range is a different subclip", () => {
+  const before = subclipName({ mediaId: "MUSIC", inSeconds: 0, outSeconds: 60 }, PLAN_A);
+  const after = subclipName({ mediaId: "MUSIC", inSeconds: 0, outSeconds: 19.92 }, PLAN_A);
+  assert.notEqual(before, after);
+});
+
+test("rebuilding the same plan reuses its subclips", () => {
+  const clip = { mediaId: "C1367", inSeconds: 4.6547, outSeconds: 5.7724 };
+  assert.equal(subclipName(clip, PLAN_A), subclipName(clip, PLAN_A));
+});
+
+test("a regenerated plan never inherits an older build's subclips", () => {
+  // The range is identical; the plan is not. Reusing here is how a subclip built
+  // under older apply logic survived into a new build one frame too long.
+  const clip = { mediaId: "MUSIC", inSeconds: 0, outSeconds: 19.92 };
+  assert.notEqual(subclipName(clip, PLAN_A), subclipName(clip, PLAN_B));
+});
+
+test("clips from different sources never collide", () => {
+  const a = subclipName({ mediaId: "C1367", inSeconds: 0, outSeconds: 1 }, PLAN_A);
+  const b = subclipName({ mediaId: "C1371", inSeconds: 0, outSeconds: 1 }, PLAN_A);
+  assert.notEqual(a, b);
+});
+
+test("the plan tag is short, stable and filename-safe", () => {
+  assert.equal(planTag(PLAN_A), planTag(PLAN_A));
+  assert.match(planTag(PLAN_A), /^[a-z0-9]{7}$/);
+});

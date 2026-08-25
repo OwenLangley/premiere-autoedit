@@ -67,6 +67,22 @@ def _find_music_bed(search_dir: Path, exclude: set[Path]) -> tuple[Path | None, 
     return (candidates[0] if len(candidates) == 1 else None), candidates
 
 
+def _relative_to_root(
+    path: Path, media_root: Path | None, music_root: Path | None
+) -> tuple[str, str]:
+    """Express `path` against whichever configured root contains it.
+
+    A music library sits outside the footage tree, so without its own root the
+    plan could only record a bare filename -- and the panel, resolving everything
+    against the media root, would then fail to find it. Falling back to the name
+    is kept for the un-rooted case, but it is the lossy branch, not the norm.
+    """
+    for root, label in ((music_root, "music"), (media_root, "media")):
+        if root and (root == path.parent or root in path.parents):
+            return str(path.relative_to(root)), label
+    return path.name, "media"
+
+
 def _brandkit_lut(key: str) -> dict | None:
     """Look up a LUT in the brand kit. Returns None when absent, so a missing look
     degrades to 'no grade applied' with a warning rather than failing the job."""
@@ -180,6 +196,7 @@ def cmd_plan(args) -> int:
         )
 
     media_root = Path(args.media_root).resolve() if args.media_root else None
+    music_root = Path(args.music_root).resolve() if getattr(args, "music_root", None) else None
     provider_name = args.provider or recipe.transcription.get("provider", "sidecar")
     try:
         provider = get_provider(provider_name)
@@ -209,6 +226,12 @@ def cmd_plan(args) -> int:
     # adds by hand, and a rough cut silently gaining a soundtrack is a surprise
     # nobody wants.
     music_path = Path(args.music).resolve() if args.music else None
+    if music_path is not None and not music_path.exists() and music_root:
+        # A bare track name is resolved against the library, so callers can pass
+        # what the panel shows rather than reconstructing an absolute path.
+        candidate = (music_root / args.music).resolve()
+        if candidate.is_file():
+            music_path = candidate
     if music_path is not None and options.music == "none":
         # --no-music is the more emphatic of the two; honouring --music here would
         # score a cut the editor just asked to be silent.
@@ -433,13 +456,9 @@ def cmd_plan(args) -> int:
     if music_path:
         try:
             music_info = probe(music_path)
-            rel = (
-                str(music_path.relative_to(media_root))
-                if media_root and media_root in music_path.parents
-                else music_path.name
-            )
+            rel, root = _relative_to_root(music_path, media_root, music_root)
             builder.add_media(MediaEntry(
-                id="MUSIC", rel_path=rel, duration=music_info.duration,
+                id="MUSIC", rel_path=rel, duration=music_info.duration, root=root,
                 hash=content_hash(music_path), role="music",
                 has_video=False, has_audio=True,
             ))
@@ -556,6 +575,7 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--media", nargs="+", required=True)
     pl.add_argument("--role", nargs="*", help="role per media file, matching recipe roles")
     pl.add_argument("--media-root", help="paths in the plan are recorded relative to this")
+    pl.add_argument("--music-root", help="a music library outside the footage tree. Tracks under it are recorded relative to it, so the plan stays free of absolute paths.")
     pl.add_argument("--provider", help="override the recipe transcription provider")
     pl.add_argument("--model", help="override the transcription model, e.g. small, medium, large-v3")
     pl.add_argument("--language", help="override the spoken language, e.g. en, ja")

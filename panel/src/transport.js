@@ -87,6 +87,40 @@ class LocalFolderTransport {
     }
   }
 
+  /** The helper's index of the music library, or null when none is set. */
+  async listMusicIndex() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return null;
+    try {
+      const file = await folder.getEntry("music-index.json");
+      return JSON.parse(await file.read());
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Panel-owned settings the helper re-reads while running.
+   *
+   * The helper owns the roots, but the editor is the one who knows where the
+   * music lives -- routing that through config.json means choosing a folder is
+   * a click rather than a helper restart.
+   */
+  async writeConfig(patch) {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) throw new Error("Jobs folder is not reachable. Re-select it in settings.");
+    let current = {};
+    try {
+      current = JSON.parse(await (await folder.getEntry("config.json")).read());
+    } catch {
+      /* first write */
+    }
+    const next = { ...current, ...patch };
+    const file = await folder.createFile("config.json", { overwrite: true });
+    await file.write(JSON.stringify(next, null, 2));
+    return next;
+  }
+
   /** The helper's index of the media root, or null if it has not run. */
   async listMediaIndex() {
     const folder = await folderFromToken(this.jobsToken);
@@ -168,10 +202,17 @@ class HttpsTransport {
  * Today the root is a local drive; when it becomes a NAS mount only this
  * setting changes -- which is the whole reason plans never store absolute paths.
  */
-function makeResolver(mediaRootToken) {
-  return async function resolveAbsolutePath(relPath) {
-    const root = await folderFromToken(mediaRootToken);
-    if (!root) throw new Error("Media root is not set or is no longer reachable.");
+function makeResolver(mediaRootToken, musicRootToken) {
+  const tokens = { media: mediaRootToken, music: musicRootToken };
+  const names = { media: "Media root", music: "Music folder" };
+  /**
+   * @param {string} relPath
+   * @param {string} [rootName] which configured root the path hangs off
+   */
+  return async function resolveAbsolutePath(relPath, rootName) {
+    const which = rootName === "music" ? "music" : "media";
+    const root = await folderFromToken(tokens[which]);
+    if (!root) throw new Error(`${names[which]} is not set or is no longer reachable.`);
     const parts = relPath.split("/").filter(Boolean);
     let node = root;
     for (let i = 0; i < parts.length - 1; i++) {

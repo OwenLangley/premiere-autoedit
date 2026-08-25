@@ -182,6 +182,69 @@ def build_media_index(media_root: Path, max_files: int = MAX_INDEX_FILES) -> dic
     }
 
 
+CONFIG_FILE = "config.json"
+LIBRARY_PREFIX = "library:"
+
+
+def read_config(jobs: Path) -> dict:
+    """Panel-owned settings that must not need a helper restart to change.
+
+    The roots are the helper's, but the editor is the one who knows where the
+    music lives -- making them relaunch the watcher to point at a folder would
+    put the terminal back in the loop this whole design exists to remove.
+    """
+    try:
+        return json.loads((jobs / CONFIG_FILE).read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def resolve_music_root(jobs: Path, fallback: Path | None) -> Path | None:
+    raw = read_config(jobs).get("musicRoot")
+    if raw:
+        candidate = Path(raw).expanduser()
+        if candidate.is_dir():
+            return candidate.resolve()
+        print(f"warning: musicRoot in config.json is not a folder: {raw}", file=sys.stderr)
+    return fallback
+
+
+def resolve_music(value: str, media_root: Path, music_root: Path | None) -> Path | None:
+    """Turn a request's `music` value into a path.
+
+    `library:` marks the separate music folder. The prefix is explicit rather
+    than probing both roots in turn, because the failure mode of guessing is a
+    promo scored with the wrong track -- silent, and only noticed on playback.
+    """
+    if not value or value in ("auto", "none"):
+        return None
+    if value.startswith(LIBRARY_PREFIX):
+        rel = value[len(LIBRARY_PREFIX):]
+        if not music_root:
+            return None
+        return music_root / rel
+    path = Path(value)
+    return path if path.is_absolute() else media_root / value
+
+
+def write_music_index(jobs: Path, music_root: Path | None) -> None:
+    """Index the music library, when one is configured."""
+    if not music_root:
+        (jobs / "music-index.json").write_text(json.dumps({
+            "schemaVersion": "1.0",
+            "musicRoot": None,
+            "updatedAt": _now(),
+            "truncated": False,
+            "files": [],
+        }, indent=2) + "\n")
+        return
+    index = build_media_index(music_root)
+    # A library holds tracks, not rushes; anything with a picture is not one.
+    index["files"] = [f for f in index["files"] if f["hasAudio"] and not f["hasVideo"]]
+    index["musicRoot"] = index.pop("mediaRoot")
+    (jobs / "music-index.json").write_text(json.dumps(index, indent=2) + "\n")
+
+
 def write_media_index(jobs: Path, media_root: Path) -> None:
     index = build_media_index(media_root)
     if index["truncated"]:
@@ -193,7 +256,10 @@ def write_media_index(jobs: Path, media_root: Path) -> None:
     (jobs / "media-index.json").write_text(json.dumps(index, indent=2) + "\n")
 
 
-def request_to_argv(request: dict, jobs: Path, media_root: Path, work_dir: Path) -> list[str]:
+def request_to_argv(
+    request: dict, jobs: Path, media_root: Path, work_dir: Path,
+    music_root: Path | None = None,
+) -> list[str]:
     """Map a job request onto engine arguments."""
     job_id = request["jobId"]
     options = request.get("options") or {}
@@ -227,11 +293,20 @@ def request_to_argv(request: dict, jobs: Path, media_root: Path, work_dir: Path)
     if options.get("language"):
         argv += ["--language", options["language"]]
 
+    if music_root:
+        argv += ["--music-root", str(music_root)]
+
     music = options.get("music", "auto")
     if music == "none":
         argv += ["--no-music"]
     elif music and music != "auto":
-        argv += ["--music", str(media_root / music)]
+        chosen = resolve_music(music, media_root, music_root)
+        if chosen is None:
+            raise ValueError(
+                f"music {music!r} names the library, but no music folder is set "
+                f"-- choose one in the panel"
+            )
+        argv += ["--music", str(chosen)]
 
     return argv
 
@@ -256,7 +331,8 @@ def validate_request(request: dict) -> list[str]:
     return problems
 
 
-def process(path: Path, jobs: Path, media_root: Path, work_dir: Path) -> bool:
+def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
+            music_root: Path | None = None) -> bool:
     """Run one request. Returns True when a plan was produced."""
     job_id = path.stem.replace(".request", "")
     try:
@@ -273,7 +349,11 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path) -> bool:
 
     write_status(jobs, job_id, "analysing", "starting", startedAt=_now())
 
-    argv = request_to_argv(request, jobs, media_root, work_dir)
+    try:
+        argv = request_to_argv(request, jobs, media_root, work_dir, music_root)
+    except ValueError as exc:
+        write_status(jobs, job_id, "failed", str(exc))
+        return False
     captured = io.StringIO()
     try:
         # The engine reports progress on stderr; capture it so the failure message
@@ -311,7 +391,8 @@ def claimed_marker(jobs: Path, path: Path) -> Path:
     return jobs / f".{path.name}.claimed"
 
 
-def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True) -> int:
+def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True,
+             music_root: Path | None = None) -> int:
     handled = 0
     for path in sorted(jobs.glob(f"*{REQUEST_SUFFIX}")):
         marker = claimed_marker(jobs, path)
@@ -320,25 +401,38 @@ def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True)
         marker.write_text(_now())
         if verbose:
             print(f"[{_now()}] {path.name}", file=sys.stderr)
-        process(path, jobs, media_root, work_dir)
+        process(path, jobs, media_root, work_dir, music_root)
         handled += 1
     return handled
 
 
-def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_SECONDS) -> None:
+def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_SECONDS,
+          music_root: Path | None = None) -> None:
     jobs.mkdir(parents=True, exist_ok=True)
     write_capabilities(jobs)
     write_media_index(jobs, media_root)
+    music_root = resolve_music_root(jobs, music_root)
+    write_music_index(jobs, music_root)
     print(f"watching {jobs} (media root {media_root})", file=sys.stderr)
+    if music_root:
+        print(f"  music library: {music_root}", file=sys.stderr)
     ticks = 0
     while True:
         try:
-            run_once(jobs, media_root, work_dir)
+            # The panel can point at a different music folder at any time, so the
+            # config is re-read rather than captured at startup.
+            current = resolve_music_root(jobs, music_root)
+            if current != music_root:
+                music_root = current
+                print(f"  music library: {music_root}", file=sys.stderr)
+                write_music_index(jobs, music_root)
+            run_once(jobs, media_root, work_dir, music_root=music_root)
             # Refresh the index periodically so newly ingested footage appears
             # without restarting the helper.
             ticks += 1
             if ticks % 15 == 0:
                 write_media_index(jobs, media_root)
+                write_music_index(jobs, music_root)
         except Exception:
             traceback.print_exc()
         time.sleep(interval)
@@ -348,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="AutoEdit job watcher")
     ap.add_argument("--jobs", required=True, help="folder the panel writes requests into")
     ap.add_argument("--media", required=True, help="media root; request paths are relative to it")
+    ap.add_argument("--music", default=None, help="a music library folder outside the footage. The panel can also set this without a restart.")
     ap.add_argument("--work-dir", default=None, help="cache directory (default <jobs>/.cache)")
     ap.add_argument("--once", action="store_true", help="process what is pending and exit")
     ap.add_argument("--interval", type=float, default=POLL_SECONDS)
@@ -361,14 +456,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: media root does not exist: {media_root}", file=sys.stderr)
         return 2
 
+    music_root = Path(args.music).expanduser().resolve() if args.music else None
+    if music_root and not music_root.is_dir():
+        print(f"error: music folder does not exist: {music_root}", file=sys.stderr)
+        return 2
+
     jobs.mkdir(parents=True, exist_ok=True)
     if args.once:
         write_capabilities(jobs)
         write_media_index(jobs, media_root)
-        print(f"processed {run_once(jobs, media_root, work_dir)} request(s)", file=sys.stderr)
+        music_root = resolve_music_root(jobs, music_root)
+        write_music_index(jobs, music_root)
+        print(
+            f"processed {run_once(jobs, media_root, work_dir, music_root=music_root)} request(s)",
+            file=sys.stderr,
+        )
         return 0
 
-    watch(jobs, media_root, work_dir, args.interval)
+    watch(jobs, media_root, work_dir, args.interval, music_root)
     return 0
 
 

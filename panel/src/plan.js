@@ -208,7 +208,40 @@ function clipTimes(plan, clip) {
   };
 }
 
+/**
+ * Short stable tag for a plan, so subclips from different plans cannot collide.
+ * @param {{jobId?: string, createdAt?: string}} plan
+ */
+function planTag(plan) {
+  const seed = `${(plan && plan.jobId) || ""}@${(plan && plan.createdAt) || ""}`;
+  let hash = 5381;
+  for (let i = 0; i < seed.length; i++) hash = ((hash * 33) ^ seed.charCodeAt(i)) >>> 0;
+  return hash.toString(36).padStart(7, "0").slice(-7);
+}
+
+/**
+ * A subclip's name is its source range plus the plan that asked for it.
+ *
+ * Two bugs came out of getting this wrong. Named by position (`MUSIC_0008`), a
+ * rebuild found the PREVIOUS build's subclip under the same name and used its
+ * ranges -- the bed was retrimmed to 20s in the plan and the sequence still got
+ * 60s. Named by range alone, a subclip built under older apply logic was still
+ * reused, because the name records what was ASKED for, not what was made. The
+ * plan tag closes both: a regenerated plan never inherits an older build's
+ * subclips, while rebuilding the same plan reuses them, which is correct and
+ * keeps the bin from filling up.
+ *
+ * @param {{mediaId: string, inSeconds: number, outSeconds: number}} clip
+ * @param {{jobId?: string, createdAt?: string}} plan
+ */
+function subclipName(clip, plan) {
+  const ms = (seconds) => String(Math.round(seconds * 1000));
+  return `${clip.mediaId}__${ms(clip.inSeconds)}-${ms(clip.outSeconds)}__${planTag(plan)}`;
+}
+
 module.exports = {
+  subclipName,
+  planTag,
   SUPPORTED_SCHEMA,
   validatePlan,
   summarize,

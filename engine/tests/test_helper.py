@@ -13,7 +13,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
 
 from watch import (  # noqa: E402
-    build_media_index, iter_media, request_to_argv, validate_request, write_capabilities,
+    build_media_index, iter_media, read_config, request_to_argv, resolve_music,
+    resolve_music_root, validate_request, write_capabilities, write_music_index,
 )
 
 
@@ -190,3 +191,114 @@ def _stub_probe(monkeypatch):
     watch._PROBE_CACHE.clear()
     monkeypatch.setattr(watch, "probe", fake)
     return calls
+
+
+# --- A music library outside the footage tree -------------------------------
+#
+# Editors keep music in a library, not among the rushes. The `library:` marker
+# says which root a track hangs off; guessing between roots would score a promo
+# with the wrong track and nothing would say so until playback.
+
+
+def test_library_tracks_resolve_against_the_music_root():
+    got = resolve_music("library:Upbeat/drive.mp3", Path("/media"), Path("/Library"))
+    assert got == Path("/Library/Upbeat/drive.mp3")
+
+
+def test_unmarked_tracks_resolve_against_the_media_root():
+    got = resolve_music("theme.wav", Path("/media"), Path("/Library"))
+    assert got == Path("/media/theme.wav")
+
+
+def test_an_absolute_track_is_left_alone():
+    got = resolve_music("/elsewhere/theme.wav", Path("/media"), None)
+    assert got == Path("/elsewhere/theme.wav")
+
+
+def test_auto_and_none_resolve_to_nothing():
+    assert resolve_music("auto", Path("/media"), None) is None
+    assert resolve_music("none", Path("/media"), None) is None
+
+
+def test_a_library_track_without_a_library_is_a_readable_failure():
+    request = {
+        "schemaVersion": "1.0", "jobId": "EP001", "recipe": "promo-silent",
+        "media": ["a.mp4"], "options": {"music": "library:drive.mp3"},
+    }
+    with pytest.raises(ValueError, match="no music folder is set"):
+        request_to_argv(request, Path("/jobs"), Path("/media"), Path("/cache"), None)
+
+
+def test_the_music_root_is_passed_to_the_engine():
+    argv = request_to_argv(
+        request(music="library:drive.mp3"),
+        Path("/jobs"), Path("/media"), Path("/cache"), Path("/Library"),
+    )
+    assert "--music-root" in argv and "/Library" in argv
+    assert "/Library/drive.mp3" in argv
+
+
+def test_config_sets_the_music_root_without_a_restart(tmp_path):
+    jobs = tmp_path / "jobs"
+    library = tmp_path / "Library"
+    jobs.mkdir()
+    library.mkdir()
+    assert resolve_music_root(jobs, None) is None
+
+    (jobs / "config.json").write_text(json.dumps({"musicRoot": str(library)}))
+    assert resolve_music_root(jobs, None) == library.resolve()
+
+
+def test_a_bad_music_root_falls_back_rather_than_crashing(tmp_path):
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "config.json").write_text(json.dumps({"musicRoot": "/nope/not/here"}))
+    assert resolve_music_root(jobs, None) is None
+
+
+def test_unreadable_config_is_treated_as_absent(tmp_path):
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "config.json").write_text("{ not json")
+    assert read_config(jobs) == {}
+
+
+def test_the_music_index_holds_only_tracks(tmp_path, monkeypatch):
+    library = tmp_path / "Library"
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    _tree(library, "drive.mp3", "Upbeat/lift.wav", "promo.mp4")
+
+    import watch
+    watch._PROBE_CACHE.clear()
+
+    class Track:
+        has_video = False
+        has_audio = True
+        duration = 120.0
+        width = 0
+        height = 0
+
+    class Video:
+        has_video = True
+        has_audio = True
+        duration = 30.0
+        width = 1920
+        height = 1080
+
+    monkeypatch.setattr(
+        watch, "probe",
+        lambda path: Video() if Path(path).suffix == ".mp4" else Track(),
+    )
+    write_music_index(jobs, library)
+    index = json.loads((jobs / "music-index.json").read_text())
+    assert index["musicRoot"] == str(library)
+    assert {f["relPath"] for f in index["files"]} == {"drive.mp3", "Upbeat/lift.wav"}
+
+
+def test_no_library_still_writes_an_empty_index(tmp_path):
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    write_music_index(jobs, None)
+    index = json.loads((jobs / "music-index.json").read_text())
+    assert index["musicRoot"] is None and index["files"] == []

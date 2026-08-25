@@ -82,9 +82,15 @@
         <button id="pick-jobs">Jobs folder</button>
         <div class="grow path unset" id="jobs-path">not set</div>
       </div>
+      <div class="row">
+        <button id="pick-music">Music folder</button>
+        <div class="grow path unset" id="music-path">not set</div>
+      </div>
       <div class="hint">
-        Plans store paths relative to the media root, so moving to a NAS later
-        means changing this one setting.
+        Plans store paths relative to a root, so moving to a NAS later means
+        changing these settings and nothing else. The music folder is optional
+        and lives wherever you keep your library &mdash; it does not have to sit
+        with the footage.
       </div>
     </section>
 
@@ -127,9 +133,9 @@
         <select id="opt-music"></select>
       </label>
       <div class="hint" style="margin:-4px 0 8px">
-        Cuts snap to the beat of whichever track you pick. Automatic only works
-        when exactly one audio-only file sits beside the footage &mdash; keep a
-        library in a <strong>Music</strong> folder and choose from it here.
+        Cuts snap to the beat of whichever track you pick. Tracks come from your
+        music folder, plus any audio-only file sitting with the footage.
+        Automatic only fires when there is exactly one of the latter.
       </div>
 
       <label class="field" style="margin-top:4px">

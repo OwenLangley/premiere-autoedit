@@ -34,6 +34,7 @@ const state = {
   mediaFiles: [],
   mediaIndex: new Map(),
   musicFiles: [],
+  libraryFiles: [],
   selectedMedia: new Set(),
   watching: null,          // interval id while a job is being worked on
 };
@@ -56,6 +57,7 @@ async function showFolder(token, el, fallback) {
 async function refreshSetup() {
   await showFolder(state.settings.mediaToken, $("media-path"), "not set");
   await showFolder(state.settings.jobsToken, $("jobs-path"), "not set");
+  await showFolder(state.settings.musicToken, $("music-path"), "not set (optional)");
   state.transport = state.settings.jobsToken
     ? new LocalFolderTransport(state.settings.jobsToken)
     : null;
@@ -210,7 +212,7 @@ async function onApply() {
 
   try {
     const report = await applyPlan(plan, {
-      resolveAbsolutePath: makeResolver(state.settings.mediaToken),
+      resolveAbsolutePath: makeResolver(state.settings.mediaToken, state.settings.musicToken),
       brandkit: state.settings.brandkit,
       onProgress: (stage, detail) => log(`  ${stage}: ${detail}`),
     });
@@ -241,6 +243,27 @@ $("pick-media").addEventListener("click", async () => {
     await loadMediaList();
     log(`Media root: ${picked.path}`);
   }
+});
+
+$("pick-music").addEventListener("click", async () => {
+  const picked = await pickFolder("music folder");
+  if (!picked) return;
+  state.settings = saveSettings({ musicToken: picked.token });
+  await refreshSetup();
+  // The helper does the indexing, and it only knows the path -- the token is
+  // this panel's alone. Writing it to config.json is what makes the folder
+  // reachable from the other side without a restart.
+  if (state.transport) {
+    try {
+      await state.transport.writeConfig({ musicRoot: picked.path });
+      log(`Music folder: ${picked.path} -- indexing, press Reload in a moment.`);
+    } catch (err) {
+      log(`Music folder set, but could not tell the helper: ${err.message}`, "err");
+    }
+  } else {
+    log("Music folder set. Choose a jobs folder so the helper can index it.", "err");
+  }
+  await loadMediaList();
 });
 
 $("pick-jobs").addEventListener("click", async () => {
@@ -327,19 +350,21 @@ async function loadMediaList() {
     // Prefer the helper's index: it knows which files actually carry video, which
     // an extension check cannot. Fall back to extensions when it has not run.
     const index = state.transport ? await state.transport.listMediaIndex() : null;
+    const musicIndex = state.transport ? await state.transport.listMusicIndex() : null;
+    state.libraryFiles = (musicIndex && Array.isArray(musicIndex.files)) ? musicIndex.files : [];
     if (index && Array.isArray(index.files)) {
       // Keyed by relPath, not name: the scan descends into subfolders now, so
       // two `theme.wav` under different folders are different files.
       state.mediaIndex = new Map(index.files.map((f) => [f.relPath || f.name, f]));
       state.mediaFiles = index.files.filter((f) => f.hasVideo).map((f) => f.relPath || f.name);
-      state.musicFiles = musicChoices(index.files);
+      state.musicFiles = musicChoices(index.files, state.libraryFiles);
       if (index.truncated) {
         log(`Media index stopped at ${index.files.length} files -- some clips or tracks are not listed.`, "err");
       }
     } else {
       state.mediaIndex = new Map();
       state.mediaFiles = await listMediaFiles(state.settings.mediaToken, isVideoFile);
-      state.musicFiles = musicChoices([]);
+      state.musicFiles = musicChoices([], state.libraryFiles);
     }
     fillMusicSelect();
   } catch (err) {

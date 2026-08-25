@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from autoedit.cli import _find_music_bed
+from autoedit.cli import _find_music_bed, _relative_to_root
 from autoedit.recipe import load_recipe
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -84,3 +84,68 @@ def test_only_promo_recipes_opt_into_auto_music():
     assert load_recipe("promo-silent").auto_music is True
     for name in ("podcast-2cam", "social-short", "client-promo"):
         assert load_recipe(name).auto_music is False, f"{name} must not auto-add music"
+
+
+# --- Which root a track hangs off -------------------------------------------
+
+
+def test_a_track_in_the_music_library_is_recorded_against_it():
+    rel, root = _relative_to_root(
+        Path("/Library/Upbeat/drive.mp3"), Path("/Footage"), Path("/Library")
+    )
+    assert (rel, root) == ("Upbeat/drive.mp3", "music")
+
+
+def test_a_track_beside_the_footage_stays_on_the_media_root():
+    rel, root = _relative_to_root(
+        Path("/Footage/theme.wav"), Path("/Footage"), Path("/Library")
+    )
+    assert (rel, root) == ("theme.wav", "media")
+
+
+def test_the_library_wins_when_it_sits_inside_the_media_root():
+    # Nesting the library under the footage is a reasonable thing to do, and the
+    # more specific root is the one that describes the file.
+    rel, root = _relative_to_root(
+        Path("/Footage/Music/drive.mp3"), Path("/Footage"), Path("/Footage/Music")
+    )
+    assert (rel, root) == ("drive.mp3", "music")
+
+
+def test_a_track_under_no_root_falls_back_to_its_name():
+    rel, root = _relative_to_root(Path("/tmp/loose.wav"), Path("/Footage"), None)
+    assert (rel, root) == ("loose.wav", "media")
+
+
+# --- The bed's source range must agree with its timeline length -------------
+
+
+def test_a_bed_is_trimmed_to_the_length_it_is_placed_at():
+    from autoedit.plan import EditPlanBuilder, MediaEntry
+    from autoedit.timebase import Timebase
+
+    tb = Timebase(25, 1)
+    b = EditPlanBuilder(job_id="EP001", recipe="client-promo", timebase=tb,
+                        sequence_name="EP001_promo_v1")
+    b.add_media(MediaEntry(id="MUSIC", rel_path="track.wav", duration=60.0,
+                           has_video=False, has_audio=True, role="music"))
+    b.add_full_clip("MUSIC", 0, 498, video_track=-1, audio_track=2)
+
+    clip = b.build()["timeline"][0]
+    # 498 frames at 25fps is 19.92s. The apply side cuts from in/out, so leaving
+    # outSeconds at the full 60s laid a bed that ran 40s past the picture.
+    assert clip["durationFrames"] == 498
+    assert clip["outSeconds"] == 19.92
+
+
+def test_a_bed_shorter_than_the_edit_is_not_stretched():
+    from autoedit.plan import EditPlanBuilder, MediaEntry
+    from autoedit.timebase import Timebase
+
+    tb = Timebase(25, 1)
+    b = EditPlanBuilder(job_id="EP001", recipe="client-promo", timebase=tb,
+                        sequence_name="EP001_promo_v1")
+    b.add_media(MediaEntry(id="MUSIC", rel_path="short.wav", duration=5.0,
+                           has_video=False, has_audio=True, role="music"))
+    b.add_full_clip("MUSIC", 0, 498, video_track=-1, audio_track=2)
+    assert b.build()["timeline"][0]["outSeconds"] == 5.0

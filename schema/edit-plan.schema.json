@@ -178,7 +178,7 @@
       }
     },
     "mediaRef": {
-      "description": "A source file. Deliberately stores relPath + hash and NEVER an absolute path, so the same EditPlan resolves on a local drive today and a NAS tomorrow.",
+      "description": "A source file. Deliberately stores relPath + hash and NEVER an absolute path, so the same EditPlan resolves on a local drive today and a NAS tomorrow. `root` names which configured folder relPath hangs off.",
       "type": "object",
       "required": [
         "id",
@@ -194,6 +194,14 @@
         "relPath": {
           "type": "string",
           "minLength": 1
+        },
+        "root": {
+          "enum": [
+            "media",
+            "music"
+          ],
+          "default": "media",
+          "description": "Which configured root relPath is relative to. 'music' is a separate library folder outside the footage; still a root and still not an absolute path, so the NAS move stays a settings change."
         },
         "hash": {
           "type": "string",

@@ -16,6 +16,11 @@ const VIDEO_EXTENSIONS = [
 
 const MUSIC_AUTO = "auto";
 const MUSIC_NONE = "none";
+// Marks a track as living in the separate music library rather than beside the
+// footage. Explicit, because the alternative -- trying one root then the other --
+// resolves an ambiguous name to the wrong track silently, and a promo scored to
+// the wrong music is only noticed on playback.
+const MUSIC_LIBRARY_PREFIX = "library:";
 
 const DEFAULTS = {
   aspect: "source",
@@ -58,22 +63,27 @@ function trackName(relPath) {
  *
  * @param {{name?: string, relPath?: string, hasVideo?: boolean, hasAudio?: boolean, durationSeconds?: number}[]} files
  */
-function musicChoices(files) {
-  const tracks = (files || [])
-    .filter((f) => f && f.hasAudio && !f.hasVideo)
-    .map((f) => {
-      const rel = f.relPath || f.name || "";
-      return {
-        value: rel,
-        label: f.durationSeconds
-          ? `${trackName(rel)} · ${formatDuration(f.durationSeconds)}`
-          : trackName(rel),
-      };
-    });
+function musicChoices(files, libraryFiles) {
+  const asChoice = (prefix, suffix) => (f) => {
+    const rel = f.relPath || f.name || "";
+    const length = f.durationSeconds ? ` · ${formatDuration(f.durationSeconds)}` : "";
+    return { value: `${prefix}${rel}`, label: `${trackName(rel)}${length}${suffix}` };
+  };
+  const isTrack = (f) => f && f.hasAudio && !f.hasVideo;
+
+  // Library first: when one is configured it is the deliberate choice, and the
+  // audio-only files that happen to sit among the rushes are the exception.
+  const library = (libraryFiles || []).filter(isTrack).map(asChoice(MUSIC_LIBRARY_PREFIX, ""));
+  // The "(with the footage)" note only earns its space once a library exists to
+  // be distinguished from; with one source of tracks it is just noise.
+  const beside = (files || []).filter(isTrack)
+    .map(asChoice("", library.length ? " (with the footage)" : ""));
+
   return [
     { value: MUSIC_AUTO, label: "Automatic" },
     { value: MUSIC_NONE, label: "No music" },
-    ...tracks,
+    ...library,
+    ...beside,
   ];
 }
 
@@ -182,7 +192,9 @@ function describeRequest(request, capabilities) {
   if (o.look) bits.push(`look: ${o.look}`);
   if (o.visual) bits.push("from pictures");
   if (o.music === MUSIC_NONE) bits.push("no music");
-  else if (o.music && o.music !== MUSIC_AUTO) bits.push(`music: ${trackName(o.music)}`);
+  else if (o.music && o.music !== MUSIC_AUTO) {
+    bits.push(`music: ${trackName(o.music.replace(MUSIC_LIBRARY_PREFIX, ""))}`);
+  }
   return bits.join(" · ");
 }
 
@@ -191,6 +203,7 @@ module.exports = {
   VIDEO_EXTENSIONS,
   MUSIC_AUTO,
   MUSIC_NONE,
+  MUSIC_LIBRARY_PREFIX,
   isVideoFile,
   formatDuration,
   trackName,

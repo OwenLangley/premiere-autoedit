@@ -11,9 +11,17 @@ ROOT="$(pwd)"
 
 JOBS="${1:-$HOME/Desktop/AutoEdit-jobs}"
 MEDIA="${2:-}"
+# Optional: a music library outside the footage. Editors can also set this from
+# the panel, which writes it to config.json and needs no restart -- this argument
+# just seeds a default for a machine set up from the terminal.
+MUSIC="${3:-}"
 if [ -z "$MEDIA" ]; then
-  echo "usage: helper/install.sh <jobs-folder> <media-root>" >&2
+  echo "usage: helper/install.sh <jobs-folder> <media-root> [music-folder]" >&2
   exit 2
+fi
+MUSIC_ARGS=""
+if [ -n "$MUSIC" ]; then
+  MUSIC_ARGS="    <string>--music</string><string>$MUSIC</string>"
 fi
 
 PLIST="$HOME/Library/LaunchAgents/com.company.autoedit.helper.plist"
@@ -30,6 +38,7 @@ cat > "$PLIST" <<PLIST_EOF
     <string>$ROOT/helper/watch.py</string>
     <string>--jobs</string><string>$JOBS</string>
     <string>--media</string><string>$MEDIA</string>
+$MUSIC_ARGS
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -44,6 +53,7 @@ launchctl load "$PLIST"
 echo "helper installed and running"
 echo "  jobs : $JOBS"
 echo "  media: $MEDIA"
+[ -n "$MUSIC" ] && echo "  music: $MUSIC"
 echo "  log  : /tmp/autoedit-helper.log"
 echo
 echo "to stop:  launchctl unload $PLIST"

@@ -152,3 +152,40 @@ test("durations round to the nearest second", () => {
   assert.equal(formatDuration(59.6), "1:00");
   assert.equal(formatDuration(605), "10:05");
 });
+
+// --- A music library outside the footage tree ------------------------------
+
+test("library tracks are marked so the helper knows which root they hang off", () => {
+  const choices = musicChoices([], [
+    { relPath: "Upbeat/drive.mp3", hasVideo: false, hasAudio: true, durationSeconds: 132 },
+  ]);
+  assert.equal(choices[2].value, "library:Upbeat/drive.mp3");
+  assert.equal(choices[2].label, "Upbeat/drive · 2:12");
+});
+
+test("library tracks come before ones sitting with the footage", () => {
+  const choices = musicChoices(
+    [{ relPath: "scratch.wav", hasVideo: false, hasAudio: true, durationSeconds: 10 }],
+    [{ relPath: "drive.mp3", hasVideo: false, hasAudio: true, durationSeconds: 132 }],
+  );
+  assert.deepEqual(choices.map((c) => c.value), ["auto", "none", "library:drive.mp3", "scratch.wav"]);
+  // Only distinguished once there is something to distinguish from.
+  assert.match(choices[3].label, /with the footage/);
+});
+
+test("the library marker is not shown to the editor", () => {
+  const request = buildRequest({
+    jobId: "EP001", recipe: "social-short", media: ["a.mp4"],
+    music: "library:Upbeat/drive.mp3",
+  });
+  assert.equal(request.options.music, "library:Upbeat/drive.mp3");
+  assert.match(describeRequest(request, {}), /music: Upbeat\/drive/);
+  assert.doesNotMatch(describeRequest(request, {}), /library:/);
+});
+
+test("video in the library is not offered as a track", () => {
+  const choices = musicChoices([], [
+    { relPath: "promo.mp4", hasVideo: true, hasAudio: true, durationSeconds: 30 },
+  ]);
+  assert.equal(choices.length, 2);
+});

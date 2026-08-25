@@ -116,16 +116,33 @@ that silently gained a soundtrack would be a nasty surprise.
 
 **Or choose the track in the panel.** Automatic covers one loose file beside the
 rushes; a real library does not look like that. The panel's **Music** dropdown
-lists every audio-only file under the media root, so keeping tracks in a `Music`
-folder works:
+lists every audio-only file it can see, from two places:
+
+- the **music folder**, set once in panel Setup. It lives wherever you keep your
+  library and has nothing to do with where the footage is.
+- anything audio-only sitting **with the footage**, labelled as such so the two
+  are never confused.
 
 ```
-Footage/
-  C1367.MP4  C1371.MP4  C1376.MP4
-  Music/
-    million dollar baby.mp4      <- offered as "Music/million dollar baby - 1:00"
-    Cues/sting.mp4               <- and nested folders too, three deep
+~/Music Library/            <- the music folder
+  Upbeat/drive.mp3          <- offered as "Upbeat/drive - 2:12"
+  Cues/sting.wav
+
+/Volumes/Footage/EP001/     <- the media root, somewhere else entirely
+  C1367.MP4  C1371.MP4
+  scratch-track.wav         <- "scratch-track - 0:30 (with the footage)"
 ```
+
+Choosing a folder in the panel writes it to `config.json` in the jobs folder; the
+helper re-reads that while running, so it takes effect without a restart. From the
+terminal, `helper/install.sh <jobs> <media> [music]` or `--music` on the watcher
+does the same thing.
+
+Tracks from the library are marked `library:` in the request, so the helper knows
+which root to resolve against rather than trying one then the other -- guessing
+wrong there means a promo scored to the wrong track, which nothing catches until
+playback. Plans record the track as a `relPath` plus `root: "music"`, never an
+absolute path, so the NAS move stays a settings change.
 
 Audio-only is decided by the index's probe, not by extension, so a track exported
 as `.mp4` is offered as music rather than turning up in the clip list. The scan is

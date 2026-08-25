@@ -17,7 +17,7 @@
 /** @typedef {import("@adobe/premierepro").ClipProjectItem} ClipProjectItem */
 
 const ppro = require("premierepro");
-const { validatePlan, summarize } = require("./plan");
+const { validatePlan, summarize, subclipName } = require("./plan");
 const { verifyBrandkit } = require("./brandkit");
 const { toSeconds } = require("./timebase");
 
@@ -60,7 +60,7 @@ class ApplyError extends Error {
 /**
  * @param {any} plan
  * @param {{
- *   resolveAbsolutePath: (relPath: string) => Promise<string>,
+ *   resolveAbsolutePath: (relPath: string, root?: string) => Promise<string>,
  *   onProgress?: (stage: string, detail: string) => void,
  *   strategy?: string,
  *   applyGraphics?: boolean,
@@ -114,7 +114,7 @@ async function applyPlan(plan, options) {
     strategy === STRATEGY.SUBCLIP
       ? await createSubclips(project, plan, items)
       : items;
-  await placeClips(project, sequence, plan, sources, strategy);
+  report.warnings.push(...(await placeClips(project, sequence, plan, sources, strategy)));
   report.stages.push("clips");
 
   // --- reframe -------------------------------------------------------------
@@ -282,10 +282,11 @@ async function resolveMedia(project, plan, options) {
   for (const m of plan.media) {
     let abs;
     try {
-      abs = await options.resolveAbsolutePath(m.relPath);
+      abs = await options.resolveAbsolutePath(m.relPath, m.root);
     } catch (err) {
+      const where = m.root === "music" ? "music folder" : "media root";
       throw new ApplyError(
-        `cannot locate media "${m.relPath}" (${m.id}). Check the media root in panel settings.\n${err.message}`,
+        `cannot locate media "${m.relPath}" (${m.id}). Check the ${where} in panel settings.\n${err.message}`,
         "resolve"
       );
     }
@@ -357,11 +358,11 @@ async function createSubclips(project, plan, items) {
   const byKey = new Map();
   const wanted = [];
 
-  plan.timeline.forEach((clip, i) => {
+  plan.timeline.forEach((clip) => {
     const key = `${clip.mediaId}@${clip.inSeconds}-${clip.outSeconds}`;
     if (!byKey.has(key)) {
       byKey.set(key, null);
-      wanted.push({ key, clip, index: i });
+      wanted.push({ key, clip });
     }
   });
 
@@ -371,21 +372,29 @@ async function createSubclips(project, plan, items) {
   // frame of the SOURCE timebase (a 23.976 source in a 25fps sequence would
   // otherwise be corrected by the wrong amount).
   const sourceFrame = (mediaId) => {
-    const m = (plan.media || []).find((x) => x.id === mediaId);
-    const tb = (m && m.timebase) || plan.timebase;
+    const media = mediaOf(plan, mediaId);
+    // The nudge corrects an inclusive-last-VIDEO-frame out point. An audio-only
+    // source has no frame grid, and nudging it made the music bed land one frame
+    // long -- which the verifier caught as 499 frames against a planned 498.
+    if (media.hasVideo === false) return 0;
+    const tb = media.timebase || plan.timebase;
     return tb.fpsDen / tb.fpsNum;
   };
 
   transact(project, (compound) => {
-    for (const { clip, index } of wanted) {
+    for (const { clip } of wanted) {
       const master = ppro.ClipProjectItem.cast(items.get(clip.mediaId));
+      // Asking an audio-only master for video yields no subclip at all, and the
+      // music bed then vanished with no error anywhere -- the plan had it, the
+      // sequence did not. Take only the streams the source actually has.
+      const media = mediaOf(plan, clip.mediaId);
       compound.addAction(
         master.createSubClipAction(
-          `${clip.mediaId}_${String(index).padStart(4, "0")}`,
+          subclipName(clip, plan),
           ppro.TickTime.createWithSeconds(clip.inSeconds),
           ppro.TickTime.createWithSeconds(clip.outSeconds + sourceFrame(clip.mediaId)),
           true,
-          { takeVideo: true, takeAudio: true }
+          { takeVideo: media.hasVideo !== false, takeAudio: media.hasAudio !== false }
         )
       );
     }
@@ -394,13 +403,14 @@ async function createSubclips(project, plan, items) {
   // Subclips are created by name; look each one back up.
   const root = await project.getRootItem();
   const all = await root.getItems();
-  for (const { key, index, clip } of wanted) {
-    const name = `${clip.mediaId}_${String(index).padStart(4, "0")}`;
+  for (const { key, clip } of wanted) {
+    const name = subclipName(clip, plan);
     const match = all.find((it) => it.name === name);
     if (match) byKey.set(key, match);
   }
   return byKey;
 }
+
 
 /**
  * @param {any} project @param {any} sequence @param {any} plan
@@ -409,6 +419,8 @@ async function createSubclips(project, plan, items) {
 async function placeClips(project, sequence, plan, sources, strategy) {
   const editor = ppro.SequenceEditor.getEditor(sequence);
   const tb = plan.timebase;
+  /** @type {string[]} */
+  const warnings = [];
 
   transact(project, (compound) => {
     for (const clip of plan.timeline) {
@@ -419,7 +431,10 @@ async function placeClips(project, sequence, plan, sources, strategy) {
         source = sources.get(`${clip.mediaId}@${clip.inSeconds}-${clip.outSeconds}`);
       } else {
         source = sources.get(clip.mediaId);
-        if (!source) continue;
+        if (!source) {
+          warnings.push(describeMissingSource(plan, clip));
+          continue;
+        }
         // createSetInOutPointsAction is defined on ClipProjectItem, not on the
         // plain ProjectItem the resolver hands back, so the cast is required.
         const asClip = ppro.ClipProjectItem.cast(source);
@@ -431,13 +446,35 @@ async function placeClips(project, sequence, plan, sources, strategy) {
           )
         );
       }
-      if (!source) continue;
+      // A `continue` here used to be silent, and silence is exactly wrong: the
+      // clip is in the plan, absent from the sequence, and nothing says so.
+      if (!source) {
+        warnings.push(describeMissingSource(plan, clip));
+        continue;
+      }
 
       compound.addAction(
         editor.createOverwriteItemAction(source, at, clip.videoTrack, clip.audioTrack)
       );
     }
   }, UNDO.clips);
+
+  return warnings;
+}
+
+/** @param {any} plan @param {string} mediaId */
+function mediaOf(plan, mediaId) {
+  return (plan.media || []).find((m) => m.id === mediaId) || {};
+}
+
+/** Says which clip went missing, in terms an editor can act on. */
+function describeMissingSource(plan, clip) {
+  const media = mediaOf(plan, clip.mediaId);
+  const what = media.role === "music" ? "music bed" : "clip";
+  const where = clip.videoTrack < 0
+    ? `A${clip.audioTrack + 1}`
+    : `V${clip.videoTrack + 1} at frame ${clip.atFrame}`;
+  return `${what} "${media.relPath || clip.mediaId}" could not be placed on ${where} -- it is missing from the sequence`;
 }
 
 /**
@@ -459,10 +496,17 @@ async function verifyApplied(sequence, plan) {
   const gaps = [];
 
   const wanted = new Map();
+  /** @type {any[]} */
+  const audioOnly = [];
   for (const c of plan.timeline) {
-    // videoTrack -1 marks an audio-only clip (a music bed); there is no video
-    // lane to read back, and getVideoTrack(-1) would throw.
-    if (c.videoTrack < 0) continue;
+    // videoTrack -1 marks an audio-only clip (a music bed). It has no video lane
+    // to read back -- getVideoTrack(-1) would throw -- so it is checked below
+    // against its audio track instead. Skipping it outright was how a missing
+    // music bed passed verification.
+    if (c.videoTrack < 0) {
+      audioOnly.push(c);
+      continue;
+    }
     const list = wanted.get(c.videoTrack) || [];
     list.push(c);
     wanted.set(c.videoTrack, list);
@@ -506,6 +550,43 @@ async function verifyApplied(sequence, plan) {
       if (gap > 0) gaps.push({ track: trackIndex, afterIndex: i - 1, gapFrames: gap });
     }
   }
+  // Audio-only clips: position AND length on their own track. Length matters --
+  // the first version of this check waved it through as "a bed may outrun the
+  // picture", and a 60s track under a 20s edit passed verification clean.
+  for (const c of audioOnly) {
+    /** @type {{at:number,dur:number}|null} */
+    let found = null;
+    try {
+      const track = await sequence.getAudioTrack(c.audioTrack);
+      if (!track) {
+        mismatches.push({ audioTrack: c.audioTrack, error: "track missing" });
+        continue;
+      }
+      const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false) || [];
+      for (const item of items) {
+        const start = await item.getStartTime();
+        if (toFrames(start.seconds) !== c.atFrame) continue;
+        const end = await item.getEndTime();
+        found = { at: toFrames(start.seconds), dur: toFrames(end.seconds - start.seconds) };
+        break;
+      }
+    } catch (err) {
+      mismatches.push({ audioTrack: c.audioTrack, error: err.message });
+      continue;
+    }
+    if (!found) {
+      mismatches.push({
+        audioTrack: c.audioTrack, mediaId: c.mediaId, atFrame: c.atFrame,
+        error: "audio-only clip is in the plan but not on the track",
+      });
+    } else if (found.dur !== c.durationFrames) {
+      mismatches.push({
+        audioTrack: c.audioTrack, mediaId: c.mediaId,
+        expected: { at: c.atFrame, dur: c.durationFrames }, actual: found,
+      });
+    }
+  }
+
   return { ok: mismatches.length === 0 && gaps.length === 0, gaps, mismatches };
 }
 

@@ -34,6 +34,10 @@ class MediaEntry:
     id: str
     rel_path: str
     duration: float
+    # Which configured root rel_path hangs off. A music library lives outside the
+    # footage tree, so it needs its own root rather than an absolute path -- the
+    # plan stays portable, and the NAS move stays a settings change.
+    root: str = "media"
     hash: str | None = None
     role: str | None = None
     timebase: Timebase | None = None
@@ -51,6 +55,8 @@ class MediaEntry:
             "hasVideo": self.has_video,
             "hasAudio": self.has_audio,
         }
+        if self.root and self.root != "media":
+            d["root"] = self.root
         if self.hash:
             d["hash"] = self.hash
         if self.role:
@@ -163,10 +169,14 @@ class EditPlanBuilder:
         if media_id not in self._media:
             raise PlanError(f"unknown media id {media_id!r}")
         media = self._media[media_id]
+        # The source range has to agree with duration_frames, not just span the
+        # whole file: the apply side cuts from in/out, so a bed asked to run 20s
+        # under a 20s edit was laid at its full 60s and ran 40s past the picture.
+        out_seconds = min(media.duration, self.timebase.to_seconds(duration_frames))
         self._timeline.append({
             "mediaId": media_id,
             "inSeconds": 0.0,
-            "outSeconds": round(media.duration, 4),
+            "outSeconds": round(out_seconds, 4),
             "atFrame": at_frame,
             "durationFrames": duration_frames,
             "videoTrack": video_track,
