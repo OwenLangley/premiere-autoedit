@@ -16,8 +16,12 @@ is only one path through the engine.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
+import shutil
+import subprocess
+import threading
 import unicodedata
 import sys
 import time
@@ -30,7 +34,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
 
 from autoedit.cli import main as engine_main            # noqa: E402
 from autoedit.options import ASPECT_LABELS, PACING      # noqa: E402
-from autoedit.probe import ProbeError, probe            # noqa: E402
+from autoedit.probe import ProbeError, needs_proxy, probe  # noqa: E402
+from autoedit.proxy import build_proxy, proxy_path        # noqa: E402
 from autoedit.recipe import list_recipes, load_recipe   # noqa: E402
 
 REQUEST_SUFFIX = ".request.json"
@@ -124,6 +129,43 @@ def _cached_probe(path: Path):
         except ProbeError:
             _PROBE_CACHE[key] = None
     return _PROBE_CACHE[key]
+
+
+# --- proxies ----------------------------------------------------------------
+#
+# The transcode itself lives in autoedit.proxy so the engine and the helper
+# cannot disagree about where a proxy is; what belongs here is only the decision
+# to start one and the thread it runs on.
+_proxy_lock = threading.Lock()
+_proxy_started: set[str] = set()
+
+
+def ensure_proxies(media_root: Path, work_dir: Path) -> None:
+    """Start building proxies for anything that will not play, in the background.
+
+    Deliberately off the job path. Transcoding six 4K files takes minutes, and an
+    editor who pressed Create should get a plan now, not after the transcode.
+    Whatever is ready when they build gets attached; the rest gets attached next
+    time.
+    """
+    def worker() -> None:
+        for path in iter_media(media_root):
+            info = _cached_probe(path)
+            if info is None or not needs_proxy(info):
+                continue
+            dest = proxy_path(work_dir, path)
+            if dest.exists():
+                continue
+            print(f"  proxy: building {path.name} -> {dest.name}", file=sys.stderr)
+            if build_proxy(path, dest):
+                print(f"  proxy: {path.name} ready", file=sys.stderr)
+
+    with _proxy_lock:
+        key = str(media_root)
+        if key in _proxy_started:
+            return
+        _proxy_started.add(key)
+    threading.Thread(target=worker, name="proxies", daemon=True).start()
 
 
 def iter_media(media_root: Path, max_depth: int = MAX_INDEX_DEPTH):
@@ -432,6 +474,7 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
     jobs.mkdir(parents=True, exist_ok=True)
     write_capabilities(jobs)
     write_media_index(jobs, media_root)
+    ensure_proxies(media_root, work_dir)
     music_root = resolve_music_root(jobs, music_root)
     write_music_index(jobs, music_root)
     print(f"watching {jobs} (media root {media_root})", file=sys.stderr)

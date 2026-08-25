@@ -141,6 +141,52 @@ exactly, and otherwise takes the rate the footage is actually in, warning that i
 did. `holds_exactly()` is the test: the ratio between the two rates has to be a
 whole number.
 
+## 5d. A freeze frame is usually a decoder, not an edit
+
+Reported as a bug in the assembly: *"when they don't have enough length for the
+slot designated for them it's just showing a freeze frame of the final frame."*
+The plan was correct, the verifier was clean, and no clip's slot exceeded its
+material. What was happening is that Premiere holds the last frame it managed to
+decode -- and at a cut, that frame is the outgoing clip's final one, which is
+exactly what the report describes.
+
+Measured on the footage in question (Sony 4K 59.94p 10-bit 4:2:2 HEVC, ~97 Mbps),
+decode only, nothing else running:
+
+| | Speed | vs 59.94p real time |
+|---|---|---|
+| Software | 52 fps | 0.86x |
+| VideoToolbox | 80 fps | 1.34x |
+| 1080p ProRes Proxy | -- | **33.5x** |
+
+(Whole file, idle machine. An earlier set of numbers here was taken while the
+proxy transcode was still running and was quietly depressed by it -- worth
+checking what else is on the CPU before trusting a benchmark.)
+
+Two things worth keeping:
+
+**Hardware decode was available and was still not enough.** The first guess was
+that an M1 Pro cannot hardware-decode 4:2:2 HEVC. VideoToolbox accepted the file,
+so that was wrong -- but 1.34x leaves no headroom once Premiere also has to seek,
+scale, composite and paint. "Is it accelerated?" was the wrong question; "how
+much headroom is there?" was the right one.
+
+**Keyframe spacing matters as much as bitrate.** The source has one keyframe per
+second (measured: 6 in 360 frames), so displaying a frame 40 frames into a GOP
+means decoding all 40. Every cut point that is not a keyframe pays this. ProRes
+Proxy is all-intra -- 120 keyframes in 120 frames -- so seeking costs nothing,
+which matters far more for an assembly of thirty cuts than the raw decode rate
+does.
+
+`needs_proxy()` in `engine/autoedit/probe.py` tests all three conditions rather
+than any one of them: long-GOP codec, heavy chroma or bit depth, and a large
+frame. Proxies at ~37 Mbps cost roughly 5 MB per second of footage.
+
+**Note the trap for the next person:** attaching a proxy via `attachProxy()`
+changes nothing on screen until the editor turns on Toggle Proxies in the program
+monitor, and there is no API for that toggle. Attaching silently and saying
+nothing looks identical to the proxy not working.
+
 ## 6. Several APIs are synchronous despite the async house style
 
 `getTrackItems()`, `getComponentCount()`, `getComponentAtIndex()` return values

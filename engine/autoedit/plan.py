@@ -16,8 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .detect import CutPlan
-from .notes import Note
+from .detect import KIND_SILENCE, CutPlan
+from .music import MAX_BEAT_NUDGE, BeatGrid
+from .notes import Note, note
+from .recipe import MusicSettings
 from .timebase import Timebase
 from .transcript import Transcript
 
@@ -28,6 +30,24 @@ GENERATOR_VERSION = "0.1.0"
 
 class PlanError(RuntimeError):
     pass
+
+
+def _slack_after(cut_plan: CutPlan) -> dict[int, float]:
+    """Seconds of removed SILENCE sitting immediately after each keep.
+
+    That silence is the only room a cut has to move without taking a word with
+    it, so it is the budget for a beat nudge. Filler and stutter drops are
+    deliberately excluded: extending a clip into one of those would put the "eh"
+    back, which is the opposite of what the editor asked for.
+    """
+    drops = [d for d in (getattr(cut_plan, "drops", None) or []) if d.kind == KIND_SILENCE]
+    room: dict[int, float] = {}
+    for i, keep in enumerate(cut_plan.keeps):
+        for d in drops:
+            if abs(d.start - keep.end) < 1e-6:
+                room[i] = max(0.0, d.end - d.start)
+                break
+    return room
 
 
 @dataclass
@@ -47,6 +67,10 @@ class MediaEntry:
     speaker: str | None = None
     width: int = 0
     height: int = 0
+    # Absolute, unlike rel_path: a proxy lives in the work cache, not under any
+    # configured root, and it is a local build artefact rather than something
+    # that should survive a move to a NAS.
+    proxy_path: str | None = None
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -68,6 +92,8 @@ class MediaEntry:
             d["speaker"] = self.speaker
         if self.width and self.height:
             d["width"], d["height"] = self.width, self.height
+        if self.proxy_path:
+            d["proxyPath"] = self.proxy_path
         return d
 
 
@@ -90,6 +116,12 @@ class EditPlanBuilder:
     _playhead: int = 0          # next free frame on the timeline
     _sequence_preset: str | None = None
     _frame_size: tuple[int, int] | None = None
+    # How beat fitting went, reported once at build time rather than per clip.
+    _beats_snapped: int = 0
+    _beats_held: int = 0
+    _beats_dropped: int = 0
+    _beat_grid_refused: bool = False
+    _beat_bpm: float = 0.0
 
     # ------------------------------------------------------------- inputs
 
@@ -128,8 +160,19 @@ class EditPlanBuilder:
         audio_track: int = 0,
         section_id: str | None = None,
         crossfade_seconds: float = 0.0,
+        beats: "BeatGrid | None" = None,
+        music: "MusicSettings | None" = None,
+        min_clip_seconds: float = 0.0,
     ) -> "EditPlanBuilder":
-        """Lay a clip's surviving spans end-to-end from the current playhead."""
+        """Lay a clip's surviving spans end-to-end from the current playhead.
+
+        Beat alignment happens here rather than in the cut planner, and the
+        reason is worth stating: the beat grid belongs to the MUSIC, which plays
+        in sequence time. Moving a cut in *source* time does not put it on a beat
+        -- it changes the clip's length, which shifts every cut after it. Only
+        this function knows the running sequence playhead, so only this function
+        can put a cut where the editor will actually hear it land.
+        """
         if media_id not in self._media:
             raise PlanError(f"unknown media id {media_id!r} -- add_media first")
 
@@ -137,6 +180,11 @@ class EditPlanBuilder:
         src_tb = media.timebase or self.timebase
         fade = max(1, self.timebase.to_frames(crossfade_seconds)) if crossfade_seconds > 0 else 0
         last = len(cut_plan.keeps) - 1
+
+        grid = self._usable_grid(beats, music)
+        # The silence that follows each keep, which is the slack a cut may be
+        # nudged into without eating a word.
+        slack_after = _slack_after(cut_plan)
 
         for i, keep in enumerate(cut_plan.keeps):
             # Snap source points to the source grid so Premiere is not left to round.
@@ -147,6 +195,26 @@ class EditPlanBuilder:
             frames = self.timebase.to_frames(out_s - in_s)
             if frames < 1:
                 continue
+
+            if grid:
+                frames = self._fit_to_beats(
+                    frames, grid, music, slack_after.get(i, 0.0), min_clip_seconds
+                )
+                if frames < 1:
+                    self._beats_dropped += 1
+                    continue
+                # Re-derive the source out point from the length we settled on,
+                # then re-snap: a 29.97 source in a 59.94 sequence has no frame at
+                # every odd sequence frame, and leaving Premiere to round there is
+                # exactly the drift this codebase already fixed once.
+                out_s = min(
+                    src_tb.snap(in_s + self.timebase.to_seconds(frames)),
+                    src_tb.floor(media.duration),
+                )
+                frames = self.timebase.to_frames(out_s - in_s)
+                if frames < 1:
+                    self._beats_dropped += 1
+                    continue
 
             self._timeline.append({
                 "mediaId": media_id,
@@ -169,6 +237,107 @@ class EditPlanBuilder:
         for w in cut_plan.warnings:
             self.add_warning("cut", w, media_id)
         return self
+
+    def _report_beat_fitting(self) -> None:
+        """Say how the grid went, once, in numbers.
+
+        An editor who is told "12 cuts on the beat, 3 left for the words" can
+        judge whether the setting is right for this job. "Cutting to music: on"
+        tells them nothing they did not already know.
+        """
+        if not (self._beats_snapped or self._beats_held or self._beats_dropped):
+            return
+        held = self._beats_held
+        dropped = self._beats_dropped
+        self.add_warning("beat", note(
+            "beat.snapped",
+            snapped=self._beats_snapped,
+            # Rounded here, not in the format string: the engine renders with
+            # {bpm:.0f} but the panel's catalogue interpolates the raw value, so
+            # an unrounded param showed "104 BPM" in English and "103.94 BPM" in
+            # Japanese from the same warning.
+            bpm=round(self._beat_bpm or 0.0),
+            held_clause=f"; {held} left where the words put them" if held else "",
+            dropped_clause=f"; {dropped} dropped as too short for a beat" if dropped else "",
+        ))
+
+    # ------------------------------------------------------------ beat fitting
+
+    def _usable_grid(self, beats, music):
+        """The grid, or None when it should not be trusted or is not wanted.
+
+        A music-led recipe running on a bad grid produces confidently wrong cuts,
+        which is worse than not cutting to the music at all -- so a grid below the
+        confidence floor is refused and said out loud rather than used quietly.
+        """
+        if not beats or not music or not getattr(beats, "beats", None):
+            return None
+        if beats.beat_interval <= 0:
+            return None
+        self._beat_bpm = beats.bpm
+        if beats.confidence < music.min_beat_confidence:
+            if not self._beat_grid_refused:
+                self._beat_grid_refused = True
+                self.add_warning("beat", note(
+                    "beat.gridUnavailable",
+                    confidence=beats.confidence, threshold=music.min_beat_confidence,
+                ))
+            return None
+        return beats
+
+    def _fit_to_beats(self, frames, grid, music, slack_seconds, min_clip_seconds):
+        """Choose a clip length so the NEXT cut lands on the beat.
+
+        Positions are computed as absolute multiples of the beat interval and then
+        rounded, never accumulated from rounded durations. At 104 BPM one beat is
+        34.58 frames at 59.94fps; rounding each duration to 35 would drift 0.42 of
+        a frame per cut, which over a twenty-cut edit is an eighth of a second of
+        creeping sync error. Absolute positions cannot compound.
+        """
+        beat_frames = grid.beat_interval * self.timebase.fps
+        if beat_frames < 1:
+            return frames
+
+        playhead = self._playhead
+        natural_end = playhead + frames
+
+        if music.music_wins:
+            # Round the segment to the nearest whole number of beats rather than
+            # forcing every shot to the same length. Forcing it would chop speech
+            # into one-second fragments; rounding keeps what was said and still
+            # puts the join on the grid.
+            quantum = max(1, music.beats_per_cut) * beat_frames
+            index = round(natural_end / quantum)
+            floor_index = int(playhead // quantum)
+            index = max(index, floor_index + 1)
+            end = round(index * quantum)
+            while end - playhead > frames and index > floor_index + 1:
+                index -= 1
+                end = round(index * quantum)
+            if end - playhead > frames:
+                # Not even one quantum of material. Better dropped than left as a
+                # short clip that knocks everything after it off the grid.
+                return 0
+            self._beats_snapped += 1
+            return int(end - playhead)
+
+        # Speech has priority: move the cut only if it is already close to a beat
+        # and the surrounding silence can absorb the move.
+        target = round(round(natural_end / beat_frames) * beat_frames)
+        move = target - natural_end
+        budget = MAX_BEAT_NUDGE * self.timebase.fps
+        room = slack_seconds * self.timebase.fps
+        fits = (
+            abs(move) <= budget
+            and (move <= room)                                   # extending eats silence
+            and (target - playhead) >= min_clip_seconds * self.timebase.fps
+            and (target - playhead) >= 1
+        )
+        if fits:
+            self._beats_snapped += 1
+            return int(target - playhead)
+        self._beats_held += 1
+        return frames
 
     def add_full_clip(
         self, media_id: str, at_frame: int, duration_frames: int,
@@ -274,6 +443,8 @@ class EditPlanBuilder:
     def build(self) -> dict:
         if not self._media:
             raise PlanError("plan has no media")
+
+        self._report_beat_fitting()
 
         needed_v = max((c["videoTrack"] for c in self._timeline), default=0)
         needed_v = max(needed_v, max((g["videoTrack"] for g in self._graphics), default=0))

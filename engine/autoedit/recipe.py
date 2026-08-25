@@ -31,6 +31,8 @@ _VISUAL_FIELDS = {
     "snap_to_beats", "beats_per_shot", "min_beat_confidence",
 }
 _VALID_FILLER_MODES = {"off", "conservative", "aggressive"}
+_MUSIC_FIELDS = {"beat_priority", "beats_per_cut", "min_beat_confidence"}
+_VALID_BEAT_PRIORITIES = {"music", "speech"}
 
 
 class RecipeError(RuntimeError):
@@ -52,12 +54,38 @@ class SequenceConfig:
 
 
 @dataclass
+class MusicSettings:
+    """How hard the picture chases the beat.
+
+    One setting serves both cut planners, which is why it lives here rather than
+    being duplicated into DetectionSettings and VisualSettings: "does the music
+    win" is a property of the format, not of how the cuts happen to be found.
+
+      * `music`  -- every shot is a whole number of beats, so the picture always
+        changes on the beat. Words get clipped at the joins. What a trend edit
+        needs, and what a talking head must never get.
+      * `speech` -- a cut moves to a beat only when the silence around it has
+        room. Nothing spoken is ever lost; some cuts simply will not land on the
+        grid, which is the right answer for an interview.
+    """
+
+    beat_priority: str = "speech"
+    beats_per_cut: int = 1          # the quantum in music mode; 4 would be a bar
+    min_beat_confidence: float = 0.25
+
+    @property
+    def music_wins(self) -> bool:
+        return self.beat_priority == "music"
+
+
+@dataclass
 class Recipe:
     name: str
     description: str = ""
     sequence: SequenceConfig = field(default_factory=SequenceConfig)
     detection: DetectionSettings = field(default_factory=DetectionSettings)
     visual: VisualSettings = field(default_factory=VisualSettings)
+    music: MusicSettings = field(default_factory=MusicSettings)
     transcription: dict[str, Any] = field(default_factory=dict)
     # Opt-in, and deliberately not inferred from the presence of a `music` role:
     # podcast recipes define one for a bed the editor adds by hand, and a rough
@@ -96,7 +124,8 @@ def load_recipe(name_or_path: str | Path) -> Recipe:
         raise RecipeError(f"{path.name}: expected a mapping at the top level")
 
     unknown = set(raw) - {"name", "description", "sequence", "detection",
-                          "visual", "transcription", "brand", "roles", "auto_music"}
+                          "visual", "music", "transcription", "brand", "roles",
+                          "auto_music"}
     if unknown:
         raise RecipeError(f"{path.name}: unknown top-level key(s): {', '.join(sorted(unknown))}")
 
@@ -145,12 +174,28 @@ def load_recipe(name_or_path: str | Path) -> Recipe:
     if not 0.0 < visual.scene_threshold < 1.0:
         raise RecipeError(f"{path.name}: scene_threshold must be between 0 and 1")
 
+    mus_raw = raw.get("music") or {}
+    bad_music = set(mus_raw) - _MUSIC_FIELDS
+    if bad_music:
+        raise RecipeError(
+            f"{path.name}: unknown music setting(s): {', '.join(sorted(bad_music))}"
+        )
+    music = MusicSettings(**mus_raw)
+    if music.beat_priority not in _VALID_BEAT_PRIORITIES:
+        raise RecipeError(
+            f"{path.name}: beat_priority must be one of "
+            f"{sorted(_VALID_BEAT_PRIORITIES)}, got {music.beat_priority!r}"
+        )
+    if music.beats_per_cut < 1:
+        raise RecipeError(f"{path.name}: beats_per_cut must be at least 1")
+
     return Recipe(
         name=raw.get("name", path.stem),
         description=raw.get("description", ""),
         sequence=seq,
         detection=detection,
         visual=visual,
+        music=music,
         auto_music=bool(raw.get("auto_music", False)),
         transcription=raw.get("transcription") or {},
         brand=raw.get("brand") or {},

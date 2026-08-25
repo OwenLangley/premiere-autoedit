@@ -26,6 +26,11 @@ detection:
   min_confidence: 0.60
   protect_margin: 0.30
 
+music:
+  # A client's words are the deliverable. Cuts move to the beat only where the
+  # silence already had room for it.
+  beat_priority: speech
+
 transcription:
   provider: whisper-local
   model: large-v3

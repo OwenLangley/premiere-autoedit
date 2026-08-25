@@ -482,3 +482,71 @@ def test_match_source_still_pins_the_sequence_rate(tmp_path):
     expected = ticks_per_frame(Timebase.from_dict(plan["timebase"]))
     assert f"<VideoFrameRate>{expected}</VideoFrameRate>" in xml, \
         "the preset's rate must be the plan's rate"
+
+
+# --- footage that will not play back ----------------------------------------
+#
+# The report was "the videos are being put in, however when they don't have
+# enough length for the slot designated for them it's just showing a freeze
+# frame of the final frame". The edit was correct; the decoder was not keeping
+# up, and Premiere was holding the last frame it managed to decode -- which at a
+# cut is the outgoing clip's final frame.
+
+
+def _media(**kw):
+    from autoedit.probe import MediaInfo
+    base = dict(path=Path("/tmp/x.mp4"), duration=10.0, has_video=True,
+                width=3840, height=2160, codec="hevc", pix_fmt="yuv422p10le",
+                keyframe_interval=1.001)
+    base.update(kw)
+    return MediaInfo(**base)
+
+
+def test_the_reported_footage_is_recognised_as_unplayable():
+    from autoedit.probe import needs_proxy
+    # 4K 59.94p 10-bit 4:2:2 HEVC, keyframes once per second. Measured at 1.19x
+    # real time for decode alone with hardware acceleration.
+    assert needs_proxy(_media())
+
+
+def test_ordinary_hd_h264_is_left_alone():
+    from autoedit.probe import needs_proxy
+    assert not needs_proxy(_media(width=1920, height=1080, codec="h264",
+                                  pix_fmt="yuvj420p", keyframe_interval=0.5))
+
+
+def test_all_intra_is_left_alone_however_large():
+    from autoedit.probe import needs_proxy
+    # ProRes is every-frame-a-keyframe, so seeking is cheap at any size.
+    assert not needs_proxy(_media(codec="prores", pix_fmt="yuv422p10le"))
+
+
+def test_4k_8bit_420_is_left_alone():
+    from autoedit.probe import needs_proxy
+    # Heavy frame, but the chroma format every hardware decoder is built for.
+    assert not needs_proxy(_media(pix_fmt="yuv420p"))
+
+
+def test_audio_only_never_needs_a_proxy():
+    from autoedit.probe import needs_proxy
+    assert not needs_proxy(_media(has_video=False, width=0, height=0))
+
+
+def test_a_proxy_path_changes_when_the_file_does(tmp_path):
+    """Replacing a file with a different take must not reuse the old proxy."""
+    from autoedit.proxy import proxy_path
+    source = tmp_path / "C1367.MP4"
+    source.write_bytes(b"take one")
+    first = proxy_path(tmp_path / "cache", source)
+    source.write_bytes(b"take two, which is longer")
+    second = proxy_path(tmp_path / "cache", source)
+    assert first != second, "a changed source must not keep the old proxy"
+    assert first.parent == second.parent
+    assert first.suffix == ".mov"
+
+
+def test_a_proxy_path_is_stable_for_an_unchanged_file(tmp_path):
+    from autoedit.proxy import proxy_path
+    source = tmp_path / "C1367.MP4"
+    source.write_bytes(b"unchanged")
+    assert proxy_path(tmp_path / "c", source) == proxy_path(tmp_path / "c", source)

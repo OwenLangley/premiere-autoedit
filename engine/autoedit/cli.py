@@ -18,7 +18,7 @@ from typing import Any
 
 from .detect import plan_cuts
 from .plan import EditPlanBuilder, MediaEntry, validate_plan
-from .probe import ProbeError, content_hash, probe
+from .probe import ProbeError, content_hash, needs_proxy, probe
 from .recipe import RecipeError, list_recipes, load_recipe
 from .transcribe import TranscriptionError, extract_audio, get_provider
 from .transcript import Transcript
@@ -27,6 +27,7 @@ from .options import (JobOptions, OptionError, apply_pacing, fit_duration_across
 from .preset import write_preset
 from .music import BeatGrid, MusicError, detect_beats
 from .notes import Note, note
+from .proxy import proxy_path
 from .timebase import choose_timebase, holds_exactly
 from .visual import (
     Measurements, VisualError, analyse as analyse_visual, measure as measure_visual,
@@ -405,6 +406,9 @@ def cmd_plan(args) -> int:
     for w, mid_for in timebase_notes:
         builder.add_warning("timebase", w, mid_for)
 
+    proxied: list[str] = []
+    awaiting_proxy: list[str] = []
+
     for i, raw in enumerate(args.media):
         path = Path(raw).resolve()
         info = probes[i]
@@ -413,11 +417,23 @@ def cmd_plan(args) -> int:
         rel = str(path.relative_to(media_root)) if media_root and media_root in path.parents else path.name
         role = args.role[i] if args.role and i < len(args.role) else None
 
+        # Point at a proxy if one has been built. The helper makes these in the
+        # background, so on a first job there may be none yet -- the plan is
+        # still correct, it just will not play smoothly until they land.
+        proxy = None
+        if needs_proxy(info):
+            candidate = proxy_path(cache_root, path)
+            if candidate.exists():
+                proxy = str(candidate)
+                proxied.append(path.name)
+            else:
+                awaiting_proxy.append(path.name)
+
         builder.add_media(MediaEntry(
             id=mid, rel_path=rel, duration=info.duration,
             hash=content_hash(path), role=role,
             timebase=info.timebase, has_video=info.has_video, has_audio=info.has_audio,
-            width=info.width, height=info.height,
+            width=info.width, height=info.height, proxy_path=proxy,
         ))
         for w in info.warnings:
             builder.add_warning("probe", w, mid)
@@ -546,9 +562,15 @@ def cmd_plan(args) -> int:
         collected = [(mid, by_id.get(mid, cuts), v, a) for mid, cuts, v, a in collected]
 
     for mid, cuts, v_track, a_track in collected:
+        # The beat grid finally reaches the speech path. It was computed once per
+        # job, live in scope here the whole time, and passed only to the picture
+        # planner and the music bed -- so an edit with a chosen track cut to the
+        # speech and ignored the song entirely.
         builder.append_cuts(
             mid, cuts, video_track=v_track, audio_track=a_track,
             crossfade_seconds=recipe.sequence.crossfade_seconds,
+            beats=beats, music=recipe.music,
+            min_clip_seconds=detection.min_clip_length,
         )
 
     # Mark the shots a centre crop is likely to spoil. A heuristic, not subject
@@ -618,6 +640,11 @@ def cmd_plan(args) -> int:
                 )
         except ProbeError as exc:
             print(f"warning: could not add the music bed: {exc}", file=sys.stderr)
+
+    if proxied:
+        builder.add_warning("media", note("media.proxyAttached", count=len(proxied)))
+    if awaiting_proxy:
+        builder.add_warning("media", note("media.proxyBuilding", count=len(awaiting_proxy)))
 
     out = Path(args.out) if args.out else Path(f"{args.job}.editplan.json")
 

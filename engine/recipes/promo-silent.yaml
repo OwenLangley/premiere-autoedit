@@ -38,6 +38,14 @@ visual:
 # would score the promo with the wrong track.
 auto_music: true
 
+music:
+  # No speech to protect at all here -- the grid is the only timing there is.
+  # The take LENGTH is already chosen in whole bars by the picture planner
+  # (`beats_per_shot`); this quantum only decides what the placer may round to,
+  # and one beat lets a short shot survive instead of being dropped.
+  beats_per_cut: 1
+  beat_priority: music
+
 roles:
   music: { video_track: -1, audio_track: 1 }
 

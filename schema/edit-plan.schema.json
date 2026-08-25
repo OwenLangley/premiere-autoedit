@@ -247,6 +247,10 @@
         "height": {
           "type": "integer",
           "minimum": 1
+        },
+        "proxyPath": {
+          "type": "string",
+          "description": "Absolute path to a proxy the panel should attach to this item. Absolute, unlike relPath, because a proxy is a local build artefact in the work cache rather than something under a configured root that should survive a move to shared storage."
         }
       }
     },

@@ -26,6 +26,10 @@ detection:
   min_confidence: 0.55
   protect_margin: 0.25
 
+music:
+  # Never clip an interview for a drum. Any bed here is one the editor added.
+  beat_priority: speech
+
 transcription:
   provider: whisper-local
   model: large-v3

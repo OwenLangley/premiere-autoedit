@@ -204,6 +204,16 @@ async function applyPlan(plan, options) {
   // --- clips ---------------------------------------------------------------
   progress("clips", `placing ${plan.timeline.length} clip(s)`);
   const items = await fetchItems(project, mediaPaths);
+
+  // Attach proxies before anything is placed, so the first playback the editor
+  // tries is already the fast one.
+  const attached = await attachProxies(plan, items);
+  if (attached.count) {
+    report.warnings.push(attached.note);
+    report.stages.push("proxies");
+  }
+  report.warnings.push(...attached.warnings);
+
   const sources =
     strategy === STRATEGY.SUBCLIP
       ? await createSubclips(project, plan, items)
@@ -987,6 +997,55 @@ async function addMarkers(project, sequence, plan) {
       );
     }
   }, UNDO.markers);
+}
+
+/**
+ * Point heavy sources at their proxies.
+ *
+ * The engine decides which footage needs one and the helper builds them in the
+ * background; this only hangs them on the project items. `attachProxy` is
+ * explicitly not undoable, which is why it happens before the assembly rather
+ * than inside one of the named transactions -- a Cmd-Z that unbuilt the cut but
+ * left the proxies attached would be confusing, and one that claimed to unattach
+ * them would be lying.
+ *
+ * @param {any} plan @param {Map<string, ProjectItem>} items
+ */
+async function attachProxies(plan, items) {
+  /** @type {BuildWarning[]} */
+  const warnings = [];
+  const wanted = (plan.media || []).filter((m) => m.proxyPath);
+  let count = 0;
+
+  for (const media of wanted) {
+    const item = items.get(media.id);
+    if (!item) continue;
+    try {
+      const clip = ppro.ClipProjectItem.cast(item);
+      if (await clip.hasProxy()) { count += 1; continue; }
+      if (!(await clip.canProxy())) {
+        warnings.push(`${media.id}: Premiere will not take a proxy for this item`);
+        continue;
+      }
+      if (await clip.attachProxy(media.proxyPath, false)) count += 1;
+      else warnings.push(`${media.id}: attaching the proxy was refused`);
+    } catch (err) {
+      warnings.push(`${media.id}: could not attach a proxy (${err.message})`);
+    }
+  }
+
+  return {
+    count,
+    warnings,
+    // Said even when everything worked, because attaching a proxy changes
+    // nothing on screen until the editor turns Toggle Proxies on -- and without
+    // being told that, this looks exactly like it did not work.
+    note: note(
+      "media.proxyAttached", { count },
+      `${count} clip(s) are using proxies -- turn on Toggle Proxies in the ` +
+      `program monitor to play them back smoothly`
+    ),
+  };
 }
 
 // --------------------------------------------------------------- transcript

@@ -38,6 +38,11 @@ class MediaInfo:
     start_timecode: str | None = None
     variable_frame_rate: bool = False
     codec: str = ""
+    pix_fmt: str = ""
+    # Seconds between keyframes, sampled. Long-GOP footage makes every cut point
+    # that is not a keyframe expensive: the decoder has to run from the previous
+    # one to show a single frame.
+    keyframe_interval: float = 0.0
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -81,6 +86,7 @@ def probe(path: str | Path) -> MediaInfo:
     if video is not None:
         info.has_video = True
         info.codec = video.get("codec_name", "")
+        info.pix_fmt = video.get("pix_fmt", "")
         info.width = int(video.get("width") or 0)
         info.height = int(video.get("height") or 0)
 
@@ -99,6 +105,11 @@ def probe(path: str | Path) -> MediaInfo:
             )
         if not info.duration:
             info.duration = float(video.get("duration") or 0.0)
+
+        # Only worth an extra ffprobe call when the answer could change a
+        # decision: small or all-intra footage plays whatever the GOP is.
+        if info.codec in _LONG_GOP and info.width * info.height >= _HEAVY_PIXELS:
+            info.keyframe_interval = measure_keyframe_interval(p)
 
     if audio is not None:
         info.has_audio = True
@@ -123,6 +134,74 @@ def probe(path: str | Path) -> MediaInfo:
         )
 
     return info
+
+
+def measure_keyframe_interval(path: "str | Path", seconds: float = 6.0) -> float:
+    """Average seconds between keyframes, sampled from the head of the file.
+
+    Sampled rather than read in full: a keyframe list for a 47-second 4K file is
+    slow to produce and the first few seconds answer the only question being
+    asked, which is "is this long-GOP or all-intra".
+    """
+    try:
+        out = subprocess.run(
+            [_ffprobe_bin(), "-v", "error", "-select_streams", "v:0",
+             "-skip_frame", "nokey", "-show_entries", "frame=pts_time",
+             "-of", "csv=p=0", "-read_intervals", f"%+{seconds:g}", str(path)],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.SubprocessError, ProbeError):
+        return 0.0
+    stamps = []
+    for line in out.stdout.splitlines():
+        value = line.strip().strip(",")
+        try:
+            stamps.append(float(value))
+        except ValueError:
+            continue
+    if len(stamps) < 2:
+        return 0.0
+    return (stamps[-1] - stamps[0]) / (len(stamps) - 1)
+
+
+# Chroma subsampling and bit depths that no consumer decode path is optimised
+# for. ffprobe spells these as e.g. "yuv422p10le".
+_HEAVY_PIX = ("422", "444", "10le", "10be", "12le", "12be", "p010", "p210")
+# Codecs that are long-GOP in practice. ProRes, DNx and friends are all-intra:
+# every frame is a keyframe, so seeking is cheap however large the picture.
+_LONG_GOP = {"hevc", "h264", "av1", "vp9", "mpeg2video"}
+# Below this, decoding is cheap enough that the GOP does not matter.
+_HEAVY_PIXELS = 1920 * 1080 * 1.5
+
+
+def needs_proxy(info: MediaInfo) -> bool:
+    """Will this footage fail to play back at speed?
+
+    Three conditions, all measured rather than guessed, and all three were true
+    of the footage that sent an editor looking for a bug in the edit:
+
+      * a long-GOP codec, so a cut that is not on a keyframe costs a whole GOP
+        of decoding to show one frame;
+      * heavy chroma or bit depth, which is where the hardware decoders stop
+        helping;
+      * a frame large enough for that to matter.
+
+    Measured on the reported footage -- 4K 59.94p 10-bit 4:2:2 HEVC, keyframes
+    once per second -- VideoToolbox managed 1.19x real time for decode ALONE.
+    Premiere also has to seek, scale, composite and paint on top of that, so
+    there is no headroom and the picture stops updating.
+    """
+    if not info.has_video or not (info.width and info.height):
+        return False
+    if info.codec not in _LONG_GOP:
+        return False
+    if info.width * info.height < _HEAVY_PIXELS:
+        return False
+    if not any(token in info.pix_fmt for token in _HEAVY_PIX):
+        return False
+    # A keyframe every frame is all-intra in a long-GOP container; seeking is
+    # cheap and there is nothing to gain from a proxy.
+    return info.keyframe_interval == 0.0 or info.keyframe_interval > 0.2
 
 
 def _rate_value(spec: str | None) -> float | None:

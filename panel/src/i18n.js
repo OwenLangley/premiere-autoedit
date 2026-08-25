@@ -198,6 +198,14 @@ const EN = {
     "{count} clip(s) scaled to fill {width}x{height}; anything at the edge of frame is now cropped out",
   "warn.transcript.notImported":
     "{mediaId}: transcript not handed to Text-Based Editing ({detail}) — the cut itself is unaffected",
+  "warn.media.proxyAttached":
+    "{count} clip(s) are too heavy to play back at full resolution, so proxies are used — turn on Toggle Proxies in the program monitor to see them",
+  "warn.media.proxyBuilding":
+    "{count} clip(s) will not play back smoothly and their proxies are still building; the cut is correct either way, and playback catches up once they finish",
+  "warn.beat.snapped":
+    "{snapped} cut(s) placed on the beat at {bpm} BPM{held_clause}{dropped_clause}",
+  "warn.beat.gridUnavailable":
+    "beat confidence {confidence} is below {threshold}, so the cuts follow the speech instead of the music — cutting to a wrong grid is worse than not cutting to one",
   "warn.timebase.followedFootage":
     "sequence set to {chosen}fps to match the footage; the recipe asks for {recipe}fps, which no whole number of source frames lands on exactly",
   "warn.timebase.mixedRates":
@@ -384,6 +392,14 @@ const JA = {
     "{count} 件のクリップを {width}x{height} に合わせて拡大しました。画面端に写っているものは切れています",
   "warn.transcript.notImported":
     "{mediaId}：文字起こしをテキストベース編集に渡せませんでした（{detail}）。カット自体には影響ありません",
+  "warn.media.proxyAttached":
+    "{count} 件のクリップは元の解像度では再生が追いつかないため、プロキシを使用します。プログラムモニターの「プロキシの切り替え」をオンにしてください",
+  "warn.media.proxyBuilding":
+    "{count} 件のクリップは再生が滑らかになりません。プロキシを作成中です（編集内容には影響しません。作成が終わると再生も追いつきます）",
+  "warn.beat.snapped":
+    "{bpm} BPM のビートに合わせてカットを {snapped} 箇所配置しました{held_clause}{dropped_clause}",
+  "warn.beat.gridUnavailable":
+    "ビート検出の信頼度が {confidence} で基準の {threshold} を下回るため、音楽ではなく話し方に合わせてカットしました（誤ったビートに合わせるより、合わせない方が安全です）",
   "warn.timebase.followedFootage":
     "素材に合わせてシーケンスを {chosen}fps に設定しました（レシピの指定は {recipe}fps ですが、素材のフレームがちょうど収まりません）",
   "warn.timebase.mixedRates":

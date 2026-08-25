@@ -26,6 +26,16 @@ detection:
   min_confidence: 0.60     # tighter cuts need a more trustworthy transcript
   protect_margin: 0.20
 
+music:
+  # A vertical short lives or dies on whether the picture moves with the track,
+  # so the grid wins and a clipped word at a join is an acceptable price.
+  #
+  # One beat, not a bar: speech segments here are often under a second, and a
+  # two-beat quantum threw away every one that could not fill 1.15s. Any beat is
+  # still the beat -- the cut lands with the track either way.
+  beats_per_cut: 1
+  beat_priority: music
+
 transcription:
   provider: whisper-local
   model: large-v3

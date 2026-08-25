@@ -92,6 +92,22 @@ CATALOGUE: dict[str, str] = {
     "music.stopsEarly":
         "the music stops {shortfall:.1f}s before the picture does",
 
+    # --- cutting to the beat -----------------------------------------------
+    "beat.snapped":
+        "{snapped} cut(s) placed on the beat at {bpm} BPM"
+        "{held_clause}{dropped_clause}",
+    "beat.gridUnavailable":
+        "beat confidence {confidence:.2f} is below {threshold:.2f}, so the cuts follow the "
+        "speech instead of the music -- cutting to a wrong grid is worse than not cutting to one",
+
+    # --- playback -----------------------------------------------------------
+    "media.proxyAttached":
+        "{count} clip(s) are too heavy to play back at full resolution, so proxies "
+        "are used -- turn on Toggle Proxies in the program monitor to see them",
+    "media.proxyBuilding":
+        "{count} clip(s) will not play back smoothly and their proxies are still "
+        "building; the cut is correct either way, and playback catches up once they finish",
+
     # --- timebase ----------------------------------------------------------
     "timebase.followedFootage":
         "sequence set to {chosen} to match the footage; the recipe asks for {recipe}, "

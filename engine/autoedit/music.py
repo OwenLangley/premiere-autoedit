@@ -27,6 +27,13 @@ SAMPLE_RATE = 22050
 HOP = 512
 WINDOW = 1024
 
+# How far a cut may be moved to reach a beat when the speech has priority.
+# Half a beat at 104 BPM is 288ms, so this deliberately does NOT reach every
+# beat: only cuts that are already close get pulled onto the grid, and the rest
+# are left where the words put them. That asymmetry is the whole point of
+# `beat_priority: speech`.
+MAX_BEAT_NUDGE = 0.12
+
 MIN_BPM = 60.0
 MAX_BPM = 200.0
 
