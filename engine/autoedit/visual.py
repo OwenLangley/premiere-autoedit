@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 from .detect import KIND_SILENCE, CutPlan, Drop, Keep
 from .music import BeatGrid
+from .notes import note
 
 _PTS = re.compile(r"pts_time:([0-9.]+)")
 _KV = re.compile(r"lavfi\.(?:signalstats\.)?([A-Za-z_]+)=([-0-9.eE]+)")
@@ -501,7 +502,7 @@ def analyse(
         return VisualAnalysis([], ["no shots detected"])
 
     if not measured.samples:
-        warnings.append("frame analysis produced no samples; quality gates skipped")
+        warnings.append(note("visual.noSamples"))
 
     scored = score_shots(
         measured.shots, measured.samples, settings,
@@ -512,12 +513,9 @@ def analyse(
 
     rejected = [s for s in scored if not s.usable]
     if rejected and len(rejected) == len(scored):
-        warnings.append(
-            "every shot failed a quality gate -- thresholds are probably wrong for "
-            "this footage; loosen min_sharpness / min_brightness in the recipe"
-        )
+        warnings.append(note("visual.allShotsFailed"))
     elif rejected:
-        warnings.append(f"{len(rejected)} of {len(scored)} shots rejected on quality")
+        warnings.append(note("visual.shotsRejected", rejected=len(rejected), total=len(scored)))
 
     return VisualAnalysis(scored, warnings)
 
@@ -551,14 +549,13 @@ def plan_visual_cuts(
 
     use_beats = bool(beats and settings.snap_to_beats and beats.beats)
     if beats and settings.snap_to_beats and not beats.beats:
-        warnings.append("beat detection found no beats; falling back to fixed-length takes")
+        warnings.append(note("visual.noBeats"))
     if use_beats and beats.confidence < settings.min_beat_confidence:
         use_beats = False
-        warnings.append(
-            f"beat confidence {beats.confidence:.2f} is below "
-            f"{settings.min_beat_confidence:.2f}; cutting to a wrong grid is worse "
-            "than not cutting to one, so fixed-length takes are used instead"
-        )
+        warnings.append(note(
+            "visual.lowBeatConfidence",
+            confidence=beats.confidence, threshold=settings.min_beat_confidence,
+        ))
 
     take = settings.shot_duration
     if use_beats:
@@ -596,10 +593,10 @@ def plan_visual_cuts(
         if settings.target_duration and total >= settings.target_duration:
             remaining = len(usable) - index - 1
             if remaining:
-                warnings.append(
-                    f"reached the {settings.target_duration:.0f}s target with "
-                    f"{remaining} usable shot(s) unused"
-                )
+                warnings.append(note(
+                    "visual.targetReachedEarly",
+                    seconds=settings.target_duration, remaining=remaining,
+                ))
             break
 
     for scored in analysis.shots:
@@ -608,5 +605,5 @@ def plan_visual_cuts(
                               scored.rejected or "rejected"))
 
     if not keeps:
-        warnings.append("no clips survived visual cut planning")
+        warnings.append(note("visual.nothingSurvived"))
     return CutPlan(keeps, drops, warnings)

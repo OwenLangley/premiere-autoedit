@@ -211,7 +211,11 @@ function transact(project, build, undoLabel) {
 
 /** macOS filesystems are case-insensitive; compare paths accordingly. */
 function normalizePath(p) {
-  return String(p || "").replace(/\/+$/, "").toLowerCase();
+  // NFC because macOS returns decomposed forms from some APIs and composed from
+  // others. With ASCII names the two are identical and this never mattered; with
+  // a Japanese filename the mismatch made an imported clip look missing, so it
+  // was imported again on every build.
+  return String(p || "").normalize("NFC").replace(/\/+$/, "").toLowerCase();
 }
 
 /**
@@ -404,8 +408,8 @@ async function createSubclips(project, plan, items) {
   const root = await project.getRootItem();
   const all = await root.getItems();
   for (const { key, clip } of wanted) {
-    const name = subclipName(clip, plan);
-    const match = all.find((it) => it.name === name);
+    const name = subclipName(clip, plan).normalize("NFC");
+    const match = all.find((it) => String(it.name || "").normalize("NFC") === name);
     if (match) byKey.set(key, match);
   }
   return byKey;

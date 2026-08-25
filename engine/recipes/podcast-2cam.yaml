@@ -29,7 +29,7 @@ detection:
 transcription:
   provider: whisper-local
   model: large-v3
-  language: en
+  language: auto           # detected from the audio; the panel can override
   word_timestamps: true
   diarize: prefer-channels   # isolated mics beat speaker diarisation when present
 

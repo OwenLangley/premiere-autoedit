@@ -341,3 +341,35 @@ def test_no_chunk_adds_no_flags():
         request(music="drive.mp3"), Path("/jobs"), Path("/media"), Path("/cache"),
     )
     assert not any(a.startswith("--music-start") or a.startswith("--music-length") for a in argv)
+
+
+# --- the speech path actually runs ------------------------------------------
+
+
+def test_the_speech_path_survives_duration_fitting(tmp_path):
+    """A CLI run through the transcript path, end to end.
+
+    This exists because of a real outage: the per-clip loop rebound `options`,
+    which already held the job's JobOptions, so every speech job died on
+    `options.duration_mode`. Nothing caught it because the work at the time was
+    all going through `--visual`, which never enters that loop. A unit test of
+    either half would still have passed.
+    """
+    import sys
+    from autoedit.cli import main as engine_main
+
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    media = fixtures / "sample_25fps_1080p.mp4"
+    if not media.exists():
+        pytest.skip("sample fixture not generated")
+
+    out = tmp_path / "SPEECH.editplan.json"
+    code = engine_main([
+        "plan", "--job", "SPEECH", "--recipe", "podcast-2cam",
+        "--media", str(media), "--media-root", str(fixtures),
+        "--transcript", str(fixtures / "sample_25fps_1080p.transcript.json"),
+        "--duration", "5", "--duration-mode", "upTo",
+        "--work-dir", str(tmp_path / "cache"), "--out", str(out),
+    ])
+    assert code == 0, "the speech path must reach the end without an AttributeError"
+    assert out.exists()

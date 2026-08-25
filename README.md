@@ -345,3 +345,57 @@ single transaction silently does not work, so clips are placed as subclips.
 
 Adobe's ExtendScript support for Premiere ends around September 2026. UXP is the
 only sensible target; this project does not contain any ExtendScript.
+
+## Japanese
+
+The panel runs in Japanese, and Japanese footage cuts properly. Pick the language
+in **Setup → パネルの言語**; it is remembered per machine, so a mixed team shares
+one install.
+
+**The spoken language is detected, not configured.** Recipes ship as
+`language: auto`, Whisper identifies it from the audio, and the panel shows what
+it found with a dropdown to correct it. A wrong guess produces a fluent,
+confident and meaningless transcript, so low confidence is reported rather than
+acted on quietly.
+
+**Filler removal works, and getting there required measuring.** Whisper does not
+tokenise Japanese into words:
+
+| Spoken | Tokens returned |
+|---|---|
+| `えーと` | `えー` + `と、` |
+| `うーん` | `う` + `ーん、` |
+| `あの、` | `あの、` |
+
+The commonest hesitation sounds are never a single token, so matching one at a
+time cannot find them. Fillers are matched across a *run* of consecutive tokens,
+joined with nothing for languages written without spaces and with a space
+otherwise — one mechanism that covers English "you know" as well.
+
+Conservative removes hesitation sounds only. Aggressive also removes あの, その,
+まあ, なんか — real words used as filler, the same judgement that keeps English
+"like" out of the conservative set. `うん` and `ええ` are deliberately in neither:
+they mean *yes*, and cutting someone's agreement out of an interview is a
+different kind of mistake.
+
+Warnings translate too. The engine emits a key and the numbers, not a sentence:
+
+```jsonc
+{ "code": "music", "messageKey": "music.stopsEarly", "params": { "shortfall": 0.1 },
+  "message": "the music stops 0.1s before the picture does" }
+```
+
+so the panel can render 「音楽が映像より 0.1 秒早く終わります」, and a warning with
+no translation yet falls back to the English rather than vanishing. An editor who
+cannot read a warning is worse off than one who sees none, because they assume
+it is fine.
+
+**Not translated, deliberately:** per-clip `reason` strings ("shot 3 of 14,
+quality 0.71"). They live in the plan JSON rather than the panel, and translating
+them triples the catalogue for no editor-facing gain.
+
+**The Japanese was written by the tool's author, not a native speaker.** Terms
+like 尺 and テロップ are where a translation comes out fluent and wrong, which is
+harder to spot than obviously broken — worth a colleague reading
+`panel/src/i18n.js` before it goes out.
+

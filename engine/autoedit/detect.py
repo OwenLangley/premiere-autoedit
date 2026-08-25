@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
+from .notes import Note, note
 from .transcript import Transcript, Word
 
 EPS = 1e-6
@@ -39,10 +40,47 @@ AGGRESSIVE_FILLERS: frozenset[str] = CONSERVATIVE_FILLERS | frozenset(
     {"like", "basically", "actually", "literally", "honestly", "obviously", "right", "so"}
 )
 
-# Matched as contiguous runs. Aggressive mode only, same reasoning.
-MULTIWORD_FILLERS: tuple[tuple[str, ...], ...] = (
-    ("you", "know"), ("i", "mean"), ("sort", "of"), ("kind", "of"), ("you", "see"),
+# Phrases, matched across a run of consecutive words. Aggressive only, same
+# reasoning as the single words above.
+EN_MULTIWORD: frozenset[str] = frozenset(
+    {"you know", "i mean", "sort of", "kind of", "you see"}
 )
+
+# --- Japanese --------------------------------------------------------------
+#
+# Whisper does not tokenise Japanese into words. Measured on real output:
+# `えーと` arrives as `えー` + `と`, `うーん` as `う` + `ーん`, `えっと` as `え` +
+# `っと`. So the common hesitation sounds are never a single token and matching
+# one at a time cannot find them -- they have to be matched across a run, with
+# the pieces joined by nothing rather than by a space.
+JA_CONSERVATIVE: frozenset[str] = frozenset(
+    {
+        "えー", "えーと", "えーっと", "えっと", "えと", "ええと",
+        "あー", "ああ", "あのー", "あのう",
+        "うー", "うーん", "んー", "んーと", "んと",
+        "そのー", "そのう", "まー",
+    }
+)
+
+# Real words pressed into service as filler. `あの` is also "that", `ちょっと` is
+# also "a little" -- the same problem that keeps English "like" out of the
+# conservative set. Note what is deliberately absent: `うん` and `ええ` are "yes",
+# and cutting someone's agreement out of an interview is a different kind of
+# mistake entirely.
+JA_AGGRESSIVE: frozenset[str] = JA_CONSERVATIVE | frozenset(
+    {
+        "あの", "その", "まあ", "まぁ", "なんか", "ちょっと",
+        "やっぱり", "やっぱ", "っていうか", "ていうか", "なんていうか",
+    }
+)
+
+# Languages written without spaces between words, where a run of tokens joins up
+# with nothing between them.
+NO_SPACE_LANGUAGES: frozenset[str] = frozenset({"ja", "zh", "yue", "th", "lo", "my", "km"})
+
+# Whisper can split one short sound into three pieces; beyond that a "run" starts
+# swallowing real words.
+MAX_FILLER_RUN = 3
 
 
 @dataclass(frozen=True)
@@ -113,11 +151,20 @@ class DetectionSettings:
     # Seams
     crossfade: float = 0.0834        # ~2 frames at 24fps; set per-recipe from the timebase
 
-    def filler_lexicon(self) -> frozenset[str]:
+    def filler_lexicon(self, language: str = "en") -> frozenset[str]:
+        """The filler set for the language actually spoken.
+
+        Chosen by transcript language rather than by recipe, so one recipe serves
+        an English and a Japanese team without either having to remember a
+        setting.
+        """
+        aggressive = self.filler_mode == "aggressive"
         if self.filler_mode == "off":
             base: frozenset[str] = frozenset()
-        elif self.filler_mode == "aggressive":
-            base = AGGRESSIVE_FILLERS
+        elif str(language).lower().startswith("ja"):
+            base = JA_AGGRESSIVE if aggressive else JA_CONSERVATIVE
+        elif aggressive:
+            base = AGGRESSIVE_FILLERS | EN_MULTIWORD
         else:
             base = CONSERVATIVE_FILLERS
         return (base | self.extra_fillers) - self.keep_fillers
@@ -127,7 +174,7 @@ class DetectionSettings:
 class CutPlan:
     keeps: list[Keep] = field(default_factory=list)
     drops: list[Drop] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+    warnings: list["Note | str"] = field(default_factory=list)
 
     @property
     def kept_duration(self) -> float:
@@ -152,28 +199,44 @@ class CutPlan:
 # ---------------------------------------------------------------- classifiers
 
 
-def _filler_indices(words: list[Word], settings: DetectionSettings) -> dict[int, str]:
-    """Indices of filler words -> the reason string."""
-    lexicon = settings.filler_lexicon()
+def _filler_indices(
+    words: list[Word], settings: DetectionSettings, language: str = "en"
+) -> dict[int, str]:
+    """Indices of filler words -> the reason string.
+
+    Matches over a RUN of consecutive words, longest first, joined the way the
+    language writes them. One mechanism covers English "you know" and Japanese
+    `えー` + `と`, which Whisper hands back as two tokens of one sound.
+    """
+    lexicon = settings.filler_lexicon(language)
     if not lexicon:
         return {}
 
+    joiner = "" if str(language).lower().split("-")[0] in NO_SPACE_LANGUAGES else " "
     found: dict[int, str] = {}
     norms = [w.norm for w in words]
 
-    for i, n in enumerate(norms):
-        if n and n in lexicon:
-            found[i] = f"filler {words[i].text!r}"
-
-    if settings.filler_mode == "aggressive":
-        for phrase in MULTIWORD_FILLERS:
-            span = len(phrase)
-            for i in range(len(norms) - span + 1):
-                if tuple(norms[i : i + span]) == phrase:
-                    # Only when spoken as one unit -- a real clause has pauses in it.
-                    if all(words[j + 1].start - words[j].end < 0.25 for j in range(i, i + span - 1)):
-                        for j in range(i, i + span):
-                            found.setdefault(j, f"filler {' '.join(phrase)!r}")
+    i = 0
+    while i < len(norms):
+        matched = 0
+        # Longest first: with (`えー`, `と`) both `えー` and `えーと` are fillers,
+        # and taking the short one strands `と` on its own.
+        for span in range(min(MAX_FILLER_RUN, len(norms) - i), 0, -1):
+            run = norms[i : i + span]
+            if not all(run):
+                continue
+            # A run has to be spoken as one unit; a real clause has pauses in it.
+            if span > 1 and any(
+                words[j + 1].start - words[j].end >= 0.25 for j in range(i, i + span - 1)
+            ):
+                continue
+            phrase = joiner.join(run)
+            if phrase in lexicon:
+                for j in range(i, i + span):
+                    found[j] = f"filler {phrase!r}"
+                matched = span
+                break
+        i += matched or 1
     return found
 
 
@@ -321,7 +384,7 @@ def plan_cuts(
     if problems:
         warnings.extend(problems)
 
-    fillers = _filler_indices(words, settings)
+    fillers = _filler_indices(words, settings, transcript.language)
     stutters = _stutter_indices(words, settings)
     protected = _protected_regions(words, settings)
 
@@ -346,10 +409,10 @@ def plan_cuts(
     if protected:
         vetoed = [d for d in raw if any(_overlaps(d, p) for p in protected)]
         if vetoed:
-            warnings.append(
-                f"{len(vetoed)} cut(s) skipped over low-confidence speech "
-                f"(below {settings.min_confidence:g}); review those sections by hand"
-            )
+            warnings.append(note(
+                "cut.lowConfidenceSkipped",
+                count=len(vetoed), threshold=settings.min_confidence,
+            ))
         raw = [d for d in raw if d not in vetoed]
 
     # Converge: repeatedly cancel the cut responsible for a too-short clip.
@@ -418,9 +481,6 @@ def plan_cuts(
 
     dropped_pct = 1.0 - (sum(k.duration for k in keeps_out) / media_duration if media_duration else 1.0)
     if dropped_pct > 0.6:
-        warnings.append(
-            f"cut removed {dropped_pct * 100:.0f}% of the source -- unusually aggressive, "
-            "check min_silence and filler_mode before trusting this assembly"
-        )
+        warnings.append(note("cut.veryAggressive", percent=dropped_pct * 100))
 
     return CutPlan(keeps=keeps_out, drops=final_drops, warnings=warnings)

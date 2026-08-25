@@ -52,16 +52,32 @@ test("a complete form validates", () => {
   assert.deepStrictEqual(validateRequest(buildRequest(form())), []);
 });
 
-test("problems are phrased for an editor, not a log", () => {
-  assert.ok(validateRequest(buildRequest(form({ jobId: "" })))[0].includes("Give the job a name"));
-  assert.ok(validateRequest(buildRequest(form({ media: [] })))[0].includes("at least one clip"));
-  assert.ok(validateRequest(buildRequest(form({ recipe: "" })))[0].includes("Choose a recipe"));
+test("problems come back as keys, so the form can be translated", () => {
+  // Prose here would have made the form the one untranslatable part of the
+  // panel -- and the form is where a Japanese editor spends all their time.
+  assert.deepEqual(validateRequest(buildRequest(form({ jobId: "" }))), ["err.nameRequired"]);
+  assert.deepEqual(validateRequest(buildRequest(form({ media: [] }))), ["err.clipsRequired"]);
+  assert.deepEqual(validateRequest(buildRequest(form({ recipe: "" }))), ["err.recipeRequired"]);
+});
+
+test("every error key has a translation in both languages", () => {
+  const { EN, JA } = require("../src/i18n");
+  const cases = [
+    form({ jobId: "" }), form({ media: [] }), form({ recipe: "" }),
+    form({ jobId: ".hidden" }),
+  ];
+  for (const f of cases) {
+    for (const key of validateRequest(buildRequest(f))) {
+      assert.ok(EN[key], `no English for ${key}`);
+      assert.ok(JA[key], `no Japanese for ${key}`);
+    }
+  }
 });
 
 test("a nonsense length is rejected", () => {
   const r = buildRequest(form({ durationMode: "upTo", durationSeconds: 30 }));
   r.options.duration.seconds = 0;
-  assert.ok(validateRequest(r).some((e) => e.includes("more than zero")));
+  assert.ok(validateRequest(r).includes("err.lengthPositive"));
 });
 
 test("the summary reads as a sentence an editor can check", () => {
@@ -73,7 +89,7 @@ test("the summary reads as a sentence an editor can check", () => {
     media: ["a.mp4", "b.mp4"], aspect: "vertical", pacing: "punchy",
     durationMode: "upTo", durationSeconds: 30,
   }));
-  assert.strictEqual(describeRequest(r, caps), "2 clips · Vertical 9:16 · up to 30s · punchy");
+  assert.strictEqual(describeRequest(r, caps), "2 clips · Vertical 9:16 · up to 30s · Punchy");
 });
 
 test("a plain job summarises without noise", () => {
@@ -143,7 +159,7 @@ test("a non-string music value is rejected", () => {
   const request = buildRequest({ jobId: "EP001", recipe: "social-short", media: ["a.mp4"] });
   // Deliberately the wrong shape -- the point is that validation catches it.
   request.options.music = /** @type {any} */ ({ path: "theme.wav" });
-  assert.match(validateRequest(request).join(" "), /Music must be/);
+  assert.ok(validateRequest(request).includes("err.musicType"));
 });
 
 test("durations round to the nearest second", () => {
@@ -264,7 +280,7 @@ test("a chunk against automatic is rejected if it gets that far", () => {
     jobId: "EP001", recipe: "social-short", media: ["a.mp4"], music: "auto",
   });
   request.options.musicChunk = { startSeconds: 42.4 };
-  assert.match(validateRequest(request).join(" "), /Choose a track before/);
+  assert.ok(validateRequest(request).includes("err.musicNeedsTrack"));
 });
 
 test("a negative length is rejected", () => {
@@ -272,7 +288,7 @@ test("a negative length is rejected", () => {
     jobId: "EP001", recipe: "social-short", media: ["a.mp4"], music: "drive.mp3",
   });
   request.options.musicChunk = { lengthSeconds: -3 };
-  assert.match(validateRequest(request).join(" "), /more than zero/);
+  assert.ok(validateRequest(request).includes("err.musicLength"));
 });
 
 test("an empty length field means 'follow the edit', not zero seconds", () => {

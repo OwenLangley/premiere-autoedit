@@ -8,6 +8,8 @@
  * helper -- validate at the point of entry instead.
  */
 
+const { makeTranslator } = require("./i18n");
+
 const SCHEMA_VERSION = "1.0";
 
 const VIDEO_EXTENSIONS = [
@@ -62,8 +64,11 @@ function trackName(relPath) {
  * wrong track would be worse than one that predicts nothing.
  *
  * @param {{name?: string, relPath?: string, hasVideo?: boolean, hasAudio?: boolean, durationSeconds?: number}[]} files
+ * @param {any[]} [libraryFiles]
+ * @param {any} [translator]
  */
-function musicChoices(files, libraryFiles) {
+function musicChoices(files, libraryFiles, translator) {
+  const t = translator || makeTranslator("en");
   const asChoice = (prefix, suffix) => (f) => {
     const rel = f.relPath || f.name || "";
     const length = f.durationSeconds ? ` · ${formatDuration(f.durationSeconds)}` : "";
@@ -77,11 +82,11 @@ function musicChoices(files, libraryFiles) {
   // The "(with the footage)" note only earns its space once a library exists to
   // be distinguished from; with one source of tracks it is just noise.
   const beside = (files || []).filter(isTrack)
-    .map(asChoice("", library.length ? " (with the footage)" : ""));
+    .map(asChoice("", library.length ? ` ${t("music.withFootage")}` : ""));
 
   return [
-    { value: MUSIC_AUTO, label: "Automatic" },
-    { value: MUSIC_NONE, label: "No music" },
+    { value: MUSIC_AUTO, label: t("music.automatic") },
+    { value: MUSIC_NONE, label: t("music.none") },
     ...library,
     ...beside,
   ];
@@ -147,17 +152,37 @@ function formatTimecode(seconds) {
   return `${mins}:${secs}`;
 }
 
+// Characters a filename cannot hold on macOS or Windows, plus control codes.
+// Everything else -- including every script on earth -- is allowed through.
+const UNSAFE_IN_FILENAME = /[/\\:*?"<>|\u0000-\u001f]/g;
+
 /**
  * A job id that is safe as a filename and as a Premiere sequence name.
+ *
+ * Stripping to `[A-Za-z0-9 _-]` deleted whole alphabets: `エピソード1` arrived as
+ * `1` and was accepted without a word, and `ダンス動画` became empty and was
+ * reported as "give the job a name" to someone who just had. Only genuinely
+ * unsafe characters are removed now, and anything removed is reported rather
+ * than quietly applied -- see `validateRequest`.
+ *
+ * Normalised to NFC because macOS hands back decomposed forms from some APIs,
+ * and the id becomes a filename that later has to be found again.
+ *
  * @param {string} raw
  */
 function normaliseJobId(raw) {
-  const cleaned = String(raw || "")
+  return String(raw || "")
+    .normalize("NFC")
     .trim()
-    .replace(/[^A-Za-z0-9 _-]/g, "")
+    .replace(UNSAFE_IN_FILENAME, "")
     .replace(/\s+/g, " ")
     .slice(0, 64);
-  return cleaned;
+}
+
+/** True when normalising would silently change what the editor typed. */
+function jobIdWasChanged(raw) {
+  const typed = String(raw || "").normalize("NFC").trim().replace(/\s+/g, " ");
+  return typed.length > 0 && typed !== normaliseJobId(raw);
 }
 
 /**
@@ -166,7 +191,7 @@ function normaliseJobId(raw) {
  *   aspect?: string, pacing?: string, look?: string|null,
  *   durationMode?: string, durationSeconds?: number|null,
  *   music?: string, visual?: boolean,
- *   musicStart?: number, musicLength?: number, musicSnap?: boolean,
+ *   musicStart?: number, musicLength?: number, musicSnap?: boolean, language?: string,
  * }} form
  */
 function buildRequest(form) {
@@ -182,6 +207,9 @@ function buildRequest(form) {
   }
   if (form.look) options.look = form.look;
   if (form.visual) options.visual = true;
+  // Only when stated. Omitting it leaves the recipe on `auto`, which asks
+  // Whisper to identify the language from the audio.
+  if (form.language && form.language !== "auto") options.language = form.language;
 
   // Only a real track has a chunk; against "automatic" a start would apply to
   // whatever the engine happened to find.
@@ -204,45 +232,56 @@ function buildRequest(form) {
 }
 
 /**
- * Problems an editor can act on, phrased for them rather than for a log.
+ * Problems an editor can act on, as i18n keys rather than English.
+ *
+ * Returning prose here would have made the form the one part of the panel that
+ * could not be translated -- and the form is where a Japanese editor spends all
+ * their time. The panel renders these through `t()`.
+ *
  * @param {any} request
- * @returns {string[]}
+ * @returns {string[]} keys into the message catalogue
  */
 function validateRequest(request) {
   /** @type {string[]} */
   const errors = [];
-  if (!request || typeof request !== "object") return ["request is empty"];
+  if (!request || typeof request !== "object") return ["err.nameRequired"];
 
   if (!request.jobId) {
-    errors.push("Give the job a name");
-  } else if (!/^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/.test(request.jobId)) {
-    errors.push("Job name must start with a letter or number, and avoid punctuation");
+    errors.push("err.nameRequired");
+  } else if (/^[.\s]/.test(request.jobId)) {
+    // A leading dot hides the file from the helper's glob; leading space is a
+    // typo that produces a filename nobody can see is different.
+    errors.push("err.nameDotOrSpace");
+  } else if (UNSAFE_IN_FILENAME.test(request.jobId)) {
+    UNSAFE_IN_FILENAME.lastIndex = 0;   // the g flag makes .test stateful
+    errors.push("err.nameUnsafe");
   }
+  UNSAFE_IN_FILENAME.lastIndex = 0;
 
-  if (!request.recipe) errors.push("Choose a recipe");
+  if (!request.recipe) errors.push("err.recipeRequired");
   if (!Array.isArray(request.media) || request.media.length === 0) {
-    errors.push("Select at least one clip");
+    errors.push("err.clipsRequired");
   }
 
   const o = request.options || {};
   if (o.music !== undefined && typeof o.music !== "string") {
-    errors.push("Music must be a track name, 'auto' or 'none'");
+    errors.push("err.musicType");
   }
   if (o.musicChunk) {
     const c = o.musicChunk;
     if (c.startSeconds !== undefined && !(c.startSeconds >= 0)) {
-      errors.push("Music start must be a time like 0:42.4");
+      errors.push("err.musicStart");
     }
     if (c.lengthSeconds !== undefined && !(c.lengthSeconds > 0)) {
-      errors.push("Music length must be more than zero seconds");
+      errors.push("err.musicLength");
     }
     if (parseMusicValue(o.music).kind !== "track") {
-      errors.push("Choose a track before setting where in it to start");
+      errors.push("err.musicNeedsTrack");
     }
   }
   if (o.duration) {
-    if (!(o.duration.seconds > 0)) errors.push("Length must be more than zero seconds");
-    if (o.duration.seconds > 7200) errors.push("Length must be under two hours");
+    if (!(o.duration.seconds > 0)) errors.push("err.lengthPositive");
+    if (o.duration.seconds > 7200) errors.push("err.lengthTooLong");
   }
   return errors;
 }
@@ -257,29 +296,40 @@ function requestFileName(jobId) {
  * Worth the code: "Vertical 9:16, up to 30s, punchy" is checkable at a glance in
  * a way that a JSON blob never is.
  */
-function describeRequest(request, capabilities) {
+function describeRequest(request, capabilities, translator) {
+  const t = translator || makeTranslator("en");
   const o = request.options || {};
-  const label = (list, value, fallback) => {
-    const hit = (list || []).find((x) => x.value === value);
-    return hit ? hit.label : fallback || value;
-  };
   const caps = capabilities || {};
+  // The helper labels these in English. Prefer a translated label and fall back
+  // to whatever it sent, so a value added there still reads sensibly.
+  const label = (list, prefix, value) => {
+    const hit = (list || []).find((x) => x.value === value);
+    return t(`${prefix}.${value}`, {}, hit ? hit.label : value);
+  };
 
-  const bits = [`${request.media.length} clip${request.media.length === 1 ? "" : "s"}`];
-  if (o.aspect && o.aspect !== "source") bits.push(label(caps.aspects, o.aspect));
+  const count = request.media.length;
+  const bits = [t("sum.clips", { count, plural: count === 1 ? "" : "s" })];
+  if (o.aspect && o.aspect !== "source") bits.push(label(caps.aspects, "aspect", o.aspect));
   if (o.duration) {
-    const verb = { upTo: "up to", exactly: "exactly", about: "about" }[o.duration.mode] || "";
-    bits.push(`${verb} ${o.duration.seconds}s`);
+    const key = { upTo: "sum.upTo", exactly: "sum.exactly", about: "sum.about" }[o.duration.mode];
+    if (key) bits.push(t(key, { seconds: o.duration.seconds }));
   }
-  if (o.pacing && o.pacing !== "standard") bits.push(label(caps.pacing, o.pacing).toLowerCase());
-  if (o.look) bits.push(`look: ${o.look}`);
-  if (o.visual) bits.push("from pictures");
-  if (o.music === MUSIC_NONE) bits.push("no music");
+  if (o.pacing && o.pacing !== "standard") bits.push(label(caps.pacing, "pacing", o.pacing));
+  if (o.look) bits.push(t("sum.look", { name: o.look }));
+  if (o.visual) bits.push(t("sum.fromPictures"));
+  if (o.music === MUSIC_NONE) bits.push(t("sum.noMusic"));
   else if (o.music && o.music !== MUSIC_AUTO) {
     const c = o.musicChunk || {};
-    const from = c.startSeconds ? ` from ${formatTimecode(c.startSeconds)}` : "";
-    const span = c.lengthSeconds ? ` for ${c.lengthSeconds}s` : "";
-    bits.push(`music: ${trackName(parseMusicValue(o.music).relPath)}${from}${span}`);
+    const name = trackName(parseMusicValue(o.music).relPath);
+    if (c.startSeconds && c.lengthSeconds) {
+      bits.push(t("sum.musicFromFor", {
+        name, start: formatTimecode(c.startSeconds), length: c.lengthSeconds,
+      }));
+    } else if (c.startSeconds) {
+      bits.push(t("sum.musicFrom", { name, start: formatTimecode(c.startSeconds) }));
+    } else {
+      bits.push(t("sum.music", { name }));
+    }
   }
   return bits.join(" · ");
 }
@@ -299,6 +349,7 @@ module.exports = {
   trackName,
   musicChoices,
   normaliseJobId,
+  jobIdWasChanged,
   buildRequest,
   validateRequest,
   requestFileName,

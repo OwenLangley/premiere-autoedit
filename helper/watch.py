@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import unicodedata
 import sys
 import time
 import traceback
@@ -164,8 +165,12 @@ def build_media_index(media_root: Path, max_files: int = MAX_INDEX_FILES) -> dic
         if info is None:
             continue
         entries.append({
-            "name": path.name,
-            "relPath": str(path.relative_to(media_root)),
+            # NFC on both: macOS filesystems hand back decomposed forms, and the
+            # panel compares these strings against names Premiere reports. With
+            # ASCII the two forms are identical; with Japanese they are not, and
+            # the clip silently fails to resolve.
+            "name": unicodedata.normalize("NFC", path.name),
+            "relPath": unicodedata.normalize("NFC", str(path.relative_to(media_root))),
             "hasVideo": info.has_video,
             "hasAudio": info.has_audio,
             "durationSeconds": round(info.duration, 2),

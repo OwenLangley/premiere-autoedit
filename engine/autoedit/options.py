@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Literal
 
+from .notes import note, trimmed_key
 from .detect import CutPlan, DetectionSettings, Keep
 from .visual import VisualSettings
 
@@ -184,10 +185,7 @@ def fit_duration(
         upper = seconds * (1 + tolerance)
         if total <= upper:
             if total < seconds * (1 - tolerance):
-                warnings.append(
-                    f"came out at {total:.0f}s against a target of about {seconds:.0f}s -- "
-                    "there was not enough usable material to reach it"
-                )
+                warnings.append(note("length.shortOfAbout", total=total, seconds=seconds))
             return CutPlan(keeps, plan.drops, warnings)
         target = seconds
     else:
@@ -196,8 +194,7 @@ def fit_duration(
     if total <= target:
         if mode in ("upTo", "exactly"):
             warnings.append(
-                f"came out at {total:.0f}s against a {seconds:.0f}s target -- "
-                "there was not enough usable material to fill it"
+                note("length.shortOfTarget", total=total, seconds=seconds)
             )
         return CutPlan(keeps, plan.drops, warnings)
 
@@ -235,14 +232,12 @@ def fit_duration(
                 running = target
 
     if dropped:
-        warnings.append(
-            f"trimmed to {running:.0f}s for the {seconds:.0f}s target "
-            f"({dropped} clip(s) dropped, {'lowest quality first' if strategy == 'worst' else 'from the end'})"
-        )
+        warnings.append(note(
+            trimmed_key(strategy),
+            running=f"{running:.0f}", seconds=f"{seconds:.0f}", dropped=dropped,
+        ))
     if not kept:
-        warnings.append(
-            f"nothing fits inside {seconds:.0f}s -- the shortest available clip is longer than the target"
-        )
+        warnings.append(note("length.nothingFits", seconds=seconds))
 
     return CutPlan(kept, plan.drops, warnings)
 
@@ -270,16 +265,14 @@ def fit_duration_across(
     if mode == "about" and total <= seconds * (1 + tolerance):
         if total < seconds * (1 - tolerance):
             plans[0][1].warnings.append(
-                f"came out at {total:.0f}s against a target of about {seconds:.0f}s -- "
-                "there was not enough usable material to reach it"
+                note("length.shortOfAbout", total=total, seconds=seconds)
             )
         return plans
 
     if total <= seconds:
         if mode in ("upTo", "exactly"):
             plans[0][1].warnings.append(
-                f"came out at {total:.0f}s against a {seconds:.0f}s target -- "
-                "there was not enough usable material to fill it"
+                note("length.shortOfTarget", total=total, seconds=seconds)
             )
         return plans
 
@@ -340,13 +333,12 @@ def fit_duration_across(
                 break
 
     if dropped:
-        target_note = "lowest quality first" if strategy == "worst" else "from the end"
         fmt = lambda x: f"{x:.1f}" if x < 10 else f"{x:.0f}"
         for _, plan in out:
             if plan.keeps or plan.warnings:
-                plan.warnings.append(
-                    f"trimmed to {fmt(running)}s for the {fmt(seconds)}s target "
-                    f"({dropped} clip(s) dropped, {target_note})"
-                )
+                plan.warnings.append(note(
+                    trimmed_key(strategy),
+                    running=fmt(running), seconds=fmt(seconds), dropped=dropped,
+                ))
                 break
     return out

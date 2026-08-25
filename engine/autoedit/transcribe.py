@@ -85,12 +85,23 @@ class SidecarProvider:
         )
 
 
+def _stated_language(value: str | None) -> str | None:
+    """`auto`, empty and None all mean "work it out from the audio"."""
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    return None if text in ("", "auto", "detect") else text
+
+
 @dataclass
 class WhisperProvider:
     """faster-whisper, locally. Audio never leaves the machine."""
 
     model: str = "large-v3"
-    language: str | None = "en"
+    # "auto" (or None) lets Whisper identify the language from the audio. The old
+    # default of "en" was applied to every recipe, so Japanese speech was
+    # transcribed as though it were English -- confidently, and as nonsense.
+    language: str | None = "auto"
     compute_type: str = "auto"
 
     def transcribe(self, audio_path: Path, media_id: str, options: dict) -> Transcript:
@@ -104,9 +115,10 @@ class WhisperProvider:
 
         model_name = options.get("model", self.model)
         model = WhisperModel(model_name, compute_type=options.get("compute_type", self.compute_type))
-        segments, _info = model.transcribe(
+        stated = _stated_language(options.get("language", self.language))
+        segments, info = model.transcribe(
             str(audio_path),
-            language=options.get("language", self.language),
+            language=stated,               # None asks Whisper to identify it
             word_timestamps=True,          # non-negotiable
             vad_filter=options.get("vad_filter", True),
         )
@@ -121,7 +133,10 @@ class WhisperProvider:
             for w in seg.words:
                 words.append(Word(w.word.strip(), float(w.start), float(w.end),
                                   float(getattr(w, "probability", 1.0))))
-        return Transcript(media_id, words, options.get("language") or "en")
+        detected = getattr(info, "language", None) or stated or "en"
+        confidence = getattr(info, "language_probability", None) if stated is None else None
+        return Transcript(media_id, words, detected,
+                          float(confidence) if confidence is not None else None)
 
 
 @dataclass

@@ -16,9 +16,11 @@ const {
 const {
   isVideoFile, buildRequest, validateRequest, requestFileName, describeRequest,
   musicChoices, parseMusicValue, parseTimecode, formatTimecode, parseSeconds,
+  normaliseJobId, jobIdWasChanged,
 } = require("./request");
 const { audition, playheadSeconds, AuditionError } = require("./audition");
 const { runSelfTest } = require("./selftest");
+const { LANGUAGES, makeTranslator } = require("./i18n");
 
 /** @type {(id: string) => any} document.getElementById is typed HTMLElement; the
  * panel needs the concrete input/select members. */
@@ -40,6 +42,9 @@ const state = {
   // the edit length behind their back. A plain flag rather than dataset, which
   // UXP's DOM does not reliably provide.
   musicLengthTouched: false,
+  // The editor's interface language. Swapped live rather than on reload, because
+  // "restart Premiere to read the label you cannot read" is not an instruction.
+  t: makeTranslator("en"),
   selectedMedia: new Set(),
   watching: null,          // interval id while a job is being worked on
 };
@@ -59,10 +64,59 @@ async function showFolder(token, el, fallback) {
   return folder;
 }
 
+/**
+ * Push the current language into the markup.
+ *
+ * Elements carry `data-i18n` (and `data-i18n-placeholder`) and keep their
+ * English as the literal text, so the panel is readable even if this never runs.
+ */
+function applyTranslations() {
+  const t = state.t;
+  for (const el of Array.from(document.querySelectorAll("[data-i18n]"))) {
+    const key = el.getAttribute("data-i18n");
+    if (key) el.textContent = t(key, {}, el.textContent);
+  }
+  for (const el of Array.from(document.querySelectorAll("[data-i18n-placeholder]"))) {
+    const key = el.getAttribute("data-i18n-placeholder");
+    if (key) el.setAttribute("placeholder", t(key, {}, el.getAttribute("placeholder") || ""));
+  }
+  // Selects are filled from data, so they have to be rebuilt in the new language.
+  fillSelect("opt-ui-language", LANGUAGES, LANGUAGES);
+  $("opt-ui-language").value = t.lang;
+  fillSelect("opt-language", spokenLanguages(), spokenLanguages());
+  if (state.capabilities) applyCapabilityLabels(state.capabilities);
+  fillMusicSelect();
+  renderSummary_();
+  // The folder rows hold values, not labels, so the generic walk skips them --
+  // but "not set" is still a phrase and still has to follow the language.
+  refreshSetup().catch(() => { /* first run, before any folder is chosen */ });
+}
+
+/** Spoken-language choices. Detection first: it is right almost every time. */
+function spokenLanguages() {
+  const t = state.t;
+  return [
+    { value: "auto", label: t("lang.auto") },
+    { value: "ja", label: t("lang.ja") },
+    { value: "en", label: t("lang.en") },
+  ];
+}
+
+/** Relabel the helper's English enums in the editor's language. */
+function applyCapabilityLabels(caps) {
+  const t = state.t;
+  const relabel = (list, prefix) =>
+    (list || []).map((x) => ({ value: x.value, label: t(`${prefix}.${x.value}`, {}, x.label) }));
+  fillSelect("opt-aspect", relabel(caps.aspects, "aspect"), [{ value: "source", label: t("aspect.source") }]);
+  fillSelect("opt-pacing", relabel(caps.pacing, "pacing"), [{ value: "standard", label: t("pacing.standard") }]);
+  fillSelect("opt-duration-mode", relabel(caps.durationModes, "duration"), [{ value: "none", label: t("duration.none") }]);
+  fillSelect("opt-look", [{ value: "", label: t("look.none") }, ...(caps.looks || [])], [{ value: "", label: t("look.none") }]);
+}
+
 async function refreshSetup() {
-  await showFolder(state.settings.mediaToken, $("media-path"), "not set");
-  await showFolder(state.settings.jobsToken, $("jobs-path"), "not set");
-  await showFolder(state.settings.musicToken, $("music-path"), "not set (optional)");
+  await showFolder(state.settings.mediaToken, $("media-path"), state.t("setup.notSet"));
+  await showFolder(state.settings.jobsToken, $("jobs-path"), state.t("setup.notSet"));
+  await showFolder(state.settings.musicToken, $("music-path"), state.t("setup.notSetOptional"));
   state.transport = state.settings.jobsToken
     ? new LocalFolderTransport(state.settings.jobsToken)
     : null;
@@ -72,7 +126,7 @@ async function refreshPlans() {
   const list = $("plan-list");
   list.innerHTML = "";
   if (!state.transport) {
-    list.innerHTML = "<option>No jobs folder set</option>";
+    list.innerHTML = `<option>${state.t("plan.none")}</option>`;
     return;
   }
   try {
@@ -142,16 +196,17 @@ function renderSummary() {
   const box = $("plan-summary");
   box.classList.remove("hidden");
   box.innerHTML = "";
+  const t = state.t;
   const rows = [
-    ["Sequence", state.plan.sequence.name],
-    ["Recipe", state.plan.recipe],
-    ["Clips", String(s.clipCount)],
-    ["Duration", s.timecode],
-    ["Sources", String(s.mediaCount)],
+    [t("plan.sequence"), state.plan.sequence.name],
+    [t("plan.recipe"), state.plan.recipe],
+    [t("plan.clips"), String(s.clipCount)],
+    [t("plan.duration"), s.timecode],
+    [t("plan.sources"), String(s.mediaCount)],
   ];
   if (s.graphicsCount) rows.push(["Graphics", String(s.graphicsCount)]);
   if (s.markerCount) rows.push(["Markers", String(s.markerCount)]);
-  rows.push(["Mean confidence", `${Math.round(s.meanConfidence * 100)}%`]);
+  rows.push([t("plan.confidence"), `${Math.round(s.meanConfidence * 100)}%`]);
 
   for (const [label, value] of rows) {
     const row = document.createElement("div");
@@ -168,7 +223,9 @@ function renderSummary() {
       `gates. Review those before trusting the cut.`
     );
   }
-  for (const w of s.warnings) message(w.message || String(w));
+  // Rendered from the warning's key and params when we have a translation, and
+  // from the English the engine already wrote when we do not.
+  for (const w of s.warnings) message(state.t.warning(w));
 }
 
 function renderSections() {
@@ -221,8 +278,8 @@ async function onApply() {
       brandkit: state.settings.brandkit,
       onProgress: (stage, detail) => log(`  ${stage}: ${detail}`),
     });
-    report.warnings.forEach((w) => log(`  warning: ${w}`, "err"));
-    log(`Done — ${report.stages.join(", ")}`, "ok");
+    report.warnings.forEach((w) => log(state.t("msg.buildWarning", { message: w }), "err"));
+    log(state.t("msg.built", { stages: report.stages.join(", ") }), "ok");
     if (state.transport && state.planName) {
       await state.transport.writeReceipt(state.planName, {
         appliedAt: new Date().toISOString(),
@@ -253,10 +310,17 @@ $("pick-media").addEventListener("click", async () => {
 /** Absolute path of the chosen track, for the Source Monitor. */
 async function chosenTrackPath() {
   const chosen = parseMusicValue($("opt-music").value);
-  if (chosen.kind !== "track") throw new AuditionError("Choose a track first.");
+  if (chosen.kind !== "track") throw new AuditionError(state.t("msg.chooseTrackFirst"));
   const resolve = makeResolver(state.settings.mediaToken, state.settings.musicToken);
   return resolve(chosen.relPath, chosen.root);
 }
+
+$("opt-ui-language").addEventListener("change", () => {
+  const lang = $("opt-ui-language").value || "en";
+  state.settings = saveSettings({ uiLanguage: lang });
+  state.t = makeTranslator(lang);
+  applyTranslations();
+});
 
 $("music-audition").addEventListener("click", async () => {
   try {
@@ -264,11 +328,11 @@ $("music-audition").addEventListener("click", async () => {
     const start = parseTimecode($("opt-music-start").value) || 0;
     const result = await audition(path, { atSeconds: start });
     log(result.playing
-      ? "Auditioning in the Source Monitor -- park the playhead on the drop, then press Use playhead as start."
-      : `Opened in the Source Monitor, but it would not start playing: ${result.detail}`,
+      ? state.t("music.auditioning")
+      : state.t("msg.auditionFailed", { message: result.detail }),
       result.playing ? undefined : "err");
   } catch (err) {
-    log(`Could not audition: ${err.message}`, "err");
+    log(state.t("msg.auditionFailed", { message: err.message }), "err");
   }
 });
 
@@ -277,9 +341,9 @@ $("music-playhead").addEventListener("click", async () => {
     const seconds = await playheadSeconds();
     $("opt-music-start").value = formatTimecode(seconds);
     renderSummary_();
-    log(`Music starts at ${formatTimecode(seconds)} -- it will move to the nearest beat.`);
+    log(state.t("music.startSetTo", { time: formatTimecode(seconds) }));
   } catch (err) {
-    log(`Could not read the playhead: ${err.message}`, "err");
+    log(state.t("msg.playheadFailed", { message: err.message }), "err");
   }
 });
 
@@ -298,12 +362,12 @@ $("pick-music").addEventListener("click", async () => {
   if (state.transport) {
     try {
       await state.transport.writeConfig({ musicRoot: picked.path });
-      log(`Music folder: ${picked.path} -- indexing, press Reload in a moment.`);
+      log(state.t("msg.musicFolderSet", { path: picked.path }));
     } catch (err) {
       log(`Music folder set, but could not tell the helper: ${err.message}`, "err");
     }
   } else {
-    log("Music folder set. Choose a jobs folder so the helper can index it.", "err");
+    log(state.t("msg.musicFolderNoHelper"), "err");
   }
   await loadMediaList();
 });
@@ -347,22 +411,20 @@ async function loadCapabilities() {
   if (!caps) {
     // The helper has never run here. Say so plainly rather than offering an
     // empty form that fails on submit.
-    log("Helper has not run yet -- start it to enable new edits.", "err");
+    log(state.t("msg.helperMissing"), "err");
     $("create").disabled = true;
     return;
   }
   state.capabilities = caps;
   $("create").disabled = false;
 
+  // Recipe and look names are identifiers and brand-kit names, not prose.
   fillSelect("opt-recipe", (caps.recipes || []).map((r) => ({ value: r.name, label: r.name })), []);
-  fillSelect("opt-aspect", caps.aspects, [{ value: "source", label: "Match source" }]);
-  fillSelect("opt-pacing", caps.pacing, [{ value: "standard", label: "Standard" }]);
+  applyCapabilityLabels(caps);
   // Neutral defaults: the first entry in a list is not necessarily the sane one.
   if (!$("opt-pacing").value || $("opt-pacing").value === caps.pacing[0].value) {
     $("opt-pacing").value = "standard";
   }
-  fillSelect("opt-duration-mode", caps.durationModes, [{ value: "none", label: "No limit" }]);
-  fillSelect("opt-look", [{ value: "", label: "None" }, ...(caps.looks || [])], [{ value: "", label: "None" }]);
   // Music comes from the media index rather than capabilities, but the dropdown
   // must never render empty while waiting for it.
   fillMusicSelect();
@@ -371,21 +433,21 @@ async function loadCapabilities() {
 
 /** Rebuild the Music dropdown from whatever the last index gave us. */
 function fillMusicSelect() {
-  const choices = state.musicFiles && state.musicFiles.length
-    ? state.musicFiles
-    : musicChoices([]);
+  // Rebuilt rather than cached, so the labels follow the panel language.
+  const choices = musicChoices(
+    [...state.mediaIndex.values()], state.libraryFiles, state.t);
   fillSelect("opt-music", choices, choices);
   const tracks = choices.length - 2;   // minus Automatic and No music
   $("music-count").textContent = tracks
-    ? `(${tracks} track${tracks === 1 ? "" : "s"} found)`
-    : "(no tracks found)";
+    ? state.t("music.tracksFound", { count: tracks, plural: tracks === 1 ? "" : "s" })
+    : state.t("music.noTracks");
 }
 
 async function loadMediaList() {
   const box = $("media-list");
   box.innerHTML = "";
   if (!state.settings.mediaToken) {
-    box.innerHTML = '<div class="empty">Set a media root above.</div>';
+    box.innerHTML = `<div class="empty">${state.t("edit.noMediaRoot")}</div>`;
     return;
   }
   try {
@@ -399,22 +461,22 @@ async function loadMediaList() {
       // two `theme.wav` under different folders are different files.
       state.mediaIndex = new Map(index.files.map((f) => [f.relPath || f.name, f]));
       state.mediaFiles = index.files.filter((f) => f.hasVideo).map((f) => f.relPath || f.name);
-      state.musicFiles = musicChoices(index.files, state.libraryFiles);
+      state.musicFiles = musicChoices(index.files, state.libraryFiles, state.t);
       if (index.truncated) {
-        log(`Media index stopped at ${index.files.length} files -- some clips or tracks are not listed.`, "err");
+        log(state.t("msg.indexTruncated", { count: index.files.length }), "err");
       }
     } else {
       state.mediaIndex = new Map();
       state.mediaFiles = await listMediaFiles(state.settings.mediaToken, isVideoFile);
-      state.musicFiles = musicChoices([], state.libraryFiles);
+      state.musicFiles = musicChoices([], state.libraryFiles, state.t);
     }
     fillMusicSelect();
   } catch (err) {
-    box.innerHTML = `<div class="empty">Could not read the media root: ${err.message}</div>`;
+    box.innerHTML = `<div class="empty">${state.t("edit.mediaUnreadable", { message: err.message })}</div>`;
     return;
   }
   if (!state.mediaFiles.length) {
-    box.innerHTML = '<div class="empty">No video files in the media root.</div>';
+    box.innerHTML = `<div class="empty">${state.t("edit.noVideoFiles")}</div>`;
     return;
   }
   for (const name of state.mediaFiles) {
@@ -450,6 +512,7 @@ function currentForm() {
     visual: $("opt-visual").checked,
     durationMode: $("opt-duration-mode").value,
     durationSeconds: Number.isFinite(seconds) ? seconds : null,
+    language: $("opt-language").value || "auto",
     music: $("opt-music").value || "auto",
     musicStart: parseTimecode($("opt-music-start").value) || 0,
     musicLength: parseSeconds($("opt-music-length").value),
@@ -477,12 +540,22 @@ function renderMusicControls() {
 
 function renderSummary_() {
   renderMusicControls();
+  // Say so when normalising changed the name. Silently turning `a/b` into `ab`
+  // is the same class of bug as the one that used to eat Japanese entirely.
+  const typed = $("job-name").value;
+  const notice = $("job-name-notice");
+  if (jobIdWasChanged(typed)) {
+    notice.textContent = state.t("msg.jobIdChanged", { cleaned: normaliseJobId(typed) });
+    notice.classList.remove("hidden");
+  } else {
+    notice.classList.add("hidden");
+  }
   $("media-count").textContent = state.mediaFiles.length
-    ? `(${state.selectedMedia.size} of ${state.mediaFiles.length})`
+    ? state.t("edit.clipsCount", { selected: state.selectedMedia.size, total: state.mediaFiles.length })
     : "";
   const request = buildRequest(currentForm());
   $("request-summary").textContent = state.selectedMedia.size
-    ? describeRequest(request, state.capabilities || {})
+    ? describeRequest(request, state.capabilities || {}, state.t)
     : "";
   $("request-errors").innerHTML = "";
 }
@@ -495,14 +568,17 @@ async function onCreate() {
     problems.forEach((p) => {
       const el = document.createElement("div");
       el.className = "msg bad";
-      el.textContent = p;
+      el.textContent = state.t(p, {}, p);
       $("request-errors").appendChild(el);
     });
     return;
   }
 
   $("create").disabled = true;
-  log(`Requested "${request.jobId}" — ${describeRequest(request, state.capabilities || {})}`);
+  log(state.t("msg.requested", {
+    name: request.jobId,
+    summary: describeRequest(request, state.capabilities || {}, state.t),
+  }));
   try {
     await state.transport.writeRequest(requestFileName(request.jobId), request);
     watchJob(request.jobId);
@@ -599,10 +675,15 @@ $("plan-list").addEventListener("change", (e) => {
 
 (async function init() {
   try {
+    // Language before anything else, so a Japanese editor never sees an English
+    // panel flash past on the way in.
+    state.t = makeTranslator(state.settings.uiLanguage || "en");
+    applyTranslations();
     await refreshSetup();
     await refreshPlans();
     await loadCapabilities();
     await loadMediaList();
+    applyTranslations();
     log("Panel ready.");
   } catch (err) {
     // Surfacing this in the panel matters: a throw during init leaves every

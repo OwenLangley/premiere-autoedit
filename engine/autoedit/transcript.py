@@ -62,6 +62,10 @@ class Transcript:
     media_id: str
     words: list[Word] = field(default_factory=list)
     language: str = "en"
+    # None when the language was stated rather than detected. Recorded so the
+    # panel can show the guess and let an editor correct it, instead of the tool
+    # silently transcribing Japanese as English.
+    language_confidence: float | None = None
 
     def __len__(self) -> int:
         return len(self.words)
@@ -103,11 +107,14 @@ class Transcript:
         return problems
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "mediaId": self.media_id,
             "language": self.language,
             "words": [w.to_dict() for w in self.words],
         }
+        if self.language_confidence is not None:
+            d["languageConfidence"] = round(self.language_confidence, 4)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Transcript":
@@ -115,4 +122,5 @@ class Transcript:
             media_id=d["mediaId"],
             language=d.get("language", "en"),
             words=[Word.from_dict(w) for w in d["words"]],
+            language_confidence=d.get("languageConfidence"),
         )

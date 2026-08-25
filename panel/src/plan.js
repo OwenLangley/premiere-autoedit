@@ -236,7 +236,10 @@ function planTag(plan) {
  */
 function subclipName(clip, plan) {
   const ms = (seconds) => String(Math.round(seconds * 1000));
-  return `${clip.mediaId}__${ms(clip.inSeconds)}-${ms(clip.outSeconds)}__${planTag(plan)}`;
+  // NFC: mediaId comes from a filename, and a Japanese one can reach us composed
+  // or decomposed depending on which API produced it.
+  const id = String(clip.mediaId || "").normalize("NFC");
+  return `${id}__${ms(clip.inSeconds)}-${ms(clip.outSeconds)}__${planTag(plan)}`;
 }
 
 module.exports = {

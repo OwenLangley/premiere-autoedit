@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .detect import CutPlan
+from .notes import Note
 from .timebase import Timebase
 from .transcript import Transcript
 
@@ -98,7 +99,15 @@ class EditPlanBuilder:
         self._media[entry.id] = entry
         return self
 
-    def add_warning(self, code: str, message: str, media_id: str | None = None) -> "EditPlanBuilder":
+    def add_warning(
+        self, code: str, message: "str | Note", media_id: str | None = None
+    ) -> "EditPlanBuilder":
+        """Record a warning. A Note carries a key and params so the panel can
+        translate it; a plain string is kept for callers that have not been
+        converted, and renders as English."""
+        if isinstance(message, Note):
+            self._warnings.append(message.to_dict(code, media_id))
+            return self
         w: dict[str, Any] = {"code": code, "message": message}
         if media_id:
             w["mediaId"] = media_id

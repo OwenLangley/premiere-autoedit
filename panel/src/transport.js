@@ -213,7 +213,7 @@ function makeResolver(mediaRootToken, musicRootToken) {
     const which = rootName === "music" ? "music" : "media";
     const root = await folderFromToken(tokens[which]);
     if (!root) throw new Error(`${names[which]} is not set or is no longer reachable.`);
-    const parts = relPath.split("/").filter(Boolean);
+    const parts = String(relPath).normalize("NFC").split("/").filter(Boolean);
     let node = root;
     for (let i = 0; i < parts.length - 1; i++) {
       node = await node.getEntry(parts[i]);

@@ -167,7 +167,18 @@ tracks to choose one does not leave four of them in the bin.
 for reading those -- so "park the playhead and read it back" is the interaction
 the API supports, not merely the one we chose.
 
-## 12. What works
+## 12. Japanese needs NFC normalisation everywhere a name is compared
+
+macOS hands back composed forms from some APIs and decomposed from others. With
+ASCII names the two are byte-identical and nothing notices; with `ダンス.MP4` a
+`===` between them fails, and an imported clip looks missing — so it is imported
+again on every build, or its subclip is never found.
+
+`.normalize("NFC")` on both sides of every filename and path comparison, and on
+`relPath` where the helper writes the index. The panel's font stack also needs
+CJK fallbacks: `"Adobe Clean"` has no Japanese coverage, so every label is tofu.
+
+## 13. What works
 
 - Panel loads, renders, and is interactive
 - Media resolution by path, importing what is missing

@@ -25,6 +25,7 @@ from .transcript import Transcript
 from .options import JobOptions, OptionError, apply_pacing, fit_duration_across, ASPECT_LABELS
 from .preset import write_preset
 from .music import BeatGrid, MusicError, detect_beats
+from .notes import Note, note
 from .visual import (
     Measurements, VisualError, analyse as analyse_visual, measure as measure_visual,
     measurement_key, plan_visual_cuts,
@@ -87,13 +88,17 @@ def _relative_to_root(
 # Below this, a shift is not something anyone hears -- roughly a frame at 50fps.
 AUDIBLE_SHIFT = 0.02
 
+# Whisper is usually near-certain about the language within a few seconds of
+# speech. Anything much below this is worth an editor's attention.
+MIN_LANGUAGE_CONFIDENCE = 0.75
+
 
 @dataclass(frozen=True)
 class MusicChunk:
     """Which part of the track ends up under the picture."""
     start: float
     length: float
-    warnings: tuple[str, ...] = ()
+    warnings: tuple[Note, ...] = ()
 
 
 def resolve_music_chunk(
@@ -113,14 +118,11 @@ def resolve_music_chunk(
         chunk is choosing a span of music, and silently shortening it would
         defeat the point of picking one.
     """
-    notes: list[str] = []
+    notes: list[Note] = []
 
     start = max(0.0, start)
     if start >= track_duration:
-        notes.append(
-            f"start {start:.2f}s is past the end of the {track_duration:.1f}s "
-            f"track; starting from the beginning instead"
-        )
+        notes.append(note("music.startPastEnd", start=start, duration=track_duration))
         start = 0.0
     elif snap and beats and beats.beats:
         # Shot lengths are already whole multiples of the beat interval, so a bed
@@ -134,28 +136,21 @@ def resolve_music_chunk(
             # lands within milliseconds of a beat most of the time, and "start
             # moved 0.00s" is noise in a warning list an editor has to read.
             if moved >= AUDIBLE_SHIFT:
-                notes.append(
-                    f"start moved {moved:.2f}s to the nearest beat, at {snapped:.2f}s"
-                )
+                notes.append(note("music.snappedToBeat", moved=moved, start=snapped))
 
     available = track_duration - start
     wanted = length if length else picture_seconds
     chunk = min(wanted, available)
 
     if length and chunk < length - 1e-4:
-        notes.append(
-            f"asked for {length:.1f}s from {start:.2f}s but the track only has "
-            f"{available:.1f}s left, so the bed is {chunk:.1f}s"
-        )
+        notes.append(note(
+            "music.chunkClamped",
+            wanted=length, start=start, available=available, actual=chunk,
+        ))
     if length and chunk > picture_seconds + 1e-4:
-        notes.append(
-            f"the music runs {chunk - picture_seconds:.1f}s past the last frame "
-            f"of picture -- extend the edit or shorten the chunk"
-        )
+        notes.append(note("music.runsPastPicture", overhang=chunk - picture_seconds))
     elif length and chunk < picture_seconds - 1e-4:
-        notes.append(
-            f"the music stops {picture_seconds - chunk:.1f}s before the picture does"
-        )
+        notes.append(note("music.stopsEarly", shortfall=picture_seconds - chunk))
 
     return MusicChunk(start=start, length=max(0.0, chunk), warnings=tuple(notes))
 
@@ -438,20 +433,25 @@ def cmd_plan(args) -> int:
             collected.append((mid, cuts, v_track, a_track))
             continue
 
-        options = dict(recipe.transcription)
-        options["duration"] = info.duration
-        options["media_path"] = str(path)
+        # NOT `options`: that name already holds the job's JobOptions, and
+        # rebinding it here quietly destroyed them. Every speech job then died on
+        # `options.duration_mode` a few lines later -- unnoticed only because the
+        # work since has all gone through the --visual path, which never enters
+        # this loop.
+        tx_options = dict(recipe.transcription)
+        tx_options["duration"] = info.duration
+        tx_options["media_path"] = str(path)
         if args.model:
-            options["model"] = args.model
+            tx_options["model"] = args.model
         if args.language:
-            options["language"] = args.language
+            tx_options["language"] = args.language
         if args.transcript:
-            options["path"] = args.transcript
+            tx_options["path"] = args.transcript
 
         # Cache transcripts on content hash + provider settings. Transcription is
         # by far the slowest step and recipe tuning is an iterative loop -- without
         # this, nudging min_silence by 0.05s means re-transcribing hours of rushes.
-        cache_key = _transcript_cache_key(content_hash(path), provider_name, options)
+        cache_key = _transcript_cache_key(content_hash(path), provider_name, tx_options)
         cache_file = cache_root / "transcripts" / f"{cache_key}.json"
         transcript: Transcript
 
@@ -464,12 +464,27 @@ def cmd_plan(args) -> int:
             try:
                 wav = extract_audio(path, work_dir / f"{mid}.wav")
                 print(f"  {path.name}: transcribing via {provider_name}", file=sys.stderr)
-                transcript = provider.transcribe(wav, mid, options)
+                transcript = provider.transcribe(wav, mid, tx_options)
             except TranscriptionError as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             cache_file.write_text(json.dumps(transcript.to_dict(), indent=2))
+
+        if transcript.language_confidence is not None:
+            print(
+                f"  {path.name}: language detected as {transcript.language} "
+                f"({transcript.language_confidence:.0%})",
+                file=sys.stderr,
+            )
+            # A wrong guess produces a fluent, confident, meaningless transcript
+            # and cuts to match, so a shaky one has to be said out loud.
+            if transcript.language_confidence < MIN_LANGUAGE_CONFIDENCE:
+                builder.add_warning("language", note(
+                    "language.uncertain",
+                    file=path.name, confidence=transcript.language_confidence,
+                    language=transcript.language,
+                ), media_id=mid)
 
         cuts = plan_cuts(transcript, info.duration, detection)
         print(f"  {path.name}: {cuts.summary(info.duration)}", file=sys.stderr)
@@ -521,11 +536,7 @@ def cmd_plan(args) -> int:
                 "lose the subject",
                 file=sys.stderr,
             )
-            builder.add_warning(
-                "reframe",
-                f"{flagged} clip(s) flagged: detail sits outside the centre crop, so "
-                "check those before delivering",
-            )
+            builder.add_warning("reframe", note("reframe.cropRisk", count=flagged))
 
     for message in builder_warnings:
         builder.add_warning("music", message)
@@ -547,9 +558,12 @@ def cmd_plan(args) -> int:
                 beats=beats,
                 snap=not getattr(args, "no_music_snap", False),
             )
-            for note in chunk.warnings:
-                print(f"  music: {note}", file=sys.stderr)
-                builder.add_warning("music", note, media_id="MUSIC")
+            # NOT `note`: binding that name anywhere in this function makes it
+            # local throughout, shadowing the imported `note()` -- which then
+            # fails hundreds of lines earlier, only on the paths that call it.
+            for chunk_note in chunk.warnings:
+                print(f"  music: {chunk_note}", file=sys.stderr)
+                builder.add_warning("music", chunk_note, media_id="MUSIC")
 
             music_frames = tb.to_frames(chunk.length)
             if music_frames > 0:
