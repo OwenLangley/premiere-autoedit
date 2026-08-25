@@ -183,3 +183,44 @@ def test_fitting_across_sources_does_not_split_the_budget_evenly():
     ]
     out = fit_duration_across(two, "upTo", 5.0)
     assert total(out) == pytest.approx(5.0, abs=0.01)
+
+
+# --- the working frame size -------------------------------------------------
+#
+# "Match source" used to take the footage's full dimensions, which turned a bin
+# of 4K 59.94 10-bit 4:2:2 HEVC into a 4K 59.94 sequence. It did not play back:
+# the picture updated about once a second and read as a series of stills. It also
+# upscaled the one 1080p camera by 2x to fill the frame.
+
+from autoedit.options import working_frame_size
+
+
+def test_4k_comes_down_to_hd():
+    assert working_frame_size(3840, 2160) == (1920, 1080)
+
+
+def test_vertical_4k_comes_down_by_its_long_edge():
+    assert working_frame_size(2160, 3840) == (1080, 1920)
+
+
+def test_hd_is_left_exactly_alone():
+    # The 1080p camera in a mixed bin must not be resampled at all.
+    assert working_frame_size(1920, 1080) == (1920, 1080)
+
+
+def test_smaller_than_hd_is_not_upscaled():
+    assert working_frame_size(1280, 720) == (1280, 720)
+
+
+def test_the_shape_survives_the_scaling():
+    for w, h in [(3840, 2160), (4096, 2160), (2880, 2160), (6144, 3456), (2160, 3840)]:
+        out_w, out_h = working_frame_size(w, h)
+        assert abs((out_w / out_h) - (w / h)) < 0.01, f"{w}x{h} changed shape"
+        assert max(out_w, out_h) <= 1920
+
+
+def test_dimensions_come_out_even():
+    # Odd dimensions break chroma subsampling in most codecs.
+    for w, h in [(4096, 2160), (3840, 1606), (5464, 3070), (2049, 1081)]:
+        out_w, out_h = working_frame_size(w, h)
+        assert out_w % 2 == 0 and out_h % 2 == 0, f"{w}x{h} -> {out_w}x{out_h}"

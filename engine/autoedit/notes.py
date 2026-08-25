@@ -92,6 +92,14 @@ CATALOGUE: dict[str, str] = {
     "music.stopsEarly":
         "the music stops {shortfall:.1f}s before the picture does",
 
+    # --- timebase ----------------------------------------------------------
+    "timebase.followedFootage":
+        "sequence set to {chosen} to match the footage; the recipe asks for {recipe}, "
+        "which no whole number of source frames lands on exactly",
+    "timebase.mixedRates":
+        "{count} clip(s) are not an exact fit for the {chosen} sequence, so those cuts "
+        "can be a frame out; check the joins on {files}",
+
     # --- language ----------------------------------------------------------
     "language.uncertain":
         "{file}: only {confidence:.0%} sure this is {language} -- set the language in the "

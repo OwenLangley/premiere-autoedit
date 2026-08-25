@@ -84,16 +84,62 @@ The timeline looks fully populated and only the ranges are wrong, so this fails
 silently. **Use `createSubClipAction` per range instead** (`STRATEGY.SUBCLIP`,
 now the default).
 
-## 5. Subclip durations come back one frame short
+## 5. Subclip durations come back one frame short -- *withdrawn*
 
-Passing a range verbatim to `createSubClipAction` yields one frame less than
-requested: asking for 25 / 50 / 25 frames produced 24 / 49 / 24, positions exact.
-Adding one frame of the **source** timebase to the end corrects it.
+This said `createSubClipAction` returned one frame less than requested (25/50/25
+asked, 24/49/24 placed) and that adding one source frame to the out point fixed
+it. **The measurement was real; the conclusion was wrong.**
 
-**Residual, uncharacterised:** with that correction the *final* clip of a plan came
-back one frame **long** (44 requested, 45 placed) while every earlier clip was
-exact. No gap and no overlap results, since it is last. The post-build verifier
-reports it rather than hiding it.
+It was taken when out points were built with `createWithSeconds`, and a float
+frame boundary sits a tick below the true one about 3% of the time (see 5b), so
+Premiere aligned down and the frame vanished. The nudge was compensating for the
+float, not for anything Premiere does.
+
+The tell was the residual this section used to record: with the nudge, the
+*final* clip of a plan came back one frame **long** while every earlier clip was
+exact. Earlier clips were long too -- the next clip's overwrite trimmed them, so
+only the last one had nowhere to hide.
+
+Rebuilt with exact ticks and no nudge: 29 clips, zero gaps, zero position or
+duration mismatches. `NUDGE_FRAMES` is 0 in `panel/src/apply.js` and the reasoning
+is recorded there.
+
+**The general lesson:** a correction that makes the symptom go away is not the
+same as a diagnosis. This one survived because it was measured honestly and the
+number it produced was right -- but it was fixing the wrong layer, and it left a
+residual that nobody could explain for weeks. An unexplained residual is a
+standing signal that the model is wrong.
+
+## 5b. Time values built from seconds land a tick short
+
+`TickTime.createWithSeconds()` takes a double, and a frame boundary expressed as
+a double is often a hair below the real value: 187/30 is 6.233333333333333, not
+6.2333... exactly. Measured over 20,000 frames, the conversion falls a single
+tick short on roughly 3% of them at 30, 59.94 and 29.97. One tick below a frame
+boundary is a whole frame below it once Premiere aligns, which shows on screen as
+black between two shots.
+
+`createWithTicks(string)` takes exact integers, and the tick rate -- 254016000000,
+readable at runtime from `TickTime.TIME_ONE_SECOND.ticks` -- is chosen so that 24,
+25, 30, 50, 60 and their 1001-based NTSC cousins all divide it exactly. So every
+frame boundary at every broadcast rate has an exact integer tick count, and there
+is no reason to go through a float at all. `panel/src/timebase.js` does the
+arithmetic in BigInt and hands over the string.
+
+## 5c. The sequence rate has to match the footage, not the recipe
+
+This one is not a Premiere quirk, it is a design mistake that was in this repo: a
+recipe named a sequence rate (`social-short` says 30) and the engine used it
+whatever the footage was. Feeding 59.94 rushes into a 30.000 sequence means a
+clip chosen as a whole number of source frames is a *fractional* number of
+sequence frames -- the ratio is 1001/2000 -- so the plan rounds one way, Premiere
+rounds the other, and clips land a frame out. A build of 29 clips came back with
+five one-frame gaps and twelve position mismatches.
+
+`choose_timebase()` now keeps the recipe's rate only when every source lands on it
+exactly, and otherwise takes the rate the footage is actually in, warning that it
+did. `holds_exactly()` is the test: the ratio between the two rates has to be a
+whole number.
 
 ## 6. Several APIs are synchronous despite the async house style
 

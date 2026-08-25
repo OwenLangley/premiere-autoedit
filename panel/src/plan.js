@@ -242,7 +242,59 @@ function subclipName(clip, plan) {
   return `${id}__${ms(clip.inSeconds)}-${ms(clip.outSeconds)}__${planTag(plan)}`;
 }
 
+/**
+ * Group words into sentence-ish segments.
+ *
+ * NOTE: this shape is NOT yet accepted -- Premiere answers
+ * "Failed to parse input string into JSON", and the expected schema is
+ * undocumented. The self-test's transcript/schema-discovered check dumps the
+ * real shape from any clip that already has a transcript; until that has been
+ * captured on a machine with one, transcript import degrades to a warning and
+ * the rest of the build proceeds.
+ */
+function toPremiereTranscript(t) {
+  const language = t.language || "en";
+  const segments = [];
+  let current = null;
+  for (const w of t.words) {
+    if (!current) current = { start: w.start, end: w.end, text: w.text, speaker: w.speaker || "" };
+    else {
+      current.text += wordJoiner(language) + w.text;
+      current.end = w.end;
+    }
+    if (SENTENCE_END.test(w.text) || current.end - current.start > 12) {
+      segments.push(current);
+      current = null;
+    }
+  }
+  if (current) segments.push(current);
+  return { language, segments };
+}
+
+/**
+ * Languages written without spaces between words.
+ *
+ * Mirrors NO_SPACE_LANGUAGES in engine/autoedit/detect.py. Joining Japanese
+ * words with spaces produces text no Japanese reader would accept -- and
+ * Whisper does not even emit Japanese words, it emits sub-word token runs, so
+ * the spaces would land inside words rather than between them.
+ *
+ * @param {string} language
+ */
+function wordJoiner(language) {
+  const base = String(language).toLowerCase().split("-")[0];
+  return ["ja", "zh", "yue", "th", "lo", "my", "km"].includes(base) ? "" : " ";
+}
+
+/**
+ * Sentence-final punctuation, full-width included. A Japanese transcript ends
+ * its sentences with 。！？ and never with a full stop, so the ASCII-only test
+ * this replaces found no boundaries at all and fell back to the 12-second cap.
+ */
+const SENTENCE_END = /[.!?。！？]$/;
+
 module.exports = {
+  toPremiereTranscript,
   subclipName,
   planTag,
   SUPPORTED_SCHEMA,

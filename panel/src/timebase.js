@@ -57,4 +57,45 @@ function timecode(tb, frames) {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor(total / 60) % 60)}:${pad(total % 60)}${sep}${pad(ff)}`;
 }
 
-module.exports = { toFrames, toSeconds, frameDuration, fps, snap, timecode };
+
+// --- exact tick arithmetic -------------------------------------------------
+//
+// Premiere counts time in ticks, and every time value this panel handed it used
+// to be built from a float number of seconds. 187/30 is 6.233333333333333 as a
+// double, which is a hair under the real value, and a hair under a frame
+// boundary truncates to the frame BELOW -- so clips landed one frame early and
+// the joins showed as black. Ticks are integers; doing the arithmetic in BigInt
+// means the value handed over is the one that was meant, exactly.
+
+/** Rounded integer division, for non-negative values. @param {bigint} a @param {bigint} b */
+function divRound(a, b) {
+  return (a * 2n + b) / (2n * b);
+}
+
+/**
+ * Exact tick count for a frame index on a given timebase.
+ * @param {number|string|bigint} ticksPerSecond from `TickTime.TIME_ONE_SECOND.ticks`
+ * @param {Timebase} tb @param {number} frames @returns {string}
+ */
+function ticksForFrames(ticksPerSecond, tb, frames) {
+  const tps = BigInt(ticksPerSecond);
+  const n = BigInt(Math.round(frames));
+  return String(divRound(n * tps * BigInt(tb.fpsDen), BigInt(tb.fpsNum)));
+}
+
+/**
+ * Exact tick count for a plain number of seconds, for sources with no frame
+ * grid to land on -- a music bed is a waveform, not frames.
+ * @param {number|string|bigint} ticksPerSecond @param {number} seconds @returns {string}
+ */
+function ticksForSeconds(ticksPerSecond, seconds) {
+  // Plan times carry four decimal places, so microseconds is finer than the
+  // data it is converting and nothing is lost in the scaling.
+  const micros = BigInt(Math.round(seconds * 1e6));
+  return String(divRound(micros * BigInt(ticksPerSecond), 1000000n));
+}
+
+module.exports = {
+  toFrames, toSeconds, frameDuration, fps, snap, timecode,
+  ticksForFrames, ticksForSeconds,
+};

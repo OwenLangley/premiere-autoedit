@@ -102,3 +102,28 @@ test("a Japanese job name survives into the request", () => {
   assert.equal(request.jobId, "エピソード1");
   assert.deepEqual(validateRequest(request), []);
 });
+
+test("a plain-string warning passes through rather than vanishing", () => {
+  // Most apply-side warnings are still plain English strings. An earlier version
+  // read `.message` off them, got undefined, and returned "" -- so a warning an
+  // editor could at least have read in English disappeared entirely instead.
+  assert.equal(
+    translateWarning("ja", "effect \"Lumetri Color\" is not installed on this machine"),
+    "effect \"Lumetri Color\" is not installed on this machine"
+  );
+});
+
+test("a keyed build warning is translated, and falls back when it is not known", () => {
+  const known = translateWarning("ja", {
+    messageKey: "reframe.scaled",
+    params: { count: 4, width: 3840, height: 2160 },
+    message: "4 clip(s) scaled to fill 3840x2160; anything at the edge of frame is now cropped out",
+  });
+  assert.ok(known.includes("3840x2160"));
+  assert.ok(!known.includes("clip(s)"), "should be the Japanese, not the English");
+
+  const unknown = translateWarning("ja", {
+    messageKey: "nothing.likeThis", params: {}, message: "the English still says it",
+  });
+  assert.equal(unknown, "the English still says it");
+});

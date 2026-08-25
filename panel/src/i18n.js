@@ -192,6 +192,16 @@ const EN = {
   "warn.music.stopsEarly": "the music stops {shortfall}s before the picture does",
   "warn.language.uncertain":
     "{file}: only {confidence} sure this is {language} — set the language in the panel if that is wrong",
+  "warn.plan.lowConfidence":
+    "{count} clip(s) scored low confidence — either speech the transcript was unsure about, or shots that only just passed the quality gates. Review those before trusting the cut.",
+  "warn.reframe.scaled":
+    "{count} clip(s) scaled to fill {width}x{height}; anything at the edge of frame is now cropped out",
+  "warn.transcript.notImported":
+    "{mediaId}: transcript not handed to Text-Based Editing ({detail}) — the cut itself is unaffected",
+  "warn.timebase.followedFootage":
+    "sequence set to {chosen}fps to match the footage; the recipe asks for {recipe}fps, which no whole number of source frames lands on exactly",
+  "warn.timebase.mixedRates":
+    "{count} clip(s) are not an exact fit for the {chosen}fps sequence, so those cuts can be a frame out — check the joins on {files}",
 };
 
 const JA = {
@@ -238,7 +248,7 @@ const JA = {
   "edit.length": "尺",
   "edit.seconds": "秒数",
   "edit.pacing": "テンポ",
-  "edit.look": "ルック",
+  "edit.look": "カラー",
   "edit.spokenLanguage": "話されている言語",
   "edit.create": "編集を作成",
   "edit.createHint": "バックグラウンドで実行されます。完了するとプランが下に表示されます。",
@@ -325,7 +335,7 @@ const JA = {
   "sum.upTo": "最大 {seconds} 秒",
   "sum.exactly": "ちょうど {seconds} 秒",
   "sum.about": "約 {seconds} 秒",
-  "sum.look": "ルック：{name}",
+  "sum.look": "カラー：{name}",
   "sum.fromPictures": "映像からカット",
   "sum.noMusic": "音楽なし",
   "sum.music": "音楽：{name}",
@@ -368,6 +378,16 @@ const JA = {
   "warn.music.stopsEarly": "音楽が映像より {shortfall} 秒早く終わります",
   "warn.language.uncertain":
     "{file}：{language} である確率は {confidence} です。異なる場合はパネルで言語を指定してください",
+  "warn.plan.lowConfidence":
+    "{count} 件のクリップの信頼度が低くなっています。文字起こしが不確かな音声か、画質の基準をぎりぎり満たしたショットです。書き出す前に該当箇所を確認してください。",
+  "warn.reframe.scaled":
+    "{count} 件のクリップを {width}x{height} に合わせて拡大しました。画面端に写っているものは切れています",
+  "warn.transcript.notImported":
+    "{mediaId}：文字起こしをテキストベース編集に渡せませんでした（{detail}）。カット自体には影響ありません",
+  "warn.timebase.followedFootage":
+    "素材に合わせてシーケンスを {chosen}fps に設定しました（レシピの指定は {recipe}fps ですが、素材のフレームがちょうど収まりません）",
+  "warn.timebase.mixedRates":
+    "{count} 個のクリップが {chosen}fps のシーケンスにぴったり収まらないため、つなぎ目が 1 フレームずれることがあります。{files} の編集点を確認してください",
 };
 
 const CATALOGUES = { en: EN, ja: JA };
@@ -407,9 +427,13 @@ function translate(lang, key, params, fallback) {
  * and one written before this mechanism existed still shows at all.
  *
  * @param {string} lang
- * @param {{code?: string, message?: string, messageKey?: string, params?: object}} warning
+ * @param {string | {code?: string, message?: string, messageKey?: string, params?: object}} warning
  */
 function translateWarning(lang, warning) {
+  // Most warnings from the apply side are still plain English strings. Returning
+  // "" for those would silently swallow them, which is the one outcome worse
+  // than showing an editor a warning they cannot read.
+  if (typeof warning === "string") return warning;
   const w = warning || {};
   const english = w.message || "";
   if (!w.messageKey) return english;

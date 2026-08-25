@@ -373,3 +373,112 @@ def test_the_speech_path_survives_duration_fitting(tmp_path):
     ])
     assert code == 0, "the speech path must reach the end without an AttributeError"
     assert out.exists()
+
+
+# --- the sequence rate follows the footage ----------------------------------
+
+
+def test_a_recipe_rate_the_footage_cannot_land_on_is_overridden(tmp_path):
+    """A CLI run whose recipe and footage disagree about the frame rate.
+
+    The outage this guards: social-short pins the sequence to 30.000 and the
+    camera shot 59.94. Nothing reconciled them, so every clip's duration became a
+    fractional number of sequence frames, the plan rounded one way and Premiere
+    rounded the other, and the assembly came back with one-frame gaps -- black
+    flashes between shots. Both halves were individually correct; only the whole
+    run shows it.
+    """
+    import json as _json
+    from autoedit.cli import main as engine_main
+
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    media = fixtures / "sample_25fps_1080p.mp4"
+    if not media.exists():
+        pytest.skip("sample fixture not generated")
+
+    out = tmp_path / "RATE.editplan.json"
+    code = engine_main([
+        "plan", "--job", "RATE", "--recipe", "social-short",
+        "--media", str(media), "--media-root", str(fixtures),
+        "--transcript", str(fixtures / "sample_25fps_1080p.transcript.json"),
+        "--work-dir", str(tmp_path / "cache"), "--out", str(out),
+    ])
+    assert code == 0
+    plan = _json.loads(out.read_text())
+
+    assert plan["timebase"]["fpsNum"] == 25, "the footage decides, not the recipe"
+    assert plan["timebase"]["fpsDen"] == 1
+    assert any(w.get("messageKey") == "timebase.followedFootage" for w in plan["warnings"]), \
+        "changing the delivery rate has to be said out loud, not done quietly"
+
+
+def test_every_clip_duration_is_a_whole_number_of_source_frames(tmp_path):
+    """The property that makes the assembly gap-free, asserted directly."""
+    import json as _json
+    from autoedit.cli import main as engine_main
+    from autoedit.timebase import Timebase
+
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    media = fixtures / "sample_25fps_1080p.mp4"
+    if not media.exists():
+        pytest.skip("sample fixture not generated")
+
+    out = tmp_path / "GRID.editplan.json"
+    code = engine_main([
+        "plan", "--job", "GRID", "--recipe", "social-short",
+        "--media", str(media), "--media-root", str(fixtures),
+        "--transcript", str(fixtures / "sample_25fps_1080p.transcript.json"),
+        "--work-dir", str(tmp_path / "cache"), "--out", str(out),
+    ])
+    assert code == 0
+    plan = _json.loads(out.read_text())
+    seq = Timebase.from_dict(plan["timebase"])
+    sources = {m["id"]: m.get("timebase") for m in plan["media"]}
+
+    for clip in plan["timeline"]:
+        src = sources.get(clip["mediaId"])
+        if not src:
+            continue
+        src_tb = Timebase.from_dict(src)
+        span = src_tb.to_frames(clip["outSeconds"]) - src_tb.to_frames(clip["inSeconds"])
+        # The source span, expressed in sequence frames, must be a whole number --
+        # and must be exactly what the plan says it is. Anything else means
+        # somebody downstream has to round, and Premiere rounds differently.
+        assert span * seq.fps_num * src_tb.fps_den % (seq.fps_den * src_tb.fps_num) == 0, \
+            f"{clip['mediaId']} spans {span} source frames, which is not whole in the sequence"
+        assert clip["durationFrames"] == seq.to_frames(src_tb.to_seconds(span))
+
+
+def test_match_source_still_pins_the_sequence_rate(tmp_path):
+    """A preset has to be written even when the aspect is "Match source".
+
+    Without one the panel calls `createSequence(name)` and Premiere supplies its
+    own defaults, so the rate the plan carefully chose never reaches the
+    sequence and the clips are a frame out all over again.
+    """
+    import json as _json
+    from autoedit.cli import main as engine_main
+
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    media = fixtures / "sample_25fps_1080p.mp4"
+    if not media.exists():
+        pytest.skip("sample fixture not generated")
+
+    out = tmp_path / "SRC.editplan.json"
+    code = engine_main([
+        "plan", "--job", "SRC", "--recipe", "social-short", "--aspect", "source",
+        "--media", str(media), "--media-root", str(fixtures),
+        "--transcript", str(fixtures / "sample_25fps_1080p.transcript.json"),
+        "--work-dir", str(tmp_path / "cache"), "--out", str(out),
+    ])
+    assert code == 0
+    plan = _json.loads(out.read_text())
+    preset = plan["sequence"].get("presetPath")
+    assert preset, "match-source jobs need a preset too, or the rate is Premiere's guess"
+
+    xml = Path(preset).read_text()
+    from autoedit.preset import ticks_per_frame
+    from autoedit.timebase import Timebase
+    expected = ticks_per_frame(Timebase.from_dict(plan["timebase"]))
+    assert f"<VideoFrameRate>{expected}</VideoFrameRate>" in xml, \
+        "the preset's rate must be the plan's rate"

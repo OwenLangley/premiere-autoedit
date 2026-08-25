@@ -31,6 +31,32 @@ ASPECT_FRAMES: dict[str, tuple[int, int]] = {
     "portrait45": (1080, 1350),
 }
 
+# The long edge every generated sequence is built at. Each named aspect above is
+# already 1080-class; "Match source" is the odd one out because it has no fixed
+# size of its own, and taking the footage's gave a 4K 59.94 10-bit 4:2:2 sequence
+# that does not play back -- the picture updates about once a second and reads as
+# a series of stills. Editors work at HD and deliver at whatever they deliver at.
+HD_LONG_EDGE = 1920
+
+
+def working_frame_size(width: int, height: int) -> tuple[int, int]:
+    """The source's shape, at a size that can actually be played.
+
+    "Match source" is an aspect control -- the panel calls it 元の比率のまま,
+    *keep the original ratio* -- so it fixes the shape and not the pixel count.
+    Scaling the long edge to HD keeps the shape, plays back, and leaves 1080p
+    material at native size instead of upscaling it 2x to fill a 4K frame.
+    """
+    longest = max(width, height)
+    if longest <= HD_LONG_EDGE:
+        return width, height
+    scale = HD_LONG_EDGE / longest
+    # Even dimensions: odd ones break chroma subsampling in most codecs, and
+    # Premiere quietly rounds them anyway.
+    even = lambda n: max(2, int(round(n / 2)) * 2)
+    return even(width * scale), even(height * scale)
+
+
 ASPECT_LABELS: dict[str, str] = {
     "source": "Match source",
     "landscape": "Landscape 16:9",

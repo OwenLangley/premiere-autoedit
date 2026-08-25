@@ -116,3 +116,57 @@ class Timebase:
 
     def __str__(self) -> str:
         return f"{self.fps_num}/{self.fps_den} ({self.fps:.3f}fps{', DF' if self.drop_frame else ''})"
+
+
+def holds_exactly(sequence: Timebase, source: Timebase) -> bool:
+    """Can a whole number of `source` frames always be a whole number of
+    `sequence` frames?
+
+    This is the question that decides whether an assembly can be frame-accurate
+    at all. A clip is chosen as a span of SOURCE frames and placed as a span of
+    SEQUENCE frames; if the ratio between the two rates is not a whole number,
+    some spans convert to a fractional count and somebody has to round. The plan
+    rounds one way, Premiere rounds the other, and the clip lands a frame off --
+    which reads on screen as a black flash between two shots.
+
+    59.94 footage in a 59.94 sequence holds exactly (ratio 1), and in a 29.97
+    sequence it does not (ratio 1/2, so any odd number of source frames is half
+    a sequence frame). 29.97 footage in a 59.94 sequence holds exactly (ratio 2).
+    59.94 footage in a 30.000 sequence -- the case that shipped -- has a ratio of
+    1001/2000, which is exact for almost no span at all.
+    """
+    ratio = Fraction(sequence.fps_num * source.fps_den, sequence.fps_den * source.fps_num)
+    return ratio.denominator == 1
+
+
+def choose_timebase(
+    preferred: Timebase, sources: "list[Timebase]"
+) -> "tuple[Timebase, Timebase | None]":
+    """Pick the sequence frame rate, given what the footage actually is.
+
+    The recipe states a rate because delivery specs are real -- a vertical short
+    is cut at 30. But a rate the footage cannot land on exactly is not a delivery
+    spec, it is a defect generator, and the footage is the fact here while the
+    recipe is a preference.
+
+    So: keep the recipe's rate when every source holds exactly in it, and
+    otherwise take the rate that the most footage can live in. Returns the chosen
+    timebase and, when it is not the recipe's, the rate that was displaced -- so
+    the caller can say so rather than quietly changing the delivery format.
+    """
+    usable = [tb for tb in sources if tb is not None]
+    if not usable or all(holds_exactly(preferred, tb) for tb in usable):
+        return preferred, None
+
+    # Candidates are the rates in play. Anything else would be inventing a third
+    # rate that matches neither the recipe nor the footage.
+    candidates = [preferred] + list(dict.fromkeys(usable))
+
+    def score(candidate: Timebase) -> tuple:
+        held = sum(1 for tb in usable if holds_exactly(candidate, tb))
+        # Ties go to the recipe's rate, then to the faster one: a 59.94 sequence
+        # keeps every frame of 59.94 footage, where 29.97 throws half of them away.
+        return (held, candidate == preferred, candidate.fps)
+
+    best = max(candidates, key=score)
+    return (best, None) if best == preferred else (best, preferred)

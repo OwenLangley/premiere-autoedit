@@ -217,11 +217,7 @@ function renderSummary() {
 
   $("plan-messages").innerHTML = "";
   if (s.lowConfidence) {
-    message(
-      `${s.lowConfidence} clip(s) scored low confidence \u2014 either speech the ` +
-      `transcript was unsure about, or shots that only just passed the quality ` +
-      `gates. Review those before trusting the cut.`
-    );
+    message(state.t("warn.plan.lowConfidence", { count: s.lowConfidence }));
   }
   // Rendered from the warning's key and params when we have a translation, and
   // from the English the engine already wrote when we do not.
@@ -278,14 +274,18 @@ async function onApply() {
       brandkit: state.settings.brandkit,
       onProgress: (stage, detail) => log(`  ${stage}: ${detail}`),
     });
-    report.warnings.forEach((w) => log(state.t("msg.buildWarning", { message: w }), "err"));
+    report.warnings.forEach((w) =>
+      log(state.t("msg.buildWarning", { message: state.t.warning(w) }), "err"));
     log(state.t("msg.built", { stages: report.stages.join(", ") }), "ok");
     if (state.transport && state.planName) {
       await state.transport.writeReceipt(state.planName, {
         appliedAt: new Date().toISOString(),
         sequence: report.sequenceName,
         stages: report.stages,
-        warnings: report.warnings,
+        // English in the receipt, whatever the panel is showing. A receipt is a
+        // record that gets read later, often by someone else and often on
+        // another machine -- it should not depend on who happened to build it.
+        warnings: report.warnings.map((w) => (typeof w === "string" ? w : w.message)),
         excludedSections: [...state.disabled],
       });
     }
@@ -531,10 +531,18 @@ function renderMusicControls() {
   if (!chosen) return;
   // Default the chunk to the length asked of the edit -- the common case is a
   // trend where the two are the same number.
+  //
+  // Including when that length goes away. The field used to be filled once and
+  // never cleared, so setting a 15s target, choosing a track, then switching the
+  // length back to "as long as it needs" left 15 behind: a 15-second bed under a
+  // two-minute cut, reported only as one warning at the end of a list of seven.
+  // An untouched field mirrors the target; once the editor types in it, it is
+  // theirs and nothing here overwrites it.
   const el = $("opt-music-length");
-  const empty = !el.value || Number.isNaN(Number(el.value));
-  if (empty && !state.musicLengthTouched && $("opt-duration-mode").value !== "none") {
-    el.value = String($("opt-duration-seconds").value || "");
+  if (!state.musicLengthTouched) {
+    el.value = $("opt-duration-mode").value === "none"
+      ? ""
+      : String($("opt-duration-seconds").value || "");
   }
 }
 

@@ -13,13 +13,107 @@
  *    timeline the editor has to unpick by hand.
  */
 
+/**
+ * @typedef {string | {messageKey: string, params: Record<string, any>, message: string}} BuildWarning
+ */
+
+/**
+ * A build warning that can be translated.
+ *
+ * Same shape the engine writes: the English text so it is never lost, plus the
+ * key and numbers so the panel can render it in the editor's language. Warnings
+ * that only ever appear when something unusual has gone wrong stay plain
+ * strings -- they are diagnostics, and translating them is a cost with no reader.
+ *
+ * @param {string} messageKey @param {Record<string, any>} params @param {string} message
+ */
+function note(messageKey, params, message) {
+  return { messageKey, params, message };
+}
+
 /** @typedef {import("@adobe/premierepro").ProjectItem} ProjectItem */
 /** @typedef {import("@adobe/premierepro").ClipProjectItem} ClipProjectItem */
 
 const ppro = require("premierepro");
-const { validatePlan, summarize, subclipName } = require("./plan");
+const { validatePlan, summarize, subclipName, toPremiereTranscript } = require("./plan");
 const { verifyBrandkit } = require("./brandkit");
-const { toSeconds } = require("./timebase");
+const { toSeconds, toFrames, ticksForFrames, ticksForSeconds } = require("./timebase");
+
+/**
+ * Ticks per second, asked of Premiere rather than hardcoded.
+ *
+ * It has been 254016000000 for as long as anyone can remember -- the number is
+ * chosen so that 24, 25, 30, 50, 60 and their 1001-based NTSC cousins all divide
+ * it exactly -- but reading the constant costs nothing and means this code is
+ * correct by measurement rather than by folklore.
+ */
+let ticksPerSecond = null;
+function tps() {
+  if (ticksPerSecond === null) {
+    try {
+      ticksPerSecond = BigInt(ppro.TickTime.TIME_ONE_SECOND.ticks);
+    } catch {
+      ticksPerSecond = 254016000000n;
+    }
+  }
+  return ticksPerSecond;
+}
+
+/**
+ * Where a subclip ends, as an exact TickTime.
+ *
+ * For anything with a frame grid this is just its out point. For a source
+ * without one -- a music bed -- the plan's `outSeconds` is a decimal rounded to
+ * four places, and rounding both ends can leave the span a hundredth of a frame
+ * short: enough for Premiere to truncate the bed one frame below what the plan
+ * asked for, which the verifier then reports as 2877 against 2878.
+ * `durationFrames` is the authority for how long the clip is, so derive from it.
+ *
+ * @param {any} plan @param {any} clip
+ */
+function sourceOutTime(plan, clip) {
+  const srcTb = sourceTimebase(plan, clip.mediaId);
+  if (srcTb) return sourceTime(srcTb, clip.outSeconds, NUDGE_FRAMES);
+  const start = BigInt(ticksForSeconds(tps(), clip.inSeconds));
+  const span = BigInt(ticksForFrames(tps(), plan.timebase, clip.durationFrames));
+  return ppro.TickTime.createWithTicks(String(start + span));
+}
+
+/**
+ * The frame grid a source's in/out points live on, or null when it has none.
+ * @param {any} plan @param {string} mediaId
+ */
+function sourceTimebase(plan, mediaId) {
+  const media = mediaOf(plan, mediaId);
+  if (media.hasVideo === false) return null;
+  return media.timebase || plan.timebase;
+}
+
+/** A sequence position, as an exact TickTime. @param {any} tb @param {number} frames */
+function atTime(tb, frames) {
+  return ppro.TickTime.createWithTicks(ticksForFrames(tps(), tb, frames));
+}
+
+/**
+ * A point in a source clip, as an exact TickTime.
+ *
+ * The plan's in/out points are already snapped to the source's own frame grid,
+ * so the honest conversion is back to a frame index and then to ticks. Going
+ * via a float number of seconds loses a tick on about one frame in thirty, and
+ * a tick below a boundary is a whole frame below it once Premiere aligns.
+ *
+ * @param {any} srcTb source timebase, or null for something with no frame grid
+ * @param {number} seconds @param {number} [plusFrames]
+ */
+function sourceTime(srcTb, seconds, plusFrames = 0) {
+  if (!srcTb) {
+    // A music bed is a waveform; there are no frames to land on.
+    return ppro.TickTime.createWithTicks(ticksForSeconds(tps(), seconds));
+  }
+  return ppro.TickTime.createWithTicks(
+    ticksForFrames(tps(), srcTb, toFrames(srcTb, seconds) + plusFrames)
+  );
+}
 
 /**
  * How a clip's source range gets applied.
@@ -70,7 +164,7 @@ class ApplyError extends Error {
  * }} options
  */
 async function applyPlan(plan, options) {
-  /** @type {{stages: string[], warnings: string[], sequenceName: string|null, verification?: any, summary?: any}} */
+  /** @type {{stages: string[], warnings: BuildWarning[], sequenceName: string|null, verification?: any, summary?: any}} */
   const report = { stages: [], warnings: [], sequenceName: null };
   const progress = options.onProgress || (() => {});
   const strategy = options.strategy || STRATEGY.SUBCLIP;
@@ -357,6 +451,23 @@ async function createSequence(project, plan) {
  * @param {any} project @param {any} plan @param {Map<string, ProjectItem>} items
  * @returns {Promise<Map<string, ProjectItem>>}
  */
+/**
+ * Frames added to a subclip's out point. Zero, and that is a measured result.
+ *
+ * There used to be a one-frame nudge here, added because `createSubClipAction`
+ * returned clips a frame short (25/50/25 requested, 24/49/24 placed). That
+ * measurement was taken when out points were built from a float number of
+ * seconds -- and a float frame boundary sits a tick BELOW the real one about 3%
+ * of the time, so Premiere aligned down and lost the frame. The nudge was
+ * papering over the float, not over Premiere.
+ *
+ * With exact ticks the out point is exact and the nudge over-corrects. It showed
+ * as the "residual, uncharacterised" final clip that came back a frame long --
+ * every other clip hid it, because the next clip's overwrite trimmed the extra
+ * frame off. Rebuilt with this at 0: 29 clips, zero gaps, zero mismatches.
+ */
+const NUDGE_FRAMES = 0;
+
 async function createSubclips(project, plan, items) {
   /** @type {Map<string, ProjectItem>} */
   const byKey = new Map();
@@ -372,18 +483,15 @@ async function createSubclips(project, plan, items) {
 
   // Premiere's subclip out point is inclusive of the last frame, so a range
   // passed verbatim comes back exactly one frame short. Measured: asking for
-  // 25/50/25 frames yielded 24/49/24, positions exact. Nudge the end by one
-  // frame of the SOURCE timebase (a 23.976 source in a 25fps sequence would
-  // otherwise be corrected by the wrong amount).
-  const sourceFrame = (mediaId) => {
-    const media = mediaOf(plan, mediaId);
-    // The nudge corrects an inclusive-last-VIDEO-frame out point. An audio-only
-    // source has no frame grid, and nudging it made the music bed land one frame
-    // long -- which the verifier caught as 499 frames against a planned 498.
-    if (media.hasVideo === false) return 0;
-    const tb = media.timebase || plan.timebase;
-    return tb.fpsDen / tb.fpsNum;
-  };
+  // 25/50/25 frames yielded 24/49/24, positions exact. The correction is one
+  // frame of the SOURCE timebase -- a 23.976 source in a 25fps sequence would
+  // otherwise be nudged by the wrong amount -- and it is now applied as a whole
+  // frame index rather than added to a float, so it cannot drift.
+  //
+  // An audio-only source is exempt: the nudge corrects an inclusive last VIDEO
+  // frame, and applying it to the music bed made it land one frame long, which
+  // the verifier caught as 499 frames against a planned 498.
+
 
   transact(project, (compound) => {
     for (const { clip } of wanted) {
@@ -395,8 +503,8 @@ async function createSubclips(project, plan, items) {
       compound.addAction(
         master.createSubClipAction(
           subclipName(clip, plan),
-          ppro.TickTime.createWithSeconds(clip.inSeconds),
-          ppro.TickTime.createWithSeconds(clip.outSeconds + sourceFrame(clip.mediaId)),
+          sourceTime(sourceTimebase(plan, clip.mediaId), clip.inSeconds),
+          sourceOutTime(plan, clip),
           true,
           { takeVideo: media.hasVideo !== false, takeAudio: media.hasAudio !== false }
         )
@@ -423,12 +531,12 @@ async function createSubclips(project, plan, items) {
 async function placeClips(project, sequence, plan, sources, strategy) {
   const editor = ppro.SequenceEditor.getEditor(sequence);
   const tb = plan.timebase;
-  /** @type {string[]} */
+  /** @type {BuildWarning[]} */
   const warnings = [];
 
   transact(project, (compound) => {
     for (const clip of plan.timeline) {
-      const at = ppro.TickTime.createWithSeconds(toSeconds(tb, clip.atFrame));
+      const at = atTime(tb, clip.atFrame);
 
       let source;
       if (strategy === STRATEGY.SUBCLIP) {
@@ -445,8 +553,8 @@ async function placeClips(project, sequence, plan, sources, strategy) {
         // Order matters: the in/out must be set before the overwrite that reads it.
         compound.addAction(
           asClip.createSetInOutPointsAction(
-            ppro.TickTime.createWithSeconds(clip.inSeconds),
-            ppro.TickTime.createWithSeconds(clip.outSeconds)
+            sourceTime(sourceTimebase(plan, clip.mediaId), clip.inSeconds),
+            sourceTime(sourceTimebase(plan, clip.mediaId), clip.outSeconds)
           )
         );
       }
@@ -604,7 +712,7 @@ async function verifyApplied(sequence, plan) {
 async function placeGraphics(sequence, plan, brandkit) {
   const editor = ppro.SequenceEditor.getEditor(sequence);
   const tb = plan.timebase;
-  /** @type {string[]} */
+  /** @type {BuildWarning[]} */
   const warnings = [];
 
   for (const g of plan.graphics) {
@@ -617,7 +725,7 @@ async function placeGraphics(sequence, plan, brandkit) {
     try {
       inserted = editor.insertMogrtFromPath(
         entry.path,
-        ppro.TickTime.createWithSeconds(toSeconds(tb, g.atFrame)),
+        atTime(tb, g.atFrame),
         g.videoTrack,
         -1
       );
@@ -640,7 +748,7 @@ async function placeGraphics(sequence, plan, brandkit) {
  * or values land in the wrong slots silently.
  */
 async function setMogrtFields(trackItem, graphic, entry) {
-  /** @type {string[]} */
+  /** @type {BuildWarning[]} */
   const warnings = [];
   const map = entry.params || {};
   let chain;
@@ -685,7 +793,7 @@ async function findMogrtComponent(chain) {
 // --------------------------------------------------------------- effects
 
 async function applyEffects(project, sequence, plan) {
-  /** @type {string[]} */
+  /** @type {BuildWarning[]} */
   const warnings = [];
 
   for (const effect of plan.effects) {
@@ -758,10 +866,10 @@ async function collectTrackItems(sequence, target) {
  * hardcoded. If the lookup fails the clip is left at its default scale and the
  * editor is told, which is a letterboxed clip rather than a broken one.
  *
- * @returns {Promise<string[]>} warnings
+ * @returns {Promise<BuildWarning[]>} warnings
  */
 async function applyCropToFill(project, sequence, plan) {
-  /** @type {string[]} */
+  /** @type {BuildWarning[]} */
   const warnings = [];
   const frameW = plan.sequence.frameWidth;
   const frameH = plan.sequence.frameHeight;
@@ -818,10 +926,12 @@ async function applyCropToFill(project, sequence, plan) {
     );
   }
   if (scaled) {
-    warnings.push(
+    warnings.push(note(
+      "reframe.scaled",
+      { count: scaled, width: frameW, height: frameH },
       `${scaled} clip(s) scaled to fill ${frameW}x${frameH}; anything at the edge of ` +
       "frame is now cropped out"
-    );
+    ));
   }
   return warnings;
 }
@@ -870,8 +980,8 @@ async function addMarkers(project, sequence, plan) {
         markers.createAddMarkerAction(
           m.name,
           typeFor[m.type || "Comment"] || ppro.Marker.MARKER_TYPE_COMMENT,
-          ppro.TickTime.createWithSeconds(toSeconds(tb, m.atFrame)),
-          ppro.TickTime.createWithSeconds(toSeconds(tb, m.durationFrames || 0)),
+          atTime(tb, m.atFrame),
+          atTime(tb, m.durationFrames || 0),
           m.comment || ""
         )
       );
@@ -887,7 +997,7 @@ async function addMarkers(project, sequence, plan) {
  * re-transcribe the same audio and get slightly different word boundaries.
  */
 async function importTranscripts(project, plan, items) {
-  /** @type {string[]} */
+  /** @type {BuildWarning[]} */
   const warnings = [];
 
   for (const t of plan.transcripts) {
@@ -907,40 +1017,22 @@ async function importTranscripts(project, plan, items) {
         compound.addAction(ppro.Transcript.createImportTextSegmentsAction(segments, clipItem));
       }, UNDO.transcript);
     } catch (err) {
-      warnings.push(`could not import transcript for ${t.mediaId}: ${err.message}`);
+      // Say what it costs, not just that it failed. The cut is already made
+      // from this transcript; what is missing is Premiere's own Text-Based
+      // Editing view of it. Six lines of "could not import" on an otherwise
+      // clean receipt reads like the build broke, and it did not.
+      warnings.push(note(
+        "transcript.notImported",
+        { mediaId: t.mediaId, detail: err.message },
+        `${t.mediaId}: transcript not handed to Text-Based Editing (${err.message}) -- ` +
+        `the cut itself is unaffected`
+      ));
     }
   }
   return warnings;
 }
 
-/**
- * Group words into sentence-ish segments.
- *
- * NOTE: this shape is NOT yet accepted -- Premiere answers
- * "Failed to parse input string into JSON", and the expected schema is
- * undocumented. The self-test's transcript/schema-discovered check dumps the
- * real shape from any clip that already has a transcript; until that has been
- * captured on a machine with one, transcript import degrades to a warning and
- * the rest of the build proceeds.
- */
-function toPremiereTranscript(t) {
-  const segments = [];
-  let current = null;
-  for (const w of t.words) {
-    if (!current) current = { start: w.start, end: w.end, text: w.text, speaker: w.speaker || "" };
-    else {
-      current.text += ` ${w.text}`;
-      current.end = w.end;
-    }
-    const endsSentence = /[.!?]$/.test(w.text);
-    if (endsSentence || current.end - current.start > 12) {
-      segments.push(current);
-      current = null;
-    }
-  }
-  if (current) segments.push(current);
-  return { language: t.language || "en", segments };
-}
+
 
 // --------------------------------------------------------------- setup check
 

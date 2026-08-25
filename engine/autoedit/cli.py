@@ -22,10 +22,12 @@ from .probe import ProbeError, content_hash, probe
 from .recipe import RecipeError, list_recipes, load_recipe
 from .transcribe import TranscriptionError, extract_audio, get_provider
 from .transcript import Transcript
-from .options import JobOptions, OptionError, apply_pacing, fit_duration_across, ASPECT_LABELS
+from .options import (JobOptions, OptionError, apply_pacing, fit_duration_across,
+                      working_frame_size, ASPECT_LABELS)
 from .preset import write_preset
 from .music import BeatGrid, MusicError, detect_beats
 from .notes import Note, note
+from .timebase import choose_timebase, holds_exactly
 from .visual import (
     Measurements, VisualError, analyse as analyse_visual, measure as measure_visual,
     measurement_key, plan_visual_cuts,
@@ -149,7 +151,11 @@ def resolve_music_chunk(
         ))
     if length and chunk > picture_seconds + 1e-4:
         notes.append(note("music.runsPastPicture", overhang=chunk - picture_seconds))
-    elif length and chunk < picture_seconds - 1e-4:
+    elif chunk < picture_seconds - 1e-4:
+        # Deliberately NOT gated on an explicit length. A bed that follows the
+        # picture can still fall short, because the track simply is not long
+        # enough -- a 48s song under a 138s cut -- and that is the case where the
+        # editor most needs telling, since they never asked for a short bed.
         notes.append(note("music.stopsEarly", shortfall=picture_seconds - chunk))
 
     return MusicChunk(start=start, length=max(0.0, chunk), warnings=tuple(notes))
@@ -276,7 +282,42 @@ def cmd_plan(args) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    tb = recipe.sequence.timebase
+    # Probe before building. The sequence rate used to come straight from the
+    # recipe, which meant 59.94 footage was assembled into a 30.000 sequence --
+    # two grids that share almost no frame boundaries, so every clip landed a
+    # frame out and the joins showed as black flashes. The footage is the fact;
+    # the recipe's rate is a preference that has to give way when it cannot hold
+    # the material exactly.
+    probes: list[Any] = []
+    for raw in args.media:
+        try:
+            probes.append(probe(Path(raw).resolve()))
+        except ProbeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+    tb, displaced = choose_timebase(
+        recipe.sequence.timebase,
+        [p.timebase for p in probes if p.has_video and p.timebase],
+    )
+    timebase_notes: list[tuple[Note, str | None]] = []
+    if displaced is not None:
+        print(f"  sequence: {tb} to match the footage (recipe asks {displaced})", file=sys.stderr)
+        timebase_notes.append((note(
+            "timebase.followedFootage", chosen=f"{tb.fps:.3f}", recipe=f"{displaced.fps:.3f}"
+        ), None))
+
+    misfits = [
+        Path(raw).name
+        for raw, p in zip(args.media, probes)
+        if p.has_video and p.timebase and not holds_exactly(tb, p.timebase)
+    ]
+    if misfits:
+        timebase_notes.append((note(
+            "timebase.mixedRates", count=len(misfits), chosen=f"{tb.fps:.3f}",
+            files=", ".join(misfits[:3]) + (" and others" if len(misfits) > 3 else ""),
+        ), None))
+
     builder = EditPlanBuilder(
         job_id=args.job,
         recipe=recipe.name,
@@ -361,13 +402,12 @@ def cmd_plan(args) -> int:
     work_dir = cache_root / args.job
     work_dir.mkdir(parents=True, exist_ok=True)
 
+    for w, mid_for in timebase_notes:
+        builder.add_warning("timebase", w, mid_for)
+
     for i, raw in enumerate(args.media):
         path = Path(raw).resolve()
-        try:
-            info = probe(path)
-        except ProbeError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 1
+        info = probes[i]
 
         mid = _media_id(i, path)
         rel = str(path.relative_to(media_root)) if media_root and media_root in path.parents else path.name
@@ -581,8 +621,21 @@ def cmd_plan(args) -> int:
 
     out = Path(args.out) if args.out else Path(f"{args.job}.editplan.json")
 
-    if options.frame_size:
-        width, height = options.frame_size
+    # A preset is the only way to pin the sequence's frame rate. Without one the
+    # panel calls `createSequence(name)` and Premiere supplies its own defaults --
+    # so a plan built at 59.94 could still land in a 30fps sequence and every clip
+    # would be a frame out again, which is the whole defect this run is meant to
+    # avoid. "Match source" therefore means the source's own size and rate, not
+    # "let Premiere decide".
+    frame_size = options.frame_size
+    if frame_size is None:
+        first = next((pr for pr in probes if pr.has_video and pr.width and pr.height), None)
+        if first:
+            # The footage's shape, not its pixel count -- see working_frame_size.
+            frame_size = working_frame_size(first.width, first.height)
+
+    if frame_size:
+        width, height = frame_size
         preset_file = out.with_suffix("").with_suffix(".sqpreset")
         write_preset(
             preset_file,
@@ -649,7 +702,12 @@ def cmd_plan(args) -> int:
 
     out.write_text(json.dumps(plan, indent=2) + "\n")
 
-    total = plan["timeline"][-1]["atFrame"] + plan["timeline"][-1]["durationFrames"] if plan["timeline"] else 0
+    # The furthest point anything reaches, not the last entry written. A music
+    # bed is appended last and starts at frame 0, so reading the tail reported a
+    # 138s edit as 48s -- the length of the song.
+    total = max(
+        (c["atFrame"] + c["durationFrames"] for c in plan["timeline"]), default=0
+    )
     print(f"\n{out}", file=sys.stderr)
     print(f"  {len(plan['timeline'])} clips, {tb.timecode(total)} ({tb.to_seconds(total):.1f}s)", file=sys.stderr)
     for w in plan.get("warnings", []):

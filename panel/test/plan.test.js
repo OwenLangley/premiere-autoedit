@@ -174,3 +174,50 @@ test("the plan tag is short, stable and filename-safe", () => {
   assert.equal(planTag(PLAN_A), planTag(PLAN_A));
   assert.match(planTag(PLAN_A), /^[a-z0-9]{7}$/);
 });
+
+// --- transcript segments handed to Text-Based Editing ----------------------
+//
+// The cut is already made by the time this runs; what this shapes is Premiere's
+// own view of the words. Getting it wrong for Japanese would put spaces inside
+// words -- Whisper emits sub-word token runs for Japanese, not words -- and find
+// no sentence boundaries at all.
+
+const { toPremiereTranscript } = require("../src/plan");
+
+const words = (language, ...texts) => ({
+  language,
+  words: texts.map((text, i) => ({ text, start: i * 0.5, end: i * 0.5 + 0.4 })),
+});
+
+test("English words are joined with spaces", () => {
+  const out = toPremiereTranscript(words("en", "we", "shot", "this", "today."));
+  assert.strictEqual(out.segments.length, 1);
+  assert.strictEqual(out.segments[0].text, "we shot this today.");
+});
+
+test("Japanese words are joined with nothing", () => {
+  const out = toPremiereTranscript(words("ja", "今日は", "ダンスの", "撮影を", "しました。"));
+  assert.strictEqual(out.segments[0].text, "今日はダンスの撮影をしました。");
+});
+
+test("a full-width full stop ends a sentence", () => {
+  const out = toPremiereTranscript(words("ja", "そうですね。", "以上です。"));
+  assert.strictEqual(out.segments.length, 2, "。 has to break a segment, as . does");
+});
+
+test("a regional tag still counts as Japanese", () => {
+  const out = toPremiereTranscript(words("ja-JP", "撮影を", "しました"));
+  assert.strictEqual(out.segments[0].text, "撮影をしました");
+});
+
+test("an unknown language falls back to spaces rather than running words together", () => {
+  const out = toPremiereTranscript(words(undefined, "hello", "there"));
+  assert.strictEqual(out.segments[0].text, "hello there");
+  assert.strictEqual(out.language, "en");
+});
+
+test("a segment is capped even when nothing punctuates it", () => {
+  const many = Array.from({ length: 40 }, (_, i) => `w${i}`);
+  const out = toPremiereTranscript(words("en", ...many));
+  assert.ok(out.segments.length > 1, "a 20s run with no full stop must still break");
+});

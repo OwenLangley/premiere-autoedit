@@ -247,3 +247,17 @@ def test_a_start_near_the_end_cannot_produce_an_out_past_the_track():
                            has_video=False, has_audio=True, role="music"))
     b.add_full_clip("MUSIC", 0, 500, video_track=-1, audio_track=2, in_seconds=55.0)
     assert b.build()["timeline"][0]["outSeconds"] == 60.0
+
+
+def test_a_track_too_short_for_the_picture_says_so_without_being_asked():
+    # The bed follows the picture, so no length was set -- and the warning used
+    # to be gated on one, which meant a 48s song under a 138s cut produced 48s of
+    # music and complete silence about it.
+    chunk = resolve_music_chunk(track_duration=48.0, picture_seconds=138.0)
+    assert chunk.length == 48.0
+    assert "stops 90.0s before the picture" in " ".join(chunk.warnings)
+
+
+def test_a_bed_that_covers_the_picture_still_says_nothing():
+    chunk = resolve_music_chunk(track_duration=200.0, picture_seconds=138.0)
+    assert chunk.warnings == ()
