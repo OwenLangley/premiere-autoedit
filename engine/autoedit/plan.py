@@ -40,6 +40,8 @@ class MediaEntry:
     has_video: bool = True
     has_audio: bool = True
     speaker: str | None = None
+    width: int = 0
+    height: int = 0
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -57,6 +59,8 @@ class MediaEntry:
             d["timebase"] = self.timebase.to_dict()
         if self.speaker:
             d["speaker"] = self.speaker
+        if self.width and self.height:
+            d["width"], d["height"] = self.width, self.height
         return d
 
 
@@ -77,6 +81,8 @@ class EditPlanBuilder:
     _transcripts: list[dict] = field(default_factory=list)
     _warnings: list[dict] = field(default_factory=list)
     _playhead: int = 0          # next free frame on the timeline
+    _sequence_preset: str | None = None
+    _frame_size: tuple[int, int] | None = None
 
     # ------------------------------------------------------------- inputs
 
@@ -173,6 +179,16 @@ class EditPlanBuilder:
         })
         return self
 
+    def set_sequence_preset(self, preset_path: str, width: int, height: int) -> "EditPlanBuilder":
+        """Point the sequence at a generated preset, and record the frame size.
+
+        The apply side needs the size to work out the crop scale, and it is not
+        recoverable from the preset path alone.
+        """
+        self._sequence_preset = preset_path
+        self._frame_size = (width, height)
+        return self
+
     def add_marker(
         self, at_frame: int, name: str, comment: str = "",
         kind: str = "Comment", duration_frames: int = 0,
@@ -246,6 +262,9 @@ class EditPlanBuilder:
                 "name": self.sequence_name,
                 "videoTracks": max(self.video_tracks, needed_v + 1),
                 "audioTracks": max(self.audio_tracks, needed_a + 1),
+                **({"presetPath": self._sequence_preset} if self._sequence_preset else {}),
+                **({"frameWidth": self._frame_size[0], "frameHeight": self._frame_size[1]}
+                   if self._frame_size else {}),
             },
             "timeline": self._timeline,
         }

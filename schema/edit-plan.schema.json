@@ -4,184 +4,477 @@
   "title": "EditPlan",
   "description": "Declarative description of a Premiere Pro timeline. Produced by the analysis engine, consumed by the UXP panel. This file is the ONLY contract between the two halves of the system.",
   "type": "object",
-  "required": ["schemaVersion", "jobId", "recipe", "timebase", "media", "sequence", "timeline"],
+  "required": [
+    "schemaVersion",
+    "jobId",
+    "recipe",
+    "timebase",
+    "media",
+    "sequence",
+    "timeline"
+  ],
   "additionalProperties": false,
-
   "properties": {
-    "schemaVersion": { "const": "1.0" },
-    "jobId":     { "type": "string", "minLength": 1 },
-    "recipe":    { "type": "string", "minLength": 1 },
-    "createdAt": { "type": "string", "format": "date-time" },
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "jobId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recipe": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
     "generator": {
       "type": "object",
-      "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
-      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
       "additionalProperties": false
     },
-
     "timebase": {
       "description": "Timebase of the OUTPUT sequence. Every `atFrame` and `durationFrames` in this document is expressed in this timebase.",
       "$ref": "#/definitions/timebase"
     },
-
     "media": {
-      "type": "array", "minItems": 1,
-      "items": { "$ref": "#/definitions/mediaRef" }
-    },
-
-    "sequence": {
-      "type": "object",
-      "required": ["name", "videoTracks", "audioTracks"],
-      "additionalProperties": false,
-      "properties": {
-        "name":        { "type": "string", "minLength": 1 },
-        "presetPath":  { "type": "string", "description": "Absolute path to a .sqpreset. Omit to use createSequenceFromMedia and inherit from the first clip." },
-        "videoTracks": { "type": "integer", "minimum": 1, "maximum": 32 },
-        "audioTracks": { "type": "integer", "minimum": 1, "maximum": 32 }
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/mediaRef"
       }
     },
-
-    "timeline":   { "type": "array", "items": { "$ref": "#/definitions/clipEntry" } },
-    "graphics":   { "type": "array", "items": { "$ref": "#/definitions/graphicEntry" } },
-    "effects":    { "type": "array", "items": { "$ref": "#/definitions/effectEntry" } },
-    "markers":    { "type": "array", "items": { "$ref": "#/definitions/markerEntry" } },
-    "transcripts":{ "type": "array", "items": { "$ref": "#/definitions/transcript" } },
-
+    "sequence": {
+      "type": "object",
+      "required": [
+        "name",
+        "videoTracks",
+        "audioTracks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "presetPath": {
+          "type": "string",
+          "description": "Absolute path to a .sqpreset. Omit to use createSequenceFromMedia and inherit from the first clip."
+        },
+        "videoTracks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "audioTracks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "frameWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Set when an aspect was requested; the apply side needs it to compute the crop scale."
+        },
+        "frameHeight": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/clipEntry"
+      }
+    },
+    "graphics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/graphicEntry"
+      }
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/effectEntry"
+      }
+    },
+    "markers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/markerEntry"
+      }
+    },
+    "transcripts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/transcript"
+      }
+    },
     "warnings": {
       "description": "Non-fatal issues the editor should see in the panel before applying.",
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["code", "message"],
+        "required": [
+          "code",
+          "message"
+        ],
         "additionalProperties": false,
         "properties": {
-          "code":    { "type": "string" },
-          "message": { "type": "string" },
-          "mediaId": { "type": "string" },
-          "atFrame": { "type": "integer" }
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "mediaId": {
+            "type": "string"
+          },
+          "atFrame": {
+            "type": "integer"
+          }
         }
       }
     }
   },
-
   "definitions": {
-
     "timebase": {
       "type": "object",
-      "required": ["fpsNum", "fpsDen"],
+      "required": [
+        "fpsNum",
+        "fpsDen"
+      ],
       "additionalProperties": false,
       "properties": {
-        "fpsNum":    { "type": "integer", "minimum": 1, "description": "e.g. 24000 for 23.976" },
-        "fpsDen":    { "type": "integer", "minimum": 1, "description": "e.g. 1001 for 23.976" },
-        "dropFrame": { "type": "boolean", "default": false }
+        "fpsNum": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "e.g. 24000 for 23.976"
+        },
+        "fpsDen": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "e.g. 1001 for 23.976"
+        },
+        "dropFrame": {
+          "type": "boolean",
+          "default": false
+        }
       }
     },
-
     "mediaRef": {
       "description": "A source file. Deliberately stores relPath + hash and NEVER an absolute path, so the same EditPlan resolves on a local drive today and a NAS tomorrow.",
       "type": "object",
-      "required": ["id", "relPath", "durationSeconds"],
+      "required": [
+        "id",
+        "relPath",
+        "durationSeconds"
+      ],
       "additionalProperties": false,
       "properties": {
-        "id":              { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
-        "relPath":         { "type": "string", "minLength": 1 },
-        "hash":            { "type": "string", "description": "sha256 of the first+last 4MiB plus size. Identity, not integrity." },
-        "role":            { "type": "string", "description": "Recipe-defined, e.g. cam-a, cam-b, mic-host, broll, music." },
-        "durationSeconds": { "type": "number", "exclusiveMinimum": 0 },
-        "timebase":        { "$ref": "#/definitions/timebase" },
-        "hasVideo":        { "type": "boolean", "default": true },
-        "hasAudio":        { "type": "boolean", "default": true },
-        "speaker":         { "type": "string", "description": "For isolated-mic recordings, the speaker on this channel." }
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "relPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "type": "string",
+          "description": "sha256 of the first+last 4MiB plus size. Identity, not integrity."
+        },
+        "role": {
+          "type": "string",
+          "description": "Recipe-defined, e.g. cam-a, cam-b, mic-host, broll, music."
+        },
+        "durationSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "timebase": {
+          "$ref": "#/definitions/timebase"
+        },
+        "hasVideo": {
+          "type": "boolean",
+          "default": true
+        },
+        "hasAudio": {
+          "type": "boolean",
+          "default": true
+        },
+        "speaker": {
+          "type": "string",
+          "description": "For isolated-mic recordings, the speaker on this channel."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Source pixel width; the apply side needs it to compute crop scale."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
-
     "clipEntry": {
       "description": "One clip on the timeline. `inSeconds`/`outSeconds` are source time; `atFrame`/`durationFrames` are sequence time. Positions are explicit integer frames so a 200-cut assembly cannot accumulate float drift.",
       "type": "object",
-      "required": ["mediaId", "inSeconds", "outSeconds", "atFrame", "durationFrames", "videoTrack", "audioTrack"],
+      "required": [
+        "mediaId",
+        "inSeconds",
+        "outSeconds",
+        "atFrame",
+        "durationFrames",
+        "videoTrack",
+        "audioTrack"
+      ],
       "additionalProperties": false,
       "properties": {
-        "mediaId":        { "type": "string" },
-        "inSeconds":      { "type": "number", "minimum": 0 },
-        "outSeconds":     { "type": "number", "exclusiveMinimum": 0 },
-        "atFrame":        { "type": "integer", "minimum": 0 },
-        "durationFrames": { "type": "integer", "minimum": 1 },
-        "videoTrack":     { "type": "integer", "minimum": -1, "description": "0-based. -1 for an audio-only clip such as a music bed." },
-        "audioTrack":     { "type": "integer", "minimum": -1, "description": "0-based. -1 for a clip placed without audio." },
-        "linkedAudio":    { "type": "boolean", "default": true },
-
-        "reason":     { "type": "string", "description": "Human-readable justification, shown in the panel. Editors will not trust cuts they cannot interrogate." },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "sectionId":  { "type": "string", "description": "Groups entries so the editor can toggle a whole section off before applying." },
-
-        "fadeInFrames":  { "type": "integer", "minimum": 0, "default": 0, "description": "Audio crossfade at the head. Non-zero on every join prevents clicks." },
-        "fadeOutFrames": { "type": "integer", "minimum": 0, "default": 0 }
+        "mediaId": {
+          "type": "string"
+        },
+        "inSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "outSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "atFrame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "durationFrames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "videoTrack": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "0-based. -1 for an audio-only clip such as a music bed."
+        },
+        "audioTrack": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "0-based. -1 for a clip placed without audio."
+        },
+        "linkedAudio": {
+          "type": "boolean",
+          "default": true
+        },
+        "reason": {
+          "type": "string",
+          "description": "Human-readable justification, shown in the panel. Editors will not trust cuts they cannot interrogate."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "sectionId": {
+          "type": "string",
+          "description": "Groups entries so the editor can toggle a whole section off before applying."
+        },
+        "fadeInFrames": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Audio crossfade at the head. Non-zero on every join prevents clicks."
+        },
+        "fadeOutFrames": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
       }
     },
-
     "graphicEntry": {
       "type": "object",
-      "required": ["mogrt", "atFrame", "durationFrames", "videoTrack"],
+      "required": [
+        "mogrt",
+        "atFrame",
+        "durationFrames",
+        "videoTrack"
+      ],
       "additionalProperties": false,
       "properties": {
-        "mogrt":          { "type": "string", "description": "Key into brandkit/mogrts.json, NOT a path." },
-        "atFrame":        { "type": "integer", "minimum": 0 },
-        "durationFrames": { "type": "integer", "minimum": 1 },
-        "videoTrack":     { "type": "integer", "minimum": 0 },
-        "fields":         { "type": "object", "description": "Field name -> value. Resolved to zero-based param indices at apply time via the brandkit param map.", "additionalProperties": { "type": ["string", "number", "boolean"] } },
-        "reason":         { "type": "string" },
-        "sectionId":      { "type": "string" }
+        "mogrt": {
+          "type": "string",
+          "description": "Key into brandkit/mogrts.json, NOT a path."
+        },
+        "atFrame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "durationFrames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "videoTrack": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fields": {
+          "type": "object",
+          "description": "Field name -> value. Resolved to zero-based param indices at apply time via the brandkit param map.",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sectionId": {
+          "type": "string"
+        }
       }
     },
-
     "effectEntry": {
       "type": "object",
-      "required": ["target", "matchName"],
+      "required": [
+        "target",
+        "matchName"
+      ],
       "additionalProperties": false,
       "properties": {
-        "target":    { "type": "string", "pattern": "^(track:[va][0-9]+|clip:[0-9]+)$", "description": "track:v1 | track:a2 | clip:<timeline index>" },
-        "matchName": { "type": "string", "description": "Premiere component matchName, e.g. AE.ADBE Lumetri" },
-        "params":    { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } },
-        "lut":       { "type": "string", "description": "Key into brandkit/luts.json." },
-        "reason":    { "type": "string" },
-        "sectionId": { "type": "string" }
+        "target": {
+          "type": "string",
+          "pattern": "^(track:[va][0-9]+|clip:[0-9]+)$",
+          "description": "track:v1 | track:a2 | clip:<timeline index>"
+        },
+        "matchName": {
+          "type": "string",
+          "description": "Premiere component matchName, e.g. AE.ADBE Lumetri"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "lut": {
+          "type": "string",
+          "description": "Key into brandkit/luts.json."
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sectionId": {
+          "type": "string"
+        }
       }
     },
-
     "markerEntry": {
       "type": "object",
-      "required": ["atFrame", "name"],
+      "required": [
+        "atFrame",
+        "name"
+      ],
       "additionalProperties": false,
       "properties": {
-        "atFrame":        { "type": "integer", "minimum": 0 },
-        "durationFrames": { "type": "integer", "minimum": 0, "default": 0 },
-        "name":           { "type": "string" },
-        "comment":        { "type": "string" },
-        "type":           { "enum": ["Comment", "Chapter", "Segmentation", "WebLink"], "default": "Comment" },
-        "colorIndex":     { "type": "integer", "minimum": 0, "maximum": 7 }
+        "atFrame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "durationFrames": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "Comment",
+            "Chapter",
+            "Segmentation",
+            "WebLink"
+          ],
+          "default": "Comment"
+        },
+        "colorIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        }
       }
     },
-
     "transcript": {
       "description": "Word-level transcript, pushed into Premiere via Transcript.createImportTextSegmentsAction so the assembled cut lines up with native Text-Based Editing.",
       "type": "object",
-      "required": ["mediaId", "words"],
+      "required": [
+        "mediaId",
+        "words"
+      ],
       "additionalProperties": false,
       "properties": {
-        "mediaId":  { "type": "string" },
-        "language": { "type": "string", "default": "en" },
+        "mediaId": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string",
+          "default": "en"
+        },
         "words": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["text", "start", "end"],
+            "required": [
+              "text",
+              "start",
+              "end"
+            ],
             "additionalProperties": false,
             "properties": {
-              "text":       { "type": "string" },
-              "start":      { "type": "number", "minimum": 0 },
-              "end":        { "type": "number", "minimum": 0 },
-              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-              "speaker":    { "type": "string" }
+              "text": {
+                "type": "string"
+              },
+              "start": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end": {
+                "type": "number",
+                "minimum": 0
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "speaker": {
+                "type": "string"
+              }
             }
           }
         }

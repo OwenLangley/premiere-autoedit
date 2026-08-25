@@ -10,9 +10,12 @@
 const { applyPlan, ApplyError } = require("./apply");
 const { validatePlan, summarize, sections, withoutSections } = require("./plan");
 const {
-  LocalFolderTransport, pickFolder, folderFromToken,
+  LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
   makeResolver, loadSettings, saveSettings,
 } = require("./transport");
+const {
+  isVideoFile, buildRequest, validateRequest, requestFileName, describeRequest,
+} = require("./request");
 const { runSelfTest } = require("./selftest");
 
 /** @type {(id: string) => any} document.getElementById is typed HTMLElement; the
@@ -26,6 +29,10 @@ const state = {
   plan: null,
   planName: null,
   disabled: new Set(),
+  capabilities: null,
+  mediaFiles: [],
+  selectedMedia: new Set(),
+  watching: null,          // interval id while a job is being worked on
 };
 
 function log(message, kind) {
@@ -227,6 +234,8 @@ $("pick-media").addEventListener("click", async () => {
   if (picked) {
     state.settings = saveSettings({ mediaToken: picked.token });
     await refreshSetup();
+    state.selectedMedia.clear();
+    await loadMediaList();
     log(`Media root: ${picked.path}`);
   }
 });
@@ -237,9 +246,170 @@ $("pick-jobs").addEventListener("click", async () => {
     state.settings = saveSettings({ jobsToken: picked.token });
     await refreshSetup();
     await refreshPlans();
+    await loadCapabilities();
     log(`Jobs folder: ${picked.path}`);
   }
 });
+
+
+
+// --------------------------------------------------------------- new edit form
+
+/** Fill a <select> from a capabilities list, keeping any current choice. */
+function fillSelect(id, entries, fallback) {
+  const el = $(id);
+  const previous = el.value;
+  el.innerHTML = "";
+  const list = entries && entries.length ? entries : fallback;
+  for (const item of list) {
+    const opt = document.createElement("option");
+    opt.value = item.value;
+    opt.textContent = item.label;
+    el.appendChild(opt);
+  }
+  if (previous && list.some((i) => i.value === previous)) el.value = previous;
+}
+
+async function loadCapabilities() {
+  if (!state.transport) return;
+  const caps = await state.transport.listCapabilities();
+  if (!caps) {
+    // The helper has never run here. Say so plainly rather than offering an
+    // empty form that fails on submit.
+    log("Helper has not run yet -- start it to enable new edits.", "err");
+    $("create").disabled = true;
+    return;
+  }
+  state.capabilities = caps;
+  $("create").disabled = false;
+
+  fillSelect("opt-recipe", (caps.recipes || []).map((r) => ({ value: r.name, label: r.name })), []);
+  fillSelect("opt-aspect", caps.aspects, [{ value: "source", label: "Match source" }]);
+  fillSelect("opt-pacing", caps.pacing, [{ value: "standard", label: "Standard" }]);
+  fillSelect("opt-duration-mode", caps.durationModes, [{ value: "none", label: "No limit" }]);
+  fillSelect("opt-look", [{ value: "", label: "None" }, ...(caps.looks || [])], [{ value: "", label: "None" }]);
+  renderSummary_();
+}
+
+async function loadMediaList() {
+  const box = $("media-list");
+  box.innerHTML = "";
+  if (!state.settings.mediaToken) {
+    box.innerHTML = '<div class="empty">Set a media root above.</div>';
+    return;
+  }
+  try {
+    state.mediaFiles = await listMediaFiles(state.settings.mediaToken, isVideoFile);
+  } catch (err) {
+    box.innerHTML = `<div class="empty">Could not read the media root: ${err.message}</div>`;
+    return;
+  }
+  if (!state.mediaFiles.length) {
+    box.innerHTML = '<div class="empty">No video files in the media root.</div>';
+    return;
+  }
+  for (const name of state.mediaFiles) {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = state.selectedMedia.has(name);
+    cb.addEventListener("change", () => {
+      if (cb.checked) state.selectedMedia.add(name);
+      else state.selectedMedia.delete(name);
+      renderSummary_();
+    });
+    const text = document.createElement("span");
+    text.textContent = name;
+    label.append(cb, text);
+    box.appendChild(label);
+  }
+  renderSummary_();
+}
+
+function currentForm() {
+  const seconds = Number($("opt-duration-seconds").value);
+  return {
+    jobId: $("job-name").value,
+    recipe: $("opt-recipe").value,
+    media: [...state.selectedMedia],
+    aspect: $("opt-aspect").value,
+    pacing: $("opt-pacing").value,
+    look: $("opt-look").value || null,
+    durationMode: $("opt-duration-mode").value,
+    durationSeconds: Number.isFinite(seconds) ? seconds : null,
+  };
+}
+
+function renderSummary_() {
+  $("media-count").textContent = state.mediaFiles.length
+    ? `(${state.selectedMedia.size} of ${state.mediaFiles.length})`
+    : "";
+  const request = buildRequest(currentForm());
+  $("request-summary").textContent = state.selectedMedia.size
+    ? describeRequest(request, state.capabilities || {})
+    : "";
+  $("request-errors").innerHTML = "";
+}
+
+async function onCreate() {
+  const request = buildRequest(currentForm());
+  const problems = validateRequest(request);
+  $("request-errors").innerHTML = "";
+  if (problems.length) {
+    problems.forEach((p) => {
+      const el = document.createElement("div");
+      el.className = "msg bad";
+      el.textContent = p;
+      $("request-errors").appendChild(el);
+    });
+    return;
+  }
+
+  $("create").disabled = true;
+  log(`Requested "${request.jobId}" — ${describeRequest(request, state.capabilities || {})}`);
+  try {
+    await state.transport.writeRequest(requestFileName(request.jobId), request);
+    watchJob(request.jobId);
+  } catch (err) {
+    log(`Could not write the request: ${err.message}`, "err");
+    $("create").disabled = false;
+  }
+}
+
+/**
+ * Poll until the helper finishes. Analysis of 4K footage takes minutes, so the
+ * panel has to show progress rather than an unresponsive button.
+ */
+function watchJob(jobId) {
+  if (state.watching) clearInterval(state.watching);
+  let lastMessage = "";
+
+  state.watching = setInterval(async () => {
+    let status = null;
+    try {
+      status = await state.transport.readStatus(jobId);
+    } catch {
+      return;
+    }
+    if (!status) return;
+
+    if (status.message && status.message !== lastMessage) {
+      lastMessage = status.message;
+      log(`  ${jobId}: ${status.message}`);
+    }
+    if (status.state === "ready" || status.state === "failed") {
+      clearInterval(state.watching);
+      state.watching = null;
+      $("create").disabled = false;
+      if (status.state === "failed") {
+        log(`${jobId} failed: ${status.message}`, "err");
+      } else {
+        log(`${jobId} is ready.`, "ok");
+        await refreshPlans();
+      }
+    }
+  }, 2000);
+}
 
 $("selftest").addEventListener("click", async () => {
   $("selftest").disabled = true;
@@ -264,6 +434,21 @@ $("selftest").addEventListener("click", async () => {
 });
 
 $("refresh").addEventListener("click", refreshPlans);
+$("create").addEventListener("click", onCreate);
+$("media-reload").addEventListener("click", loadMediaList);
+$("media-all").addEventListener("click", () => {
+  state.mediaFiles.forEach((n) => state.selectedMedia.add(n));
+  loadMediaList();
+});
+$("media-none").addEventListener("click", () => {
+  state.selectedMedia.clear();
+  loadMediaList();
+});
+for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing",
+                  "opt-look", "opt-duration-mode", "opt-duration-seconds"]) {
+  $(id).addEventListener("change", renderSummary_);
+  $(id).addEventListener("input", renderSummary_);
+}
 $("apply").addEventListener("click", onApply);
 $("plan-list").addEventListener("change", (e) => {
   const value = /** @type {any} */ (e.target).value;
@@ -275,6 +460,8 @@ $("plan-list").addEventListener("change", (e) => {
   try {
     await refreshSetup();
     await refreshPlans();
+    await loadCapabilities();
+    await loadMediaList();
     log("Panel ready.");
   } catch (err) {
     // Surfacing this in the panel matters: a throw during init leaves every

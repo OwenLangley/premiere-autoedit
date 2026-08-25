@@ -75,6 +75,39 @@ class LocalFolderTransport {
     }
   }
 
+  /** Read the helper's capabilities file, or null when it has never run. */
+  async listCapabilities() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return null;
+    try {
+      const file = await folder.getEntry("capabilities.json");
+      return JSON.parse(await file.read());
+    } catch {
+      return null;
+    }
+  }
+
+  /** Write a job request for the helper to pick up. */
+  async writeRequest(name, request) {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) throw new Error("Jobs folder is not reachable. Re-select it in settings.");
+    const file = await folder.createFile(name, { overwrite: true });
+    await file.write(JSON.stringify(request, null, 2));
+    return name;
+  }
+
+  /** Current status of one job, or null before the helper has touched it. */
+  async readStatus(jobId) {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return null;
+    try {
+      const file = await folder.getEntry(`${jobId}.status.json`);
+      return JSON.parse(await file.read());
+    } catch {
+      return null;
+    }
+  }
+
   /** Write a result summary back beside the plan, for the engine to pick up. */
   async writeReceipt(planName, receipt) {
     const folder = await folderFromToken(this.jobsToken);
@@ -153,7 +186,19 @@ function saveSettings(patch) {
   return next;
 }
 
+/** Video files sitting in the media root, for the clip picker. */
+async function listMediaFiles(mediaRootToken, isVideoFile) {
+  const root = await folderFromToken(mediaRootToken);
+  if (!root) return [];
+  const entries = await root.getEntries();
+  return entries
+    .filter((e) => e.isFile && isVideoFile(e.name))
+    .map((e) => e.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 module.exports = {
+  listMediaFiles,
   LocalFolderTransport,
   HttpsTransport,
   pickFolder,

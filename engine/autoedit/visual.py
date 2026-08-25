@@ -364,6 +364,74 @@ def score_shots(
 
 
 @dataclass
+class Measurements:
+    """The expensive half of visual analysis: everything that needs a decode.
+
+    Split out from scoring so it can be cached. Scoring depends on the quality
+    thresholds, which an editor changes constantly while tuning pacing; decoding
+    depends only on the file and how finely it is sampled. Re-deciding should not
+    mean re-watching 4K footage for a minute.
+    """
+
+    shots: list[Shot] = field(default_factory=list)
+    samples: list[FrameSample] = field(default_factory=list)
+    black: list[Shot] = field(default_factory=list)
+    frozen: list[Shot] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        span = lambda s: {"start": round(s.start, 4), "end": round(s.end, 4)}
+        return {
+            "shots": [span(s) for s in self.shots],
+            "black": [span(s) for s in self.black],
+            "frozen": [span(s) for s in self.frozen],
+            "samples": [
+                {"t": round(f.time, 4), "m": round(f.motion, 4),
+                 "b": round(f.brightness, 3), "s": round(f.sharpness, 4)}
+                for f in self.samples
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Measurements":
+        span = lambda x: Shot(float(x["start"]), float(x["end"]))
+        return cls(
+            shots=[span(x) for x in d.get("shots", [])],
+            black=[span(x) for x in d.get("black", [])],
+            frozen=[span(x) for x in d.get("frozen", [])],
+            samples=[
+                FrameSample(float(x["t"]), float(x["m"]), float(x["b"]), float(x["s"]))
+                for x in d.get("samples", [])
+            ],
+        )
+
+
+def measurement_key(settings: VisualSettings) -> dict:
+    """Only the settings that change what gets DECODED belong in the cache key.
+
+    Quality thresholds deliberately excluded: they affect scoring, which is
+    recomputed on every run precisely so tuning them stays instant.
+    """
+    return {
+        "scene_threshold": settings.scene_threshold,
+        "min_shot": settings.min_shot,
+        "max_shot": settings.max_shot,
+        "sample_fps": settings.sample_fps,
+        "analysis_width": settings.analysis_width,
+    }
+
+
+def measure(path: str, duration: float, settings: VisualSettings) -> Measurements:
+    """Run every decode-bound measurement over one clip."""
+    structure = detect_structure(path, duration, settings)
+    return Measurements(
+        shots=structure.shots,
+        samples=analyse_frames(path, settings),
+        black=structure.black,
+        frozen=structure.frozen,
+    )
+
+
+@dataclass
 class VisualAnalysis:
     shots: list[ScoredShot] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -373,23 +441,30 @@ class VisualAnalysis:
         return [s for s in self.shots if s.usable]
 
 
-def analyse(path: str, duration: float, settings: VisualSettings | None = None) -> VisualAnalysis:
-    """Full visual pass over one silent clip."""
+def analyse(
+    path: str,
+    duration: float,
+    settings: VisualSettings | None = None,
+    measurements: Measurements | None = None,
+) -> VisualAnalysis:
+    """Full visual pass over one clip.
+
+    Pass `measurements` to skip the decode entirely and just re-score.
+    """
     settings = settings or VisualSettings()
     warnings: list[str] = []
 
-    structure = detect_structure(path, duration, settings)
-    if not structure.shots:
+    measured = measurements or measure(path, duration, settings)
+    if not measured.shots:
         return VisualAnalysis([], ["no shots detected"])
 
-    samples = analyse_frames(path, settings)
-    if not samples:
+    if not measured.samples:
         warnings.append("frame analysis produced no samples; quality gates skipped")
 
     scored = score_shots(
-        structure.shots, samples, settings,
-        structure.black if settings.drop_black else [],
-        structure.frozen,
+        measured.shots, measured.samples, settings,
+        measured.black if settings.drop_black else [],
+        measured.frozen,
     )
 
     rejected = [s for s in scored if not s.usable]

@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://premiere-autoedit/schema/job-request-1.0.json",
+  "title": "JobRequest",
+  "description": "What an editor asked for. Written by the panel, consumed by the helper, which runs the engine and returns an EditPlan. Closed to unknown keys: a typo here would otherwise silently fall back to a default and produce the wrong edit.",
+  "type": "object",
+  "required": ["schemaVersion", "jobId", "recipe", "media"],
+  "additionalProperties": false,
+
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "jobId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$",
+      "description": "Also used for the sequence name and the output filename, so it must be filesystem-safe."
+    },
+    "recipe": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "requestedBy": { "type": "string", "description": "Free text, for shared job folders." },
+
+    "media": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Paths relative to the media root, matching how EditPlan stores them."
+    },
+
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "aspect": {
+          "enum": ["source", "landscape", "vertical", "square", "portrait45"],
+          "default": "source",
+          "description": "'source' keeps the footage's own shape and skips reframing entirely."
+        },
+        "duration": {
+          "type": "object",
+          "required": ["mode"],
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "enum": ["none", "upTo", "exactly", "about"],
+              "description": "upTo: fill and stop. exactly: trim the last clip to land on it. about: rank and trim within tolerance, never force."
+            },
+            "seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 7200 },
+            "tolerance": { "type": "number", "minimum": 0, "maximum": 0.5, "default": 0.15 }
+          }
+        },
+        "pacing": {
+          "enum": ["relaxed", "standard", "punchy"],
+          "default": "standard",
+          "description": "Scales the recipe's timing values rather than replacing them, so the recipe stays the editorial source of truth."
+        },
+        "look": { "type": ["string", "null"], "description": "Key into brandkit luts, or null for no grade." },
+        "music": {
+          "type": "string",
+          "default": "auto",
+          "description": "'auto' to find a single audio-only file beside the footage, 'none' to skip, or a path relative to the media root."
+        },
+        "visual": {
+          "type": "boolean",
+          "default": false,
+          "description": "Cut from the pictures even when the footage has usable audio."
+        },
+        "model": { "type": "string", "description": "Transcription model override, e.g. small or large-v3." },
+        "language": { "type": "string" }
+      }
+    }
+  }
+}

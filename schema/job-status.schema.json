@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://premiere-autoedit/schema/job-status-1.0.json",
+  "title": "JobStatus",
+  "description": "Progress of one job, written by the helper and polled by the panel. 4K analysis takes minutes, so the panel needs something to show that is not a frozen button.",
+  "type": "object",
+  "required": ["schemaVersion", "jobId", "state", "updatedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "jobId": { "type": "string" },
+    "state": { "enum": ["queued", "analysing", "ready", "failed"] },
+    "message": { "type": "string", "description": "Human-readable; shown verbatim in the panel." },
+    "updatedAt": { "type": "string" },
+    "startedAt": { "type": "string" },
+    "planFile": { "type": "string", "description": "Set when state is ready." },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

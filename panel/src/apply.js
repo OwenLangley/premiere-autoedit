@@ -43,6 +43,7 @@ const UNDO = {
   graphics: "AutoEdit: Apply brand graphics",
   effects: "AutoEdit: Apply brand look",
   markers: "AutoEdit: Add markers",
+  crop: "AutoEdit: Scale to fill frame",
   transcript: "AutoEdit: Import transcript",
   subclips: "AutoEdit: Create subclips",
 };
@@ -115,6 +116,17 @@ async function applyPlan(plan, options) {
       : items;
   await placeClips(project, sequence, plan, sources, strategy);
   report.stages.push("clips");
+
+  // --- reframe -------------------------------------------------------------
+  if (plan.sequence.frameWidth && plan.sequence.frameHeight) {
+    progress("reframe", `scaling to fill ${plan.sequence.frameWidth}x${plan.sequence.frameHeight}`);
+    try {
+      report.warnings.push(...(await applyCropToFill(project, sequence, plan)));
+      report.stages.push("reframe");
+    } catch (err) {
+      report.warnings.push(`could not scale clips to fill the frame: ${err.message}`);
+    }
+  }
 
   // --- graphics ------------------------------------------------------------
   if (options.applyGraphics !== false && (plan.graphics || []).length) {
@@ -648,6 +660,111 @@ async function collectTrackItems(sequence, target) {
     }
   }
   return out;
+}
+
+/**
+ * Scale clips to fill a differently-shaped frame.
+ *
+ * `createSetScaleToFrameSizeAction` FITS -- it letterboxes -- which is not what
+ * "make it vertical" means. Filling means setting the Motion component's Scale.
+ *
+ * Unlike MOGRT parameters, Motion is a standard component with stable display
+ * names, so the parameter index is discovered by name at runtime rather than
+ * hardcoded. If the lookup fails the clip is left at its default scale and the
+ * editor is told, which is a letterboxed clip rather than a broken one.
+ *
+ * @returns {Promise<string[]>} warnings
+ */
+async function applyCropToFill(project, sequence, plan) {
+  /** @type {string[]} */
+  const warnings = [];
+  const frameW = plan.sequence.frameWidth;
+  const frameH = plan.sequence.frameHeight;
+  if (!frameW || !frameH) return warnings;
+
+  const sizeFor = new Map(
+    (plan.media || []).filter((m) => m.width && m.height).map((m) => [m.id, [m.width, m.height]])
+  );
+  if (!sizeFor.size) {
+    return ["source dimensions are missing from the plan, so clips were not scaled to fill"];
+  }
+
+  const tracks = new Set(plan.timeline.filter((c) => c.videoTrack >= 0).map((c) => c.videoTrack));
+  let scaled = 0;
+  let missingParam = false;
+
+  for (const trackIndex of tracks) {
+    const track = await sequence.getVideoTrack(trackIndex);
+    if (!track) continue;
+    const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false) || [];
+
+    for (let i = 0; i < items.length; i++) {
+      const clip = plan.timeline.filter((c) => c.videoTrack === trackIndex)
+        .sort((a, b) => a.atFrame - b.atFrame)[i];
+      const size = clip && sizeFor.get(clip.mediaId);
+      if (!size) continue;
+
+      const [srcW, srcH] = size;
+      // Fill: the larger of the two ratios, so neither axis leaves a gap.
+      const percent = Math.max(frameW / srcW, frameH / srcH) * 100;
+      if (Math.abs(percent - 100) < 0.5) continue;
+
+      try {
+        const chain = await items[i].getComponentChain();
+        const param = await findMotionScale(chain);
+        if (!param) {
+          missingParam = true;
+          continue;
+        }
+        transact(project, (compound) => {
+          compound.addAction(param.createSetValueAction(param.createKeyframe(percent), true));
+        }, UNDO.crop);
+        scaled += 1;
+      } catch (err) {
+        warnings.push(`could not scale a clip to fill: ${err.message}`);
+      }
+    }
+  }
+
+  if (missingParam) {
+    warnings.push(
+      "could not find the Motion Scale parameter, so some clips were left at their " +
+      "default scale -- they will letterbox rather than fill"
+    );
+  }
+  if (scaled) {
+    warnings.push(
+      `${scaled} clip(s) scaled to fill ${frameW}x${frameH}; anything at the edge of ` +
+      "frame is now cropped out"
+    );
+  }
+  return warnings;
+}
+
+/** Locate Motion's Scale parameter by display name. */
+async function findMotionScale(chain) {
+  const count = chain.getComponentCount ? chain.getComponentCount() : 0;
+  for (let c = 0; c < count; c++) {
+    const component = chain.getComponentAtIndex(c);
+    let matchName = "";
+    try {
+      matchName = (await component.getMatchName()) || "";
+    } catch {
+      continue;
+    }
+    if (matchName.indexOf("Motion") === -1) continue;
+
+    const params = component.getParamCount();
+    for (let i = 0; i < params; i++) {
+      try {
+        const param = component.getParam(i);
+        if ((param.displayName || "").trim().toLowerCase() === "scale") return param;
+      } catch {
+        /* structural slots have no display name */
+      }
+    }
+  }
+  return null;
 }
 
 // --------------------------------------------------------------- markers

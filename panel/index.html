@@ -47,6 +47,24 @@
       #log .err { color: var(--bad); }
       .hint { color: var(--dim); font-size: 11px; margin-top: 6px; }
       .hidden { display: none; }
+      label.field { display: block; margin-bottom: 8px; }
+      label.field > span { display: block; color: var(--dim); font-size: 11px;
+                          margin-bottom: 3px; }
+      input[type="text"], input[type="number"] {
+        background: #383838; color: var(--text); border: 1px solid var(--line);
+        border-radius: 3px; padding: 5px; font-size: 12px; width: 100%;
+      }
+      .split { display: flex; gap: 6px; }
+      .split > * { flex: 1; min-width: 0; }
+      #media-list { max-height: 170px; overflow-y: auto; border: 1px solid var(--line);
+                    border-radius: 3px; padding: 4px; background: #202020; }
+      #media-list label { display: flex; gap: 6px; align-items: center; padding: 3px 4px;
+                          font-size: 11px; }
+      #media-list label:hover { background: #2c2c2c; }
+      #media-list .empty { color: var(--dim); padding: 8px; font-size: 11px; }
+      .summary-line { color: var(--accent); font-size: 11px; margin: 6px 0; min-height: 15px; }
+      .disclosure { display: flex; align-items: center; gap: 6px; cursor: pointer;
+                    color: var(--dim); font-size: 11px; user-select: none; }
     </style>
   </head>
   <body>
@@ -63,6 +81,51 @@
       <div class="hint">
         Plans store paths relative to the media root, so moving to a NAS later
         means changing this one setting.
+      </div>
+    </section>
+
+    <h2>New edit</h2>
+    <section>
+      <label class="field">
+        <span>Name</span>
+        <input type="text" id="job-name" placeholder="EP001" />
+      </label>
+
+      <label class="field">
+        <span>Clips <span id="media-count"></span></span>
+      </label>
+      <div id="media-list"><div class="empty">Set a media root above.</div></div>
+      <div class="row" style="margin-top:6px">
+        <button id="media-all">Select all</button>
+        <button id="media-none">Clear</button>
+        <button id="media-reload">Reload</button>
+      </div>
+
+      <div class="split" style="margin-top:10px">
+        <label class="field"><span>Recipe</span><select id="opt-recipe"></select></label>
+        <label class="field"><span>Shape</span><select id="opt-aspect"></select></label>
+      </div>
+
+      <div class="split">
+        <label class="field"><span>Length</span><select id="opt-duration-mode"></select></label>
+        <label class="field"><span>Seconds</span>
+          <input type="number" id="opt-duration-seconds" min="1" max="7200" value="30" />
+        </label>
+      </div>
+
+      <div class="split">
+        <label class="field"><span>Pacing</span><select id="opt-pacing"></select></label>
+        <label class="field"><span>Look</span><select id="opt-look"></select></label>
+      </div>
+
+      <div class="summary-line" id="request-summary"></div>
+      <div id="request-errors"></div>
+
+      <div class="row">
+        <button id="create" class="primary grow">Create edit</button>
+      </div>
+      <div class="hint">
+        Runs in the background. The plan appears below when it is ready.
       </div>
     </section>
 
