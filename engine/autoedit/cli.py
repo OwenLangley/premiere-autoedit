@@ -103,6 +103,7 @@ def cmd_plan(args) -> int:
         audio_tracks=recipe.sequence.audio_tracks,
     )
 
+    silent: list[str] = []
     cache_root = Path(args.work_dir or ".autoedit-cache")
     work_dir = cache_root / args.job
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -128,6 +129,7 @@ def cmd_plan(args) -> int:
             builder.add_warning("probe", w, mid)
 
         if not info.has_audio:
+            silent.append(path.name)
             print(f"  {path.name}: no audio, cannot transcript-cut -- skipped", file=sys.stderr)
             continue
 
@@ -177,6 +179,27 @@ def cmd_plan(args) -> int:
         builder.add_transcript(transcript)
 
     plan = builder.build()
+
+    # An empty timeline is not success. Exiting 0 with a zero-clip plan means the
+    # editor builds an empty sequence and has to work out why themselves.
+    if not plan["timeline"]:
+        print("\nerror: no clips were produced, so there is nothing to build.", file=sys.stderr)
+        if silent:
+            print(
+                f"  {len(silent)} source(s) have no audio track: {', '.join(silent)}\n"
+                "  Cut planning is transcript-driven, so silent footage yields nothing.\n"
+                "  For silent material (promos, b-roll) you need a non-audio decision\n"
+                "  source -- shot detection or music-beat cutting. Not built yet.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "  The transcript produced no usable spans. Check the audio actually\n"
+                "  contains speech, and try --model large-v3 for a better transcript.",
+                file=sys.stderr,
+            )
+        return 1
+
     errors = validate_plan(plan)
     if errors:
         print(f"error: generated plan is invalid ({len(errors)} problem(s)):", file=sys.stderr)
