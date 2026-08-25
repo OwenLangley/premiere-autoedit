@@ -164,18 +164,25 @@ class EditPlanBuilder:
     def add_full_clip(
         self, media_id: str, at_frame: int, duration_frames: int,
         video_track: int, audio_track: int, reason: str = "",
+        in_seconds: float = 0.0,
     ) -> "EditPlanBuilder":
-        """Place a whole source without cutting it -- a music bed, or an intro sting."""
+        """Place a source uncut -- a music bed, or an intro sting.
+
+        `in_seconds` picks where in the source to begin. A trend is a moment in a
+        track, not its opening, so a bed that could only start at 0:00 was the
+        wrong unit for the job.
+        """
         if media_id not in self._media:
             raise PlanError(f"unknown media id {media_id!r}")
         media = self._media[media_id]
         # The source range has to agree with duration_frames, not just span the
         # whole file: the apply side cuts from in/out, so a bed asked to run 20s
         # under a 20s edit was laid at its full 60s and ran 40s past the picture.
-        out_seconds = min(media.duration, self.timebase.to_seconds(duration_frames))
+        in_seconds = max(0.0, min(in_seconds, media.duration))
+        out_seconds = min(media.duration, in_seconds + self.timebase.to_seconds(duration_frames))
         self._timeline.append({
             "mediaId": media_id,
-            "inSeconds": 0.0,
+            "inSeconds": round(in_seconds, 4),
             "outSeconds": round(out_seconds, 4),
             "atFrame": at_frame,
             "durationFrames": duration_frames,

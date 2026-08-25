@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ from .transcribe import TranscriptionError, extract_audio, get_provider
 from .transcript import Transcript
 from .options import JobOptions, OptionError, apply_pacing, fit_duration_across, ASPECT_LABELS
 from .preset import write_preset
-from .music import MusicError, detect_beats
+from .music import BeatGrid, MusicError, detect_beats
 from .visual import (
     Measurements, VisualError, analyse as analyse_visual, measure as measure_visual,
     measurement_key, plan_visual_cuts,
@@ -81,6 +82,82 @@ def _relative_to_root(
         if root and (root == path.parent or root in path.parents):
             return str(path.relative_to(root)), label
     return path.name, "media"
+
+
+# Below this, a shift is not something anyone hears -- roughly a frame at 50fps.
+AUDIBLE_SHIFT = 0.02
+
+
+@dataclass(frozen=True)
+class MusicChunk:
+    """Which part of the track ends up under the picture."""
+    start: float
+    length: float
+    warnings: tuple[str, ...] = ()
+
+
+def resolve_music_chunk(
+    track_duration: float,
+    picture_seconds: float,
+    start: float = 0.0,
+    length: float | None = None,
+    beats: "BeatGrid | None" = None,
+    snap: bool = True,
+) -> MusicChunk:
+    """Work out the bed's source range, and say out loud where it disagrees.
+
+    Two rules, and the difference between them matters:
+      * no explicit length -> the bed follows the picture, so it never hangs past
+        the last frame.
+      * an explicit length -> that length wins, even past the picture. Choosing a
+        chunk is choosing a span of music, and silently shortening it would
+        defeat the point of picking one.
+    """
+    notes: list[str] = []
+
+    start = max(0.0, start)
+    if start >= track_duration:
+        notes.append(
+            f"start {start:.2f}s is past the end of the {track_duration:.1f}s "
+            f"track; starting from the beginning instead"
+        )
+        start = 0.0
+    elif snap and beats and beats.beats:
+        # Shot lengths are already whole multiples of the beat interval, so a bed
+        # that begins exactly on a beat phase-aligns the entire cut grid to what
+        # is audible. Parking by ear lands within a fraction of a beat.
+        snapped = beats.snap(start)
+        if 0 <= snapped < track_duration:
+            moved = abs(snapped - start)
+            start = snapped
+            # Only say so when the move is audible. Parking the playhead already
+            # lands within milliseconds of a beat most of the time, and "start
+            # moved 0.00s" is noise in a warning list an editor has to read.
+            if moved >= AUDIBLE_SHIFT:
+                notes.append(
+                    f"start moved {moved:.2f}s to the nearest beat, at {snapped:.2f}s"
+                )
+
+    available = track_duration - start
+    wanted = length if length else picture_seconds
+    chunk = min(wanted, available)
+
+    if length and chunk < length - 1e-4:
+        notes.append(
+            f"asked for {length:.1f}s from {start:.2f}s but the track only has "
+            f"{available:.1f}s left, so the bed is {chunk:.1f}s"
+        )
+    if length and chunk > picture_seconds + 1e-4:
+        notes.append(
+            f"the music runs {chunk - picture_seconds:.1f}s past the last frame "
+            f"of picture -- extend the edit or shorten the chunk"
+        )
+    elif length and chunk < picture_seconds - 1e-4:
+        notes.append(
+            f"the music stops {picture_seconds - chunk:.1f}s before the picture does"
+        )
+
+    return MusicChunk(start=start, length=max(0.0, chunk), warnings=tuple(notes))
 
 
 def _brandkit_lut(key: str) -> dict | None:
@@ -462,17 +539,28 @@ def cmd_plan(args) -> int:
                 hash=content_hash(music_path), role="music",
                 has_video=False, has_audio=True,
             ))
-            music_frames = min(
-                builder.duration_frames,
-                tb.to_frames(music_info.duration),
+            chunk = resolve_music_chunk(
+                track_duration=music_info.duration,
+                picture_seconds=tb.to_seconds(builder.duration_frames),
+                start=float(args.music_start or 0.0),
+                length=float(args.music_length) if args.music_length else None,
+                beats=beats,
+                snap=not getattr(args, "no_music_snap", False),
             )
+            for note in chunk.warnings:
+                print(f"  music: {note}", file=sys.stderr)
+                builder.add_warning("music", note, media_id="MUSIC")
+
+            music_frames = tb.to_frames(chunk.length)
             if music_frames > 0:
                 music_track = (recipe.roles.get("music") or {}).get("audio_track")
+                where = f" from {chunk.start:.2f}s" if chunk.start else ""
                 builder.add_full_clip(
                     "MUSIC", 0, music_frames,
                     video_track=-1,
                     audio_track=music_track if music_track is not None else recipe.sequence.audio_tracks - 1,
-                    reason=f"music bed at {beats.bpm:.0f} BPM" if beats else "music bed",
+                    reason=(f"music bed at {beats.bpm:.0f} BPM" if beats else "music bed") + where,
+                    in_seconds=chunk.start,
                 )
         except ProbeError as exc:
             print(f"warning: could not add the music bed: {exc}", file=sys.stderr)
@@ -584,6 +672,9 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--no-cache", action="store_true", help="re-transcribe even if a cached transcript exists")
     pl.add_argument("--music", help="music bed; cuts snap to its beats and it is laid on the audio track. Auto-detected when the recipe defines a music role and exactly one audio-only file sits alongside the footage.")
     pl.add_argument("--no-music", action="store_true", help="ignore any music bed, including an auto-detected one")
+    pl.add_argument("--music-start", type=float, default=0.0, help="seconds into the track to start. A trend is a moment in a song, not its opening.")
+    pl.add_argument("--music-length", type=float, default=None, help="seconds of track to use. Omit and the bed follows the picture; set it and that much music is laid even past the last frame.")
+    pl.add_argument("--no-music-snap", action="store_true", help="use the start exactly as given instead of moving it to the nearest beat")
     pl.add_argument("--visual", action="store_true", help="cut from the pictures even when the footage has audio")
     pl.add_argument("--aspect", choices=list(ASPECT_LABELS),
                     help="output shape; generates a matching sequence preset (default: source)")

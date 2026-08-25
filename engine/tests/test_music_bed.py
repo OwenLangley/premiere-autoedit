@@ -149,3 +149,101 @@ def test_a_bed_shorter_than_the_edit_is_not_stretched():
                            has_video=False, has_audio=True, role="music"))
     b.add_full_clip("MUSIC", 0, 498, video_track=-1, audio_track=2)
     assert b.build()["timeline"][0]["outSeconds"] == 5.0
+
+
+# --- Which part of the track ------------------------------------------------
+#
+# A trend is a moment in a song, not its opening. The two rules that must stay
+# apart: no explicit length means the bed follows the picture (the 126434f fix);
+# an explicit length wins even past the last frame.
+
+from autoedit.cli import resolve_music_chunk  # noqa: E402
+from autoedit.music import BeatGrid  # noqa: E402
+
+GRID = BeatGrid(bpm=120.0, beats=[i * 0.5 for i in range(240)], confidence=0.8)
+
+
+def test_without_a_length_the_bed_follows_the_picture():
+    chunk = resolve_music_chunk(track_duration=60.0, picture_seconds=20.0)
+    assert (chunk.start, chunk.length) == (0.0, 20.0)
+    assert chunk.warnings == ()
+
+
+def test_an_explicit_length_wins_even_past_the_picture():
+    chunk = resolve_music_chunk(track_duration=60.0, picture_seconds=12.0, length=20.0)
+    assert chunk.length == 20.0
+    assert "8.0s past the last frame" in " ".join(chunk.warnings)
+
+
+def test_a_short_chunk_leaves_silence_and_says_so():
+    chunk = resolve_music_chunk(track_duration=60.0, picture_seconds=20.0, length=10.0)
+    assert chunk.length == 10.0
+    assert "stops 10.0s before the picture" in " ".join(chunk.warnings)
+
+
+def test_the_start_moves_to_the_nearest_beat():
+    chunk = resolve_music_chunk(60.0, 20.0, start=30.2, beats=GRID)
+    assert chunk.start == 30.0
+    assert "nearest beat" in " ".join(chunk.warnings)
+
+
+def test_snapping_can_be_turned_off():
+    chunk = resolve_music_chunk(60.0, 20.0, start=30.2, beats=GRID, snap=False)
+    assert chunk.start == 30.2
+    assert chunk.warnings == ()
+
+
+def test_a_start_already_on_a_beat_is_not_reported_as_moved():
+    chunk = resolve_music_chunk(60.0, 20.0, start=30.0, beats=GRID)
+    assert (chunk.start, chunk.warnings) == (30.0, ())
+
+
+def test_an_inaudible_snap_is_applied_but_not_announced():
+    # Parking by ear usually lands within milliseconds of a beat. Reporting that
+    # produced "start moved 0.00s", which is noise in a list an editor must read.
+    grid = BeatGrid(bpm=92.0, beats=[0.1969 + i * (60 / 92) for i in range(90)],
+                    confidence=0.8)
+    chunk = resolve_music_chunk(60.0, 20.0, start=30.2, beats=grid)
+    assert abs(chunk.start - 30.2) < 0.02
+    assert chunk.start != 30.2          # still snapped
+    assert chunk.warnings == ()         # just not talked about
+
+
+def test_a_chunk_running_off_the_end_is_clamped_and_reported():
+    chunk = resolve_music_chunk(60.0, 20.0, start=55.0, length=20.0)
+    assert chunk.length == 5.0
+    assert "only has 5.0s left" in " ".join(chunk.warnings)
+
+
+def test_a_start_past_the_track_falls_back_to_the_beginning():
+    chunk = resolve_music_chunk(60.0, 20.0, start=90.0)
+    assert chunk.start == 0.0
+    assert "past the end" in " ".join(chunk.warnings)
+
+
+def test_the_bed_carries_the_chosen_start_into_the_plan():
+    from autoedit.plan import EditPlanBuilder, MediaEntry
+    from autoedit.timebase import Timebase
+
+    b = EditPlanBuilder(job_id="EP001", recipe="client-promo",
+                        timebase=Timebase(25, 1), sequence_name="EP001_promo_v1")
+    b.add_media(MediaEntry(id="MUSIC", rel_path="drive.mp3", duration=60.0,
+                           has_video=False, has_audio=True, role="music"))
+    b.add_full_clip("MUSIC", 0, 500, video_track=-1, audio_track=2, in_seconds=30.0)
+
+    clip = b.build()["timeline"][0]
+    assert clip["inSeconds"] == 30.0
+    assert clip["outSeconds"] == 50.0      # 500 frames at 25fps, from 30s
+    assert clip["atFrame"] == 0            # it still starts the sequence
+
+
+def test_a_start_near_the_end_cannot_produce_an_out_past_the_track():
+    from autoedit.plan import EditPlanBuilder, MediaEntry
+    from autoedit.timebase import Timebase
+
+    b = EditPlanBuilder(job_id="EP001", recipe="client-promo",
+                        timebase=Timebase(25, 1), sequence_name="EP001_promo_v1")
+    b.add_media(MediaEntry(id="MUSIC", rel_path="drive.mp3", duration=60.0,
+                           has_video=False, has_audio=True, role="music"))
+    b.add_full_clip("MUSIC", 0, 500, video_track=-1, audio_track=2, in_seconds=55.0)
+    assert b.build()["timeline"][0]["outSeconds"] == 60.0

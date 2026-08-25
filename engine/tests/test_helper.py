@@ -302,3 +302,42 @@ def test_no_library_still_writes_an_empty_index(tmp_path):
     write_music_index(jobs, None)
     index = json.loads((jobs / "music-index.json").read_text())
     assert index["musicRoot"] is None and index["files"] == []
+
+
+# --- Choosing part of a track -----------------------------------------------
+
+
+def test_a_chunk_becomes_start_and_length_flags():
+    argv = request_to_argv(
+        request(music="library:drive.mp3",
+                musicChunk={"startSeconds": 42.4, "lengthSeconds": 20}),
+        Path("/jobs"), Path("/media"), Path("/cache"), Path("/Library"),
+    )
+    assert "--music-start" in argv and "42.4" in argv
+    assert "--music-length" in argv and "20" in argv
+    assert "--no-music-snap" not in argv
+
+
+def test_snapping_off_is_passed_through():
+    argv = request_to_argv(
+        request(music="drive.mp3", musicChunk={"startSeconds": 10, "snapToBeat": False}),
+        Path("/jobs"), Path("/media"), Path("/cache"),
+    )
+    assert "--no-music-snap" in argv
+
+
+def test_a_chunk_without_a_chosen_track_is_a_readable_failure():
+    # Against "automatic" a start would silently apply to whatever the engine
+    # happened to find beside the footage.
+    with pytest.raises(ValueError, match="without choosing a track"):
+        request_to_argv(
+            request(music="auto", musicChunk={"startSeconds": 10}),
+            Path("/jobs"), Path("/media"), Path("/cache"),
+        )
+
+
+def test_no_chunk_adds_no_flags():
+    argv = request_to_argv(
+        request(music="drive.mp3"), Path("/jobs"), Path("/media"), Path("/cache"),
+    )
+    assert not any(a.startswith("--music-start") or a.startswith("--music-length") for a in argv)

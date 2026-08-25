@@ -308,6 +308,22 @@ def request_to_argv(
             )
         argv += ["--music", str(chosen)]
 
+    chunk = options.get("musicChunk") or {}
+    if chunk:
+        if music in ("none", "auto") or not music:
+            # A chunk is a span of a PARTICULAR track. Against "automatic" it
+            # would silently apply to whatever the engine happened to find.
+            raise ValueError(
+                "a music start or length was set without choosing a track -- "
+                "pick one in the Music dropdown, or clear the start and length"
+            )
+        if chunk.get("startSeconds"):
+            argv += ["--music-start", str(chunk["startSeconds"])]
+        if chunk.get("lengthSeconds"):
+            argv += ["--music-length", str(chunk["lengthSeconds"])]
+        if chunk.get("snapToBeat") is False:
+            argv += ["--no-music-snap"]
+
     return argv
 
 

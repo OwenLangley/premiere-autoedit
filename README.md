@@ -149,6 +149,40 @@ as `.mp4` is offered as music rather than turning up in the clip list. The scan 
 capped at three folders deep and 400 files; hitting either is reported in the panel
 rather than quietly shortening the list.
 
+**Auditioning, and choosing which part of the track to use.** A trend is a moment
+in a song -- the drop, the hook, the eight bars everyone knows -- and it is almost
+never the opening. Press **Audition** and the track opens in Premiere's own Source
+Monitor and plays; find the drop by ear, then press **Use playhead as start**.
+
+UXP cannot play audio at all -- no `<audio>`, no Web Audio -- so this is not a
+workaround, it is the only honest way to do it, and it gives the editor Premiere's
+waveform and scrubbing rather than something worse rebuilt in a panel. Auditioning
+does not import the track: choosing between five would otherwise leave four in the
+bin.
+
+```bash
+./.venv/bin/autoedit plan --job PROMO01 --recipe promo-silent --visual --media ~/Footage/*.MP4 --media-root ~/Footage --music ~/Music/drive.mp3 --music-start 30 --music-length 20 --out ~/AutoEdit-jobs/PROMO01.editplan.json
+```
+
+```
+music: 92.0 BPM, 92 beats, confidence 0.53
+music: start moved 0.20s to the nearest beat, at 30.20s
+music: the music runs 12.1s past the last frame of picture -- extend the edit or shorten the chunk
+```
+
+**The start snaps to the nearest beat.** Not a nicety: shot lengths are already
+whole multiples of the beat interval, so a bed that begins exactly on a beat
+phase-aligns the entire cut grid to what is audible. The move is at most half a
+beat, and is only reported when it is big enough to hear -- announcing a 3ms
+correction as "moved 0.00s" is noise in a list the editor has to read.
+`--no-music-snap` turns it off.
+
+**Length is the one place music beats picture.** Leave it empty and the bed
+follows the edit, so it never hangs past the last frame. Set it and that much
+music is laid even if it outruns the picture, with a warning saying by how much --
+because choosing a chunk is choosing a span of music, and quietly shortening it
+would defeat the point of having chosen.
+
 Picking a track is what makes pacing bite on silent footage -- the same two clips
 at `punchy`, up to 10s:
 

@@ -15,8 +15,9 @@ const {
 } = require("./transport");
 const {
   isVideoFile, buildRequest, validateRequest, requestFileName, describeRequest,
-  musicChoices,
+  musicChoices, parseMusicValue, parseTimecode, formatTimecode, parseSeconds,
 } = require("./request");
+const { audition, playheadSeconds, AuditionError } = require("./audition");
 const { runSelfTest } = require("./selftest");
 
 /** @type {(id: string) => any} document.getElementById is typed HTMLElement; the
@@ -35,6 +36,10 @@ const state = {
   mediaIndex: new Map(),
   musicFiles: [],
   libraryFiles: [],
+  // Set once the editor types a chunk length, so it stops being refilled from
+  // the edit length behind their back. A plain flag rather than dataset, which
+  // UXP's DOM does not reliably provide.
+  musicLengthTouched: false,
   selectedMedia: new Set(),
   watching: null,          // interval id while a job is being worked on
 };
@@ -245,6 +250,43 @@ $("pick-media").addEventListener("click", async () => {
   }
 });
 
+/** Absolute path of the chosen track, for the Source Monitor. */
+async function chosenTrackPath() {
+  const chosen = parseMusicValue($("opt-music").value);
+  if (chosen.kind !== "track") throw new AuditionError("Choose a track first.");
+  const resolve = makeResolver(state.settings.mediaToken, state.settings.musicToken);
+  return resolve(chosen.relPath, chosen.root);
+}
+
+$("music-audition").addEventListener("click", async () => {
+  try {
+    const path = await chosenTrackPath();
+    const start = parseTimecode($("opt-music-start").value) || 0;
+    const result = await audition(path, { atSeconds: start });
+    log(result.playing
+      ? "Auditioning in the Source Monitor -- park the playhead on the drop, then press Use playhead as start."
+      : `Opened in the Source Monitor, but it would not start playing: ${result.detail}`,
+      result.playing ? undefined : "err");
+  } catch (err) {
+    log(`Could not audition: ${err.message}`, "err");
+  }
+});
+
+$("music-playhead").addEventListener("click", async () => {
+  try {
+    const seconds = await playheadSeconds();
+    $("opt-music-start").value = formatTimecode(seconds);
+    renderSummary_();
+    log(`Music starts at ${formatTimecode(seconds)} -- it will move to the nearest beat.`);
+  } catch (err) {
+    log(`Could not read the playhead: ${err.message}`, "err");
+  }
+});
+
+$("opt-music-length").addEventListener("input", () => {
+  state.musicLengthTouched = true;
+});
+
 $("pick-music").addEventListener("click", async () => {
   const picked = await pickFolder("music folder");
   if (!picked) return;
@@ -409,10 +451,32 @@ function currentForm() {
     durationMode: $("opt-duration-mode").value,
     durationSeconds: Number.isFinite(seconds) ? seconds : null,
     music: $("opt-music").value || "auto",
+    musicStart: parseTimecode($("opt-music-start").value) || 0,
+    musicLength: parseSeconds($("opt-music-length").value),
   };
 }
 
+/**
+ * The chunk only means something once a track is chosen. Shown rather than
+ * disabled, so the form does not carry two dead fields most of the time.
+ */
+function renderMusicControls() {
+  const chosen = parseMusicValue($("opt-music").value).kind === "track";
+  for (const id of ["music-tools", "music-chunk"]) {
+    $(id).style.display = chosen ? "" : "none";
+  }
+  if (!chosen) return;
+  // Default the chunk to the length asked of the edit -- the common case is a
+  // trend where the two are the same number.
+  const el = $("opt-music-length");
+  const empty = !el.value || Number.isNaN(Number(el.value));
+  if (empty && !state.musicLengthTouched && $("opt-duration-mode").value !== "none") {
+    el.value = String($("opt-duration-seconds").value || "");
+  }
+}
+
 function renderSummary_() {
+  renderMusicControls();
   $("media-count").textContent = state.mediaFiles.length
     ? `(${state.selectedMedia.size} of ${state.mediaFiles.length})`
     : "";
@@ -519,7 +583,7 @@ $("media-none").addEventListener("click", () => {
 $("opt-visual").addEventListener("change", renderSummary_);
 for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing",
                   "opt-look", "opt-duration-mode", "opt-duration-seconds",
-                  "opt-music"]) {
+                  "opt-music", "opt-music-start", "opt-music-length"]) {
   $(id).addEventListener("change", renderSummary_);
   $(id).addEventListener("input", renderSummary_);
   // Scrolling the panel past a dropdown would otherwise cycle its value, so an

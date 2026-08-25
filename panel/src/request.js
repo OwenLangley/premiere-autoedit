@@ -88,6 +88,66 @@ function musicChoices(files, libraryFiles) {
 }
 
 /**
+ * Split a Music dropdown value back into a path and the root it hangs off.
+ *
+ * The inverse of `musicChoices`. The panel needs it to hand SourceMonitor an
+ * absolute path for auditioning, and the resolver takes (relPath, root).
+ *
+ * @param {string} value
+ * @returns {{kind: "auto"|"none"|"track", relPath: string, root: string}}
+ */
+function parseMusicValue(value) {
+  const raw = String(value || MUSIC_AUTO);
+  if (raw === MUSIC_AUTO) return { kind: "auto", relPath: "", root: "media" };
+  if (raw === MUSIC_NONE) return { kind: "none", relPath: "", root: "media" };
+  if (raw.startsWith(MUSIC_LIBRARY_PREFIX)) {
+    return { kind: "track", relPath: raw.slice(MUSIC_LIBRARY_PREFIX.length), root: "music" };
+  }
+  return { kind: "track", relPath: raw, root: "media" };
+}
+
+/**
+ * Seconds from what an editor types: `1:23.5`, `83.5`, `1:02:03`.
+ * Returns null for anything unparseable, so the caller can say so rather than
+ * silently treating a typo as 0:00 and scoring the promo from the intro.
+ *
+ * @param {string|number} text
+ * @returns {number|null}
+ */
+function parseTimecode(text) {
+  if (typeof text === "number") return Number.isFinite(text) && text >= 0 ? text : null;
+  const raw = String(text == null ? "" : text).trim();
+  if (!raw) return null;
+  if (!/^\d+(:\d{1,2}){0,2}(\.\d+)?$/.test(raw)) return null;
+  const parts = raw.split(":");
+  let seconds = 0;
+  for (const part of parts) seconds = seconds * 60 + Number(part);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
+/**
+ * A plain seconds field, tolerant of the empty case.
+ *
+ * Returns 0 for empty or unparseable, which the caller reads as "no explicit
+ * length -- follow the picture". UXP hands back the literal string "nan" for an
+ * empty number input, which is why this is not just `Number(x)`.
+ *
+ * @param {string|number} text
+ */
+function parseSeconds(text) {
+  const value = Number(String(text == null ? "" : text).trim());
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/** `0:42.4` -- tenths, because half a beat at 120bpm is a quarter of a second. */
+function formatTimecode(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const mins = Math.floor(total / 60);
+  const secs = (total - mins * 60).toFixed(1).padStart(4, "0");
+  return `${mins}:${secs}`;
+}
+
+/**
  * A job id that is safe as a filename and as a Premiere sequence name.
  * @param {string} raw
  */
@@ -106,6 +166,7 @@ function normaliseJobId(raw) {
  *   aspect?: string, pacing?: string, look?: string|null,
  *   durationMode?: string, durationSeconds?: number|null,
  *   music?: string, visual?: boolean,
+ *   musicStart?: number, musicLength?: number, musicSnap?: boolean,
  * }} form
  */
 function buildRequest(form) {
@@ -121,6 +182,16 @@ function buildRequest(form) {
   }
   if (form.look) options.look = form.look;
   if (form.visual) options.visual = true;
+
+  // Only a real track has a chunk; against "automatic" a start would apply to
+  // whatever the engine happened to find.
+  if (parseMusicValue(options.music).kind === "track") {
+    const chunk = {};
+    if (form.musicStart) chunk.startSeconds = Number(form.musicStart);
+    if (form.musicLength) chunk.lengthSeconds = Number(form.musicLength);
+    if (form.musicSnap === false) chunk.snapToBeat = false;
+    if (Object.keys(chunk).length) options.musicChunk = chunk;
+  }
 
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -156,6 +227,18 @@ function validateRequest(request) {
   const o = request.options || {};
   if (o.music !== undefined && typeof o.music !== "string") {
     errors.push("Music must be a track name, 'auto' or 'none'");
+  }
+  if (o.musicChunk) {
+    const c = o.musicChunk;
+    if (c.startSeconds !== undefined && !(c.startSeconds >= 0)) {
+      errors.push("Music start must be a time like 0:42.4");
+    }
+    if (c.lengthSeconds !== undefined && !(c.lengthSeconds > 0)) {
+      errors.push("Music length must be more than zero seconds");
+    }
+    if (parseMusicValue(o.music).kind !== "track") {
+      errors.push("Choose a track before setting where in it to start");
+    }
   }
   if (o.duration) {
     if (!(o.duration.seconds > 0)) errors.push("Length must be more than zero seconds");
@@ -193,7 +276,10 @@ function describeRequest(request, capabilities) {
   if (o.visual) bits.push("from pictures");
   if (o.music === MUSIC_NONE) bits.push("no music");
   else if (o.music && o.music !== MUSIC_AUTO) {
-    bits.push(`music: ${trackName(o.music.replace(MUSIC_LIBRARY_PREFIX, ""))}`);
+    const c = o.musicChunk || {};
+    const from = c.startSeconds ? ` from ${formatTimecode(c.startSeconds)}` : "";
+    const span = c.lengthSeconds ? ` for ${c.lengthSeconds}s` : "";
+    bits.push(`music: ${trackName(parseMusicValue(o.music).relPath)}${from}${span}`);
   }
   return bits.join(" · ");
 }
@@ -206,6 +292,10 @@ module.exports = {
   MUSIC_LIBRARY_PREFIX,
   isVideoFile,
   formatDuration,
+  parseMusicValue,
+  parseTimecode,
+  formatTimecode,
+  parseSeconds,
   trackName,
   musicChoices,
   normaliseJobId,

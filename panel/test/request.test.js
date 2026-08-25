@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const {
   isVideoFile, normaliseJobId, buildRequest, validateRequest, describeRequest,
-  musicChoices, formatDuration,
+  musicChoices, formatDuration, parseMusicValue, parseTimecode, formatTimecode, parseSeconds,
 } = require("../src/request");
 
 const form = (over = {}) => ({
@@ -188,4 +188,100 @@ test("video in the library is not offered as a track", () => {
     { relPath: "promo.mp4", hasVideo: true, hasAudio: true, durationSeconds: 30 },
   ]);
   assert.equal(choices.length, 2);
+});
+
+// --- Choosing part of a track ----------------------------------------------
+
+test("a music value splits back into a path and its root", () => {
+  assert.deepEqual(parseMusicValue("library:Upbeat/drive.mp3"),
+    { kind: "track", relPath: "Upbeat/drive.mp3", root: "music" });
+  assert.deepEqual(parseMusicValue("theme.wav"),
+    { kind: "track", relPath: "theme.wav", root: "media" });
+  assert.equal(parseMusicValue("auto").kind, "auto");
+  assert.equal(parseMusicValue("none").kind, "none");
+  assert.equal(parseMusicValue("").kind, "auto");
+});
+
+test("parseMusicValue inverts musicChoices for both roots", () => {
+  const choices = musicChoices(
+    [{ relPath: "scratch.wav", hasVideo: false, hasAudio: true, durationSeconds: 10 }],
+    [{ relPath: "Upbeat/drive.mp3", hasVideo: false, hasAudio: true, durationSeconds: 132 }],
+  );
+  assert.deepEqual(parseMusicValue(choices[2].value),
+    { kind: "track", relPath: "Upbeat/drive.mp3", root: "music" });
+  assert.deepEqual(parseMusicValue(choices[3].value),
+    { kind: "track", relPath: "scratch.wav", root: "media" });
+});
+
+test("timecode is read the way an editor types it", () => {
+  assert.equal(parseTimecode("1:23.5"), 83.5);
+  assert.equal(parseTimecode("0:42.4"), 42.4);
+  assert.equal(parseTimecode("83.5"), 83.5);
+  assert.equal(parseTimecode("1:02:03"), 3723);
+  assert.equal(parseTimecode(42.4), 42.4);
+});
+
+test("an unreadable timecode is null, never a silent zero", () => {
+  // Treating a typo as 0:00 would score the promo from the intro and say nothing.
+  for (const bad of ["", "  ", "abc", "1:2:3:4", "-5", "1:234"]) {
+    assert.equal(parseTimecode(bad), null, `expected null for ${JSON.stringify(bad)}`);
+  }
+});
+
+test("timecode round-trips to tenths", () => {
+  for (const seconds of [0, 9, 42.4, 125.7]) {
+    assert.equal(parseTimecode(formatTimecode(seconds)), seconds);
+  }
+});
+
+test("a chunk reaches the request and the summary", () => {
+  const request = buildRequest({
+    jobId: "EP001", recipe: "social-short", media: ["a.mp4"],
+    music: "library:Upbeat/drive.mp3", musicStart: 42.4, musicLength: 20,
+  });
+  assert.deepEqual(request.options.musicChunk, { startSeconds: 42.4, lengthSeconds: 20 });
+  assert.match(describeRequest(request, {}), /music: Upbeat\/drive from 0:42\.4 for 20s/);
+});
+
+test("no chunk is sent when the start and length are untouched", () => {
+  const request = buildRequest({
+    jobId: "EP001", recipe: "social-short", media: ["a.mp4"],
+    music: "drive.mp3", musicStart: 0, musicLength: 0,
+  });
+  assert.equal(request.options.musicChunk, undefined);
+});
+
+test("a chunk is dropped when no track is chosen", () => {
+  const request = buildRequest({
+    jobId: "EP001", recipe: "social-short", media: ["a.mp4"],
+    music: "auto", musicStart: 42.4,
+  });
+  assert.equal(request.options.musicChunk, undefined);
+});
+
+test("a chunk against automatic is rejected if it gets that far", () => {
+  const request = buildRequest({
+    jobId: "EP001", recipe: "social-short", media: ["a.mp4"], music: "auto",
+  });
+  request.options.musicChunk = { startSeconds: 42.4 };
+  assert.match(validateRequest(request).join(" "), /Choose a track before/);
+});
+
+test("a negative length is rejected", () => {
+  const request = buildRequest({
+    jobId: "EP001", recipe: "social-short", media: ["a.mp4"], music: "drive.mp3",
+  });
+  request.options.musicChunk = { lengthSeconds: -3 };
+  assert.match(validateRequest(request).join(" "), /more than zero/);
+});
+
+test("an empty length field means 'follow the edit', not zero seconds", () => {
+  // UXP hands back the literal string "nan" for an empty number input, which is
+  // how "nan" ended up rendered in the Length field on screen.
+  for (const empty of ["", "  ", "nan", "NaN", undefined, null, "abc", "0", "-4"]) {
+    assert.equal(parseSeconds(empty), 0, `expected 0 for ${JSON.stringify(empty)}`);
+  }
+  assert.equal(parseSeconds("20"), 20);
+  assert.equal(parseSeconds(" 12.5 "), 12.5);
+  assert.equal(parseSeconds(20), 20);
 });

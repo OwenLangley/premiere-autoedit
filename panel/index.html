@@ -132,10 +132,30 @@
         <span>Music <span id="music-count" class="hint" style="font-weight:400"></span></span>
         <select id="opt-music"></select>
       </label>
+      <div class="row" id="music-tools" style="margin:-2px 0 6px">
+        <button id="music-audition">Audition</button>
+        <button id="music-playhead">Use playhead as start</button>
+      </div>
+      <div class="split" id="music-chunk">
+        <label class="field"><span>Start in track</span>
+          <input type="text" id="opt-music-start" placeholder="0:00" />
+        </label>
+        <!-- Text, not number: an EMPTY UXP number input renders the literal
+             string "nan" instead of its placeholder, and this one starts empty
+             on purpose (empty means "follow the edit"). -->
+        <label class="field"><span>Length (seconds)</span>
+          <input type="text" id="opt-music-length" placeholder="follows the edit" />
+        </label>
+      </div>
       <div class="hint" style="margin:-4px 0 8px">
         Cuts snap to the beat of whichever track you pick. Tracks come from your
         music folder, plus any audio-only file sitting with the footage.
         Automatic only fires when there is exactly one of the latter.
+        <br /><strong>Audition</strong> opens the track in the Source Monitor
+        &mdash; replacing whatever is there &mdash; so you can find the drop by ear,
+        then press <strong>Use playhead as start</strong>. The start moves to the
+        nearest beat. Leave Length empty and the music follows the edit; set it and
+        that much music is laid even if it outruns the picture.
       </div>
 
       <label class="field" style="margin-top:4px">

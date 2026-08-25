@@ -128,7 +128,46 @@ documented.
 run the self-test. The `transcript/schema-discovered` check calls
 `Transcript.exportToJSON` on it and dumps the real shape into the report.
 
-## 10. What works
+## 10. An empty `<input type="number">` renders the literal string `nan`
+
+Not empty, not the placeholder -- the four characters `nan`, in the field, looking
+like a value the editor typed. The Length field for a music chunk starts empty on
+purpose, because empty means "follow the edit", so it showed `nan` on every load.
+
+Number inputs that always hold a value are fine; it is specifically the empty
+state. Use `type="text"` and parse for any field that may legitimately be blank:
+
+```js
+function parseSeconds(text) {
+  const value = Number(String(text ?? "").trim());
+  return Number.isFinite(value) && value > 0 ? value : 0;   // "nan" -> 0
+}
+```
+
+`dataset` is also unreliable on UXP elements -- keep per-field flags in your own
+state object rather than on the DOM node.
+
+## 11. `SourceMonitor` is the way to play audio, because UXP cannot
+
+There is no `<audio>` element and no Web Audio API, so a panel cannot play a
+sound. `ppro.SourceMonitor` gives you Premiere's own monitor instead, and it is
+better than anything a panel could rebuild:
+
+```js
+await ppro.SourceMonitor.openFilePath(absPath);   // does NOT import into the project
+await ppro.SourceMonitor.play(1);
+const position = await ppro.SourceMonitor.getPosition();   // TickTime -> .seconds
+```
+
+All three work as documented on 26.3.2 -- a pleasant surprise given the rest of
+this file. `openFilePath` not importing is the useful part: auditioning five
+tracks to choose one does not leave four of them in the bin.
+
+`getPosition()` returns the playhead, not the in/out points, and there is no API
+for reading those -- so "park the playhead and read it back" is the interaction
+the API supports, not merely the one we chose.
+
+## 12. What works
 
 - Panel loads, renders, and is interactive
 - Media resolution by path, importing what is missing
