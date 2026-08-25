@@ -93,7 +93,27 @@ shaky ones, and a music bed puts the cuts on the beat.
 ./.venv/bin/autoedit plan --job PROMO01 --recipe promo-silent --media ~/Footage/broll/*.mp4 --music ~/Footage/track.wav --media-root ~/Footage --out ~/AutoEdit-jobs/PROMO01.editplan.json
 ```
 
-`--music` is optional; without it, takes are a fixed length from the recipe.
+**The music bed is found automatically.** Drop a single audio-only file next to
+the footage and `promo-silent` uses it -- no flag needed:
+
+```bash
+./.venv/bin/autoedit plan --job PROMO01 --recipe promo-silent --visual --media ~/Footage/*.MP4 --media-root ~/Footage --out ~/AutoEdit-jobs/PROMO01.editplan.json
+```
+
+```
+music: found million dollar baby.mp4 in /Users/you/Footage
+music: 92.0 BPM, 92 beats, confidence 0.53
+```
+
+It only fires when there is **exactly one** candidate -- with several it lists them
+and asks, because scoring a promo to the wrong track is worse than a question.
+Extensions are not trusted: a track exported as `.mp4` with no video stream still
+counts. `--music` overrides, `--no-music` opts out.
+
+This is per-recipe (`auto_music: true`), and only `promo-silent` sets it. Podcast
+recipes declare a `music` role for a bed the editor adds by hand, and a rough cut
+that silently gained a soundtrack would be a nasty surprise.
+
 Add `--visual` to cut from the pictures even when the footage *does* have audio.
 
 The engine reports what it threw away and why, per shot:

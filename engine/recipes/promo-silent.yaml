@@ -33,6 +33,14 @@ visual:
   beats_per_shot: 4        # one bar at 4/4
   min_beat_confidence: 0.25
 
+# Drop a single audio-only file alongside the footage and it becomes the bed.
+# Only ever fires when there is exactly one candidate -- guessing between several
+# would score the promo with the wrong track.
+auto_music: true
+
+roles:
+  music: { video_track: -1, audio_track: 1 }
+
 brand:
   lut: brand-punch
   mogrts:

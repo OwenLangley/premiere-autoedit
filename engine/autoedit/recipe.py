@@ -59,6 +59,10 @@ class Recipe:
     detection: DetectionSettings = field(default_factory=DetectionSettings)
     visual: VisualSettings = field(default_factory=VisualSettings)
     transcription: dict[str, Any] = field(default_factory=dict)
+    # Opt-in, and deliberately not inferred from the presence of a `music` role:
+    # podcast recipes define one for a bed the editor adds by hand, and a rough
+    # cut that quietly gained a soundtrack would be a nasty surprise.
+    auto_music: bool = False
     brand: dict[str, Any] = field(default_factory=dict)
     roles: dict[str, Any] = field(default_factory=dict)
 
@@ -92,7 +96,7 @@ def load_recipe(name_or_path: str | Path) -> Recipe:
         raise RecipeError(f"{path.name}: expected a mapping at the top level")
 
     unknown = set(raw) - {"name", "description", "sequence", "detection",
-                          "visual", "transcription", "brand", "roles"}
+                          "visual", "transcription", "brand", "roles", "auto_music"}
     if unknown:
         raise RecipeError(f"{path.name}: unknown top-level key(s): {', '.join(sorted(unknown))}")
 
@@ -147,6 +151,7 @@ def load_recipe(name_or_path: str | Path) -> Recipe:
         sequence=seq,
         detection=detection,
         visual=visual,
+        auto_music=bool(raw.get("auto_music", False)),
         transcription=raw.get("transcription") or {},
         brand=raw.get("brand") or {},
         roles=raw.get("roles") or {},

@@ -24,6 +24,38 @@ from .music import MusicError, detect_beats
 from .visual import VisualError, analyse as analyse_visual, plan_visual_cuts
 
 
+AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac", ".aif", ".aiff", ".flac", ".ogg", ".mp4", ".mov"}
+
+
+def _find_music_bed(search_dir: Path, exclude: set[Path]) -> tuple[Path | None, list[Path]]:
+    """Look for a single audio-only file to use as the music bed.
+
+    Only ever returns a file when there is exactly ONE candidate. Guessing between
+    several would silently score the promo with the wrong track, which is worse
+    than asking. Extensions are not trusted -- a music file exported as .mp4 with
+    no video stream is common, and is exactly what turned up in testing.
+
+    @returns (the bed if unambiguous, all candidates found)
+    """
+    candidates: list[Path] = []
+    if not search_dir.is_dir():
+        return None, []
+
+    for entry in sorted(search_dir.iterdir()):
+        if not entry.is_file() or entry.name.startswith("."):
+            continue
+        if entry.resolve() in exclude or entry.suffix.lower() not in AUDIO_EXTENSIONS:
+            continue
+        try:
+            info = probe(entry)
+        except ProbeError:
+            continue
+        if info.has_audio and not info.has_video:
+            candidates.append(entry)
+
+    return (candidates[0] if len(candidates) == 1 else None), candidates
+
+
 def _transcript_cache_key(media_hash: str, provider: str, options: dict) -> str:
     """Key a cached transcript on the media plus anything that would change it.
 
@@ -110,11 +142,31 @@ def cmd_plan(args) -> int:
     builder_warnings: list[str] = []
     cache_root = Path(args.work_dir or ".autoedit-cache")
 
+    # Auto-detection is opt-in per recipe via `auto_music`. Inferring it from a
+    # `music` role was wrong: podcast recipes declare one for a bed the editor
+    # adds by hand, and a rough cut silently gaining a soundtrack is a surprise
+    # nobody wants.
+    music_path = Path(args.music).resolve() if args.music else None
+    if music_path is None and not args.no_music and recipe.auto_music:
+        search_dir = media_root or Path(args.media[0]).resolve().parent
+        found, candidates = _find_music_bed(
+            search_dir, {Path(m).resolve() for m in args.media}
+        )
+        if found:
+            music_path = found
+            print(f"  music: found {found.name} in {search_dir}", file=sys.stderr)
+        elif len(candidates) > 1:
+            print(
+                f"  music: {len(candidates)} audio-only files here "
+                f"({', '.join(c.name for c in candidates)}) -- pass --music to choose one",
+                file=sys.stderr,
+            )
+
     beats = None
-    if args.music:
+    if music_path:
         try:
-            music_info = probe(args.music)
-            beats = detect_beats(args.music, music_info.duration, cache_root)
+            music_info = probe(music_path)
+            beats = detect_beats(music_path, music_info.duration, cache_root)
             print(
                 f"  music: {beats.bpm:.1f} BPM, {len(beats.beats)} beats, "
                 f"confidence {beats.confidence:.2f}",
@@ -236,10 +288,9 @@ def cmd_plan(args) -> int:
     for message in builder_warnings:
         builder.add_warning("music", message)
 
-    if args.music:
+    if music_path:
         try:
-            music_info = probe(args.music)
-            music_path = Path(args.music).resolve()
+            music_info = probe(music_path)
             rel = (
                 str(music_path.relative_to(media_root))
                 if media_root and media_root in music_path.parents
@@ -336,7 +387,8 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--transcript", help="explicit sidecar transcript path")
     pl.add_argument("--work-dir", help="cache directory for extracted audio and transcripts")
     pl.add_argument("--no-cache", action="store_true", help="re-transcribe even if a cached transcript exists")
-    pl.add_argument("--music", help="music bed; cuts are snapped to its beats and it is laid on the audio track")
+    pl.add_argument("--music", help="music bed; cuts snap to its beats and it is laid on the audio track. Auto-detected when the recipe defines a music role and exactly one audio-only file sits alongside the footage.")
+    pl.add_argument("--no-music", action="store_true", help="ignore any music bed, including an auto-detected one")
     pl.add_argument("--visual", action="store_true", help="cut from the pictures even when the footage has audio")
     pl.add_argument("--out", help="output path (default <job>.editplan.json)")
     pl.set_defaults(func=cmd_plan)
