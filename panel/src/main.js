@@ -146,8 +146,9 @@ function renderSummary() {
   $("plan-messages").innerHTML = "";
   if (s.lowConfidence) {
     message(
-      `${s.lowConfidence} clip(s) came from speech the transcript was unsure about. ` +
-      `Review those before trusting the cut.`
+      `${s.lowConfidence} clip(s) scored low confidence \u2014 either speech the ` +
+      `transcript was unsure about, or shots that only just passed the quality ` +
+      `gates. Review those before trusting the cut.`
     );
   }
   for (const w of s.warnings) message(w.message || String(w));

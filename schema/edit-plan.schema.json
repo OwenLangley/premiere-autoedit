@@ -106,8 +106,8 @@
         "outSeconds":     { "type": "number", "exclusiveMinimum": 0 },
         "atFrame":        { "type": "integer", "minimum": 0 },
         "durationFrames": { "type": "integer", "minimum": 1 },
-        "videoTrack":     { "type": "integer", "minimum": 0, "description": "0-based. -1 disables video." },
-        "audioTrack":     { "type": "integer", "minimum": 0, "description": "0-based. -1 disables audio." },
+        "videoTrack":     { "type": "integer", "minimum": -1, "description": "0-based. -1 for an audio-only clip such as a music bed." },
+        "audioTrack":     { "type": "integer", "minimum": -1, "description": "0-based. -1 for a clip placed without audio." },
         "linkedAudio":    { "type": "boolean", "default": true },
 
         "reason":     { "type": "string", "description": "Human-readable justification, shown in the panel. Editors will not trust cuts they cannot interrogate." },

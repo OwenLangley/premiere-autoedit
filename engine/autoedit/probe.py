@@ -118,7 +118,9 @@ def probe(path: str | Path) -> MediaInfo:
     if info.duration <= 0:
         raise ProbeError(f"{p.name} reports zero duration")
     if not info.has_audio:
-        info.warnings.append(f"{p.name}: no audio track, so it cannot be transcript-cut")
+        info.warnings.append(
+            f"{p.name}: no audio track -- cuts will come from the pictures, not a transcript"
+        )
 
     return info
 

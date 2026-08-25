@@ -1,0 +1,46 @@
+name: promo-silent
+description: >
+  Silent promo, b-roll reel or any footage with no usable speech. Cuts are driven
+  by the pictures instead of a transcript: shot detection finds the boundaries,
+  quality scoring throws away the black, frozen, soft and shaky ones, and when a
+  music bed is supplied the cuts land on the beat.
+
+sequence:
+  timebase: "25"
+  video_tracks: 3          # V1 selects, V2 b-roll/overlay, V3 graphics
+  audio_tracks: 2          # A1 music bed, A2 spare
+  name_template: "{job}_promo_v1"
+  crossfade_frames: 2
+
+visual:
+  scene_threshold: 0.30    # lower finds more cuts; raise for grainy footage
+  min_shot: 0.50           # shorter detections fold into their neighbour
+  max_shot: 6.0            # long takes get subdivided so selection has choices
+
+  # Quality gates. Loosen these first if too much gets rejected -- the warning
+  # in the plan tells you how many shots were dropped and why.
+  drop_black: true
+  min_brightness: 16.0
+  min_sharpness: 0.40
+  min_motion: 0.05
+  max_motion: 30.0
+
+  lead_trim: 0.15          # shots usually settle after the cut
+  tail_trim: 0.10
+
+  shot_duration: 1.60      # nominal take length when there is no music bed
+  snap_to_beats: true
+  beats_per_shot: 4        # one bar at 4/4
+  min_beat_confidence: 0.25
+
+brand:
+  lut: brand-punch
+  mogrts:
+    endcard: brand-endcard
+  loudness_target_lufs: -14
+
+# Unused on silent footage, but the loader still validates it.
+detection:
+  min_silence: 0.50
+  lead_in: 0.15
+  tail: 0.10

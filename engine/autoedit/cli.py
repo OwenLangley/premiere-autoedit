@@ -20,6 +20,8 @@ from .probe import ProbeError, content_hash, probe
 from .recipe import RecipeError, list_recipes, load_recipe
 from .transcribe import TranscriptionError, extract_audio, get_provider
 from .transcript import Transcript
+from .music import MusicError, detect_beats
+from .visual import VisualError, analyse as analyse_visual, plan_visual_cuts
 
 
 def _transcript_cache_key(media_hash: str, provider: str, options: dict) -> str:
@@ -104,7 +106,41 @@ def cmd_plan(args) -> int:
     )
 
     silent: list[str] = []
+    visual_used = False
+    builder_warnings: list[str] = []
     cache_root = Path(args.work_dir or ".autoedit-cache")
+
+    beats = None
+    if args.music:
+        try:
+            music_info = probe(args.music)
+            beats = detect_beats(args.music, music_info.duration, cache_root)
+            print(
+                f"  music: {beats.bpm:.1f} BPM, {len(beats.beats)} beats, "
+                f"confidence {beats.confidence:.2f}",
+                file=sys.stderr,
+            )
+            if beats.octave_ambiguous:
+                print(
+                    f"  music: half/double tempo is ambiguous here -- if the cut "
+                    f"feels twice or half as fast as the track, set beats_per_shot "
+                    f"to {max(1, recipe.visual.beats_per_shot // 2)} or "
+                    f"{recipe.visual.beats_per_shot * 2} in the recipe",
+                    file=sys.stderr,
+                )
+                builder_warnings.append(
+                    f"tempo read as {beats.bpm:.0f} BPM, but half or double fits "
+                    "almost as well -- check the cut against the track"
+                )
+            if beats.confidence < recipe.visual.min_beat_confidence:
+                print(
+                    f"  music: confidence {beats.confidence:.2f} is low; cuts will "
+                    "use fixed-length takes instead of the beat grid",
+                    file=sys.stderr,
+                )
+        except (MusicError, ProbeError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
     work_dir = cache_root / args.job
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -128,9 +164,31 @@ def cmd_plan(args) -> int:
         for w in info.warnings:
             builder.add_warning("probe", w, mid)
 
-        if not info.has_audio:
-            silent.append(path.name)
-            print(f"  {path.name}: no audio, cannot transcript-cut -- skipped", file=sys.stderr)
+        roles_cfg = recipe.roles.get(role or "", {}) if role else {}
+        v_track = roles_cfg.get("video_track", 0)
+        a_track = roles_cfg.get("audio_track", 0)
+
+        if args.visual or not info.has_audio:
+            if not info.has_audio:
+                silent.append(path.name)
+            visual_used = True
+            print(f"  {path.name}: cutting from the pictures", file=sys.stderr)
+            try:
+                analysis = analyse_visual(str(path), info.duration, recipe.visual)
+            except VisualError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            cuts = plan_visual_cuts(analysis, info.duration, recipe.visual, beats)
+            kept = len(analysis.usable)
+            print(
+                f"  {path.name}: {len(analysis.shots)} shots, {kept} usable, "
+                f"{cuts.summary(info.duration)}",
+                file=sys.stderr,
+            )
+            builder.append_cuts(
+                mid, cuts, video_track=v_track, audio_track=a_track,
+                crossfade_seconds=recipe.sequence.crossfade_seconds,
+            )
             continue
 
         options = dict(recipe.transcription)
@@ -169,14 +227,43 @@ def cmd_plan(args) -> int:
         cuts = plan_cuts(transcript, info.duration, recipe.detection)
         print(f"  {path.name}: {cuts.summary(info.duration)}", file=sys.stderr)
 
-        roles = recipe.roles.get(role or "", {}) if role else {}
         builder.append_cuts(
-            mid, cuts,
-            video_track=roles.get("video_track", 0),
-            audio_track=roles.get("audio_track", 0),
+            mid, cuts, video_track=v_track, audio_track=a_track,
             crossfade_seconds=recipe.sequence.crossfade_seconds,
         )
         builder.add_transcript(transcript)
+
+    for message in builder_warnings:
+        builder.add_warning("music", message)
+
+    if args.music:
+        try:
+            music_info = probe(args.music)
+            music_path = Path(args.music).resolve()
+            rel = (
+                str(music_path.relative_to(media_root))
+                if media_root and media_root in music_path.parents
+                else music_path.name
+            )
+            builder.add_media(MediaEntry(
+                id="MUSIC", rel_path=rel, duration=music_info.duration,
+                hash=content_hash(music_path), role="music",
+                has_video=False, has_audio=True,
+            ))
+            music_frames = min(
+                builder.duration_frames,
+                tb.to_frames(music_info.duration),
+            )
+            if music_frames > 0:
+                music_track = (recipe.roles.get("music") or {}).get("audio_track")
+                builder.add_full_clip(
+                    "MUSIC", 0, music_frames,
+                    video_track=-1,
+                    audio_track=music_track if music_track is not None else recipe.sequence.audio_tracks - 1,
+                    reason=f"music bed at {beats.bpm:.0f} BPM" if beats else "music bed",
+                )
+        except ProbeError as exc:
+            print(f"warning: could not add the music bed: {exc}", file=sys.stderr)
 
     plan = builder.build()
 
@@ -184,12 +271,17 @@ def cmd_plan(args) -> int:
     # editor builds an empty sequence and has to work out why themselves.
     if not plan["timeline"]:
         print("\nerror: no clips were produced, so there is nothing to build.", file=sys.stderr)
-        if silent:
+        if visual_used:
             print(
-                f"  {len(silent)} source(s) have no audio track: {', '.join(silent)}\n"
-                "  Cut planning is transcript-driven, so silent footage yields nothing.\n"
-                "  For silent material (promos, b-roll) you need a non-audio decision\n"
-                "  source -- shot detection or music-beat cutting. Not built yet.",
+                "  Every shot failed a quality gate. The thresholds in the recipe's\n"
+                "  `visual:` section are probably wrong for this footage -- start by\n"
+                "  lowering min_sharpness and min_brightness, and check the per-shot\n"
+                "  reasons above to see which gate is firing.",
+                file=sys.stderr,
+            )
+        elif silent:
+            print(
+                f"  {len(silent)} source(s) have no audio track: {', '.join(silent)}",
                 file=sys.stderr,
             )
         else:
@@ -244,6 +336,8 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--transcript", help="explicit sidecar transcript path")
     pl.add_argument("--work-dir", help="cache directory for extracted audio and transcripts")
     pl.add_argument("--no-cache", action="store_true", help="re-transcribe even if a cached transcript exists")
+    pl.add_argument("--music", help="music bed; cuts are snapped to its beats and it is laid on the audio track")
+    pl.add_argument("--visual", action="store_true", help="cut from the pictures even when the footage has audio")
     pl.add_argument("--out", help="output path (default <job>.editplan.json)")
     pl.set_defaults(func=cmd_plan)
     return p

@@ -149,6 +149,30 @@ class EditPlanBuilder:
             self.add_warning("cut", w, media_id)
         return self
 
+    def add_full_clip(
+        self, media_id: str, at_frame: int, duration_frames: int,
+        video_track: int, audio_track: int, reason: str = "",
+    ) -> "EditPlanBuilder":
+        """Place a whole source without cutting it -- a music bed, or an intro sting."""
+        if media_id not in self._media:
+            raise PlanError(f"unknown media id {media_id!r}")
+        media = self._media[media_id]
+        self._timeline.append({
+            "mediaId": media_id,
+            "inSeconds": 0.0,
+            "outSeconds": round(media.duration, 4),
+            "atFrame": at_frame,
+            "durationFrames": duration_frames,
+            "videoTrack": video_track,
+            "audioTrack": audio_track,
+            "linkedAudio": False,
+            "reason": reason or "placed whole",
+            "confidence": 1.0,
+            "fadeInFrames": 0,
+            "fadeOutFrames": 0,
+        })
+        return self
+
     def add_marker(
         self, at_frame: int, name: str, comment: str = "",
         kind: str = "Comment", duration_frames: int = 0,
@@ -208,6 +232,7 @@ class EditPlanBuilder:
         needed_v = max((c["videoTrack"] for c in self._timeline), default=0)
         needed_v = max(needed_v, max((g["videoTrack"] for g in self._graphics), default=0))
         needed_a = max((c["audioTrack"] for c in self._timeline), default=0)
+        needed_v, needed_a = max(needed_v, 0), max(needed_a, 0)
 
         plan: dict[str, Any] = {
             "schemaVersion": SCHEMA_VERSION,
@@ -291,6 +316,8 @@ def _semantic_errors(plan: dict) -> list[str]:
     # the editor sees a timeline that simply lost a clip.
     by_track: dict[int, list[tuple[int, int, int]]] = {}
     for i, c in enumerate(plan.get("timeline", [])):
+        if c["videoTrack"] < 0:      # audio-only clip; no video lane to collide on
+            continue
         by_track.setdefault(c["videoTrack"], []).append(
             (c["atFrame"], c["atFrame"] + c["durationFrames"], i)
         )

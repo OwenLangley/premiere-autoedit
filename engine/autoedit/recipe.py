@@ -13,6 +13,7 @@ from typing import Any
 
 from .detect import DetectionSettings
 from .timebase import Timebase
+from .visual import VisualSettings
 
 RECIPE_DIR = Path(__file__).resolve().parents[1] / "recipes"
 
@@ -22,6 +23,13 @@ _DETECTION_FIELDS = {
     "min_confidence", "protect_margin", "min_clip_length",
 }
 _SET_FIELDS = {"extra_fillers", "keep_fillers"}
+_VISUAL_FIELDS = {
+    "scene_threshold", "min_shot", "max_shot", "sample_fps",
+    "drop_black", "min_brightness", "max_brightness", "min_sharpness",
+    "min_motion", "max_motion", "lead_trim", "tail_trim",
+    "shot_duration", "min_clip_length", "target_duration",
+    "snap_to_beats", "beats_per_shot", "min_beat_confidence",
+}
 _VALID_FILLER_MODES = {"off", "conservative", "aggressive"}
 
 
@@ -49,6 +57,7 @@ class Recipe:
     description: str = ""
     sequence: SequenceConfig = field(default_factory=SequenceConfig)
     detection: DetectionSettings = field(default_factory=DetectionSettings)
+    visual: VisualSettings = field(default_factory=VisualSettings)
     transcription: dict[str, Any] = field(default_factory=dict)
     brand: dict[str, Any] = field(default_factory=dict)
     roles: dict[str, Any] = field(default_factory=dict)
@@ -83,7 +92,7 @@ def load_recipe(name_or_path: str | Path) -> Recipe:
         raise RecipeError(f"{path.name}: expected a mapping at the top level")
 
     unknown = set(raw) - {"name", "description", "sequence", "detection",
-                          "transcription", "brand", "roles"}
+                          "visual", "transcription", "brand", "roles"}
     if unknown:
         raise RecipeError(f"{path.name}: unknown top-level key(s): {', '.join(sorted(unknown))}")
 
@@ -120,11 +129,24 @@ def load_recipe(name_or_path: str | Path) -> Recipe:
     detection = DetectionSettings(**kwargs)
     _sanity_check(path.name, detection)
 
+    vis_raw = raw.get("visual") or {}
+    bad_visual = set(vis_raw) - _VISUAL_FIELDS
+    if bad_visual:
+        raise RecipeError(
+            f"{path.name}: unknown visual setting(s): {', '.join(sorted(bad_visual))}"
+        )
+    visual = VisualSettings(**vis_raw)
+    if visual.min_shot <= 0 or visual.max_shot <= visual.min_shot:
+        raise RecipeError(f"{path.name}: max_shot must exceed min_shot, both positive")
+    if not 0.0 < visual.scene_threshold < 1.0:
+        raise RecipeError(f"{path.name}: scene_threshold must be between 0 and 1")
+
     return Recipe(
         name=raw.get("name", path.stem),
         description=raw.get("description", ""),
         sequence=seq,
         detection=detection,
+        visual=visual,
         transcription=raw.get("transcription") or {},
         brand=raw.get("brand") or {},
         roles=raw.get("roles") or {},

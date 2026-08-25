@@ -10,7 +10,9 @@ from autoedit.detect import (
     KIND_FILLER,
     KIND_SILENCE,
     KIND_STUTTER,
+    CutPlan,
     DetectionSettings,
+    Keep,
     plan_cuts,
 )
 from autoedit.transcript import Transcript
@@ -269,3 +271,11 @@ def test_filler_at_the_head_of_a_clip_is_fully_removed(mktranscript):
     first = plan.keeps[0]
     assert first.end <= 0.45 + 1e-6, f"clip ends at {first.end:.3f}, inside the 'um'"
     assert "um" not in read(t, plan)
+
+
+def test_summary_reports_removal_from_what_was_kept():
+    """Regression: summing the drop list reported 'removed 0%' beside
+    'kept 1.6s of 5.5s', because visual cut planning only records drops for
+    shots it rejects outright."""
+    plan = CutPlan(keeps=[Keep(0.0, 1.6)], drops=[])
+    assert "removed 71%" in plan.summary(5.5)

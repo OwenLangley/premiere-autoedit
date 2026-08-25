@@ -138,9 +138,13 @@ class CutPlan:
         return sum(d.duration for d in self.drops)
 
     def summary(self, source_duration: float) -> str:
-        pct = (self.removed_duration / source_duration * 100) if source_duration else 0.0
+        # Derived from what was KEPT, not from the drop list. Visual cut planning
+        # only records drops for shots it rejected outright, so summing drops
+        # reported "removed 0%" next to "kept 1.6s of 5.5s".
+        kept = self.kept_duration
+        pct = (1.0 - kept / source_duration) * 100 if source_duration else 0.0
         return (
-            f"{len(self.keeps)} clips, kept {self.kept_duration:.1f}s of "
+            f"{len(self.keeps)} clips, kept {kept:.1f}s of "
             f"{source_duration:.1f}s (removed {pct:.0f}%)"
         )
 

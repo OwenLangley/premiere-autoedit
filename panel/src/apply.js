@@ -448,6 +448,9 @@ async function verifyApplied(sequence, plan) {
 
   const wanted = new Map();
   for (const c of plan.timeline) {
+    // videoTrack -1 marks an audio-only clip (a music bed); there is no video
+    // lane to read back, and getVideoTrack(-1) would throw.
+    if (c.videoTrack < 0) continue;
     const list = wanted.get(c.videoTrack) || [];
     list.push(c);
     wanted.set(c.videoTrack, list);

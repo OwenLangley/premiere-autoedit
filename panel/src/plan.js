@@ -52,6 +52,9 @@ function validatePlan(plan) {
   plan.timeline.forEach((c, i) => {
     if (!ids.has(c.mediaId)) errors.push(`timeline[${i}] references unknown media ${c.mediaId}`);
     if (!(c.durationFrames >= 1)) errors.push(`timeline[${i}] has a zero-length duration`);
+    if (c.videoTrack < 0 && c.audioTrack < 0) {
+      errors.push(`timeline[${i}] is on neither a video nor an audio track`);
+    }
     if (!(c.outSeconds > c.inSeconds)) errors.push(`timeline[${i}] out point is not after in point`);
     if (c.atFrame < 0) errors.push(`timeline[${i}] starts before the sequence`);
     const m = (plan.media || []).find((x) => x.id === c.mediaId);
@@ -65,6 +68,7 @@ function validatePlan(plan) {
   /** @type {Map<number, {start:number,end:number,i:number}[]>} */
   const byTrack = new Map();
   plan.timeline.forEach((c, i) => {
+    if (c.videoTrack < 0) return;   // audio-only clip: no video lane to collide on
     const list = byTrack.get(c.videoTrack) || [];
     list.push({ start: c.atFrame, end: c.atFrame + c.durationFrames, i });
     byTrack.set(c.videoTrack, list);

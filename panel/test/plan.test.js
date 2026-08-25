@@ -112,3 +112,18 @@ test("first and last fades are cleared after a ripple", () => {
   assert.strictEqual(out.timeline[0].fadeInFrames, 0);
   assert.strictEqual(out.timeline.at(-1).fadeOutFrames, 0);
 });
+
+test("an audio-only clip does not collide on a video track", () => {
+  const p = plan({
+    timeline: [
+      clip(),
+      clip({ mediaId: "A001", videoTrack: -1, audioTrack: 1, inSeconds: 0, outSeconds: 5 }),
+    ],
+  });
+  assert.deepStrictEqual(validatePlan(p), []);
+});
+
+test("a clip on neither track is rejected", () => {
+  const errs = validatePlan(plan({ timeline: [clip({ videoTrack: -1, audioTrack: -1 })] }));
+  assert.ok(errs.some((e) => e.includes("neither a video nor an audio track")));
+});
