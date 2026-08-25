@@ -30,6 +30,11 @@ from .visual import (
 )
 
 
+# Above this share of detail falling outside the centre crop, the shot is worth
+# a human look. Tuned to flag a minority of shots -- a marker on everything is
+# the same as no markers at all.
+CROP_RISK_THRESHOLD = 0.35
+
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac", ".aif", ".aiff", ".flac", ".ogg", ".mp4", ".mov"}
 
 
@@ -195,6 +200,7 @@ def cmd_plan(args) -> int:
     silent: list[str] = []
     visual_used = False
     collected: list[tuple[str, Any, int, int]] = []
+    risky: list[tuple[str, float, float, float]] = []
     builder_warnings: list[str] = []
     cache_root = Path(args.work_dir or ".autoedit-cache")
 
@@ -284,8 +290,18 @@ def cmd_plan(args) -> int:
             print(f"  {path.name}: cutting from the pictures", file=sys.stderr)
             # Cache the decode, not the decisions: re-scoring with different
             # thresholds is instant, which is what makes tuning pacing usable.
+            # Fraction of the width a centre crop keeps. Only meaningful when the
+            # output is narrower than the source; that is when detail gets thrown away.
+            centre_ratio = None
+            if options.frame_size and info.width and info.height:
+                target = options.frame_size[0] / options.frame_size[1]
+                source = info.width / info.height
+                if target < source - 1e-6:
+                    centre_ratio = round(target / source, 4)
+
             vkey = hashlib.sha256(
-                json.dumps([content_hash(path), measurement_key(visual)], sort_keys=True).encode()
+                json.dumps([content_hash(path), measurement_key(visual), centre_ratio],
+                           sort_keys=True).encode()
             ).hexdigest()[:24]
             vfile = cache_root / "visual" / f"{vkey}.json"
             try:
@@ -293,7 +309,7 @@ def cmd_plan(args) -> int:
                     print(f"  {path.name}: visual analysis from cache", file=sys.stderr)
                     measured = Measurements.from_dict(json.loads(vfile.read_text()))
                 else:
-                    measured = measure_visual(str(path), info.duration, visual)
+                    measured = measure_visual(str(path), info.duration, visual, centre_ratio)
                     vfile.parent.mkdir(parents=True, exist_ok=True)
                     vfile.write_text(json.dumps(measured.to_dict()))
                 analysis = analyse_visual(str(path), info.duration, visual, measured)
@@ -306,6 +322,10 @@ def cmd_plan(args) -> int:
                 f"  {path.name}: {len(analysis.shots)} shots, {kept} usable, "
                 f"{cuts.summary(info.duration)}",
                 file=sys.stderr,
+            )
+            risky.extend(
+                (mid, s.shot.start, s.shot.end, s.crop_risk)
+                for s in analysis.usable if s.crop_risk >= CROP_RISK_THRESHOLD
             )
             collected.append((mid, cuts, v_track, a_track))
             continue
@@ -367,6 +387,37 @@ def cmd_plan(args) -> int:
             mid, cuts, video_track=v_track, audio_track=a_track,
             crossfade_seconds=recipe.sequence.crossfade_seconds,
         )
+
+    # Mark the shots a centre crop is likely to spoil. A heuristic, not subject
+    # detection -- it points the editor at a handful of clips to check rather than
+    # claiming to know where the subject is.
+    if risky and options.frame_size:
+        flagged = 0
+        for entry in builder.timeline_entries():
+            if entry["videoTrack"] < 0:
+                continue
+            for mid, start, end, risk in risky:
+                if entry["mediaId"] == mid and start <= entry["inSeconds"] < end:
+                    builder.add_marker(
+                        entry["atFrame"],
+                        "Check framing",
+                        f"{risk * 100:.0f}% of the detail in this shot sits outside the "
+                        f"centre crop -- the subject may be off to one side.",
+                        kind="Comment",
+                    )
+                    flagged += 1
+                    break
+        if flagged:
+            print(
+                f"  reframe: {flagged} clip(s) marked 'Check framing' -- the crop may "
+                "lose the subject",
+                file=sys.stderr,
+            )
+            builder.add_warning(
+                "reframe",
+                f"{flagged} clip(s) flagged: detail sits outside the centre crop, so "
+                "check those before delivering",
+            )
 
     for message in builder_warnings:
         builder.add_warning("music", message)

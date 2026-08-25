@@ -237,6 +237,10 @@ class EditPlanBuilder:
 
     # ------------------------------------------------------------- output
 
+    def timeline_entries(self) -> list[dict]:
+        """Read-only view of what has been placed so far."""
+        return list(self._timeline)
+
     @property
     def duration_frames(self) -> int:
         return self._playhead

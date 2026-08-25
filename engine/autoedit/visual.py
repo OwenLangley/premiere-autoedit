@@ -52,6 +52,7 @@ class FrameSample:
     motion: float = 0.0
     brightness: float = 0.0
     sharpness: float = 0.0
+    centre_sharpness: float = 0.0   # edge density inside the centre crop only
 
 
 @dataclass
@@ -62,6 +63,7 @@ class ScoredShot:
     sharpness: float
     score: float
     rejected: str | None = None      # why it was dropped, for the panel to show
+    crop_risk: float = 0.0           # 0 = detail is centred, 1 = it is all at the edges
 
     @property
     def usable(self) -> bool:
@@ -225,7 +227,9 @@ def _split_long(shots: list[Shot], maximum: float) -> list[Shot]:
 # ------------------------------------------------------------------ frame stats
 
 
-def analyse_frames(path: str, settings: VisualSettings) -> list[FrameSample]:
+def analyse_frames(
+    path: str, settings: VisualSettings, centre_ratio: float | None = None
+) -> list[FrameSample]:
     """Per-sample motion, brightness and sharpness.
 
     Two ffmpeg passes, because edgedetect replaces the image and would corrupt
@@ -246,14 +250,29 @@ def analyse_frames(path: str, settings: VisualSettings) -> list[FrameSample]:
 
     edge_by_time = {round(t, 3): vals.get("YAVG", 0.0) for t, vals in edges}
 
+    # Edge density inside just the centre crop. Comparing it to the whole frame is
+    # what tells us whether a centre crop would throw the subject away.
+    centre_by_time: dict[float, float] = {}
+    if centre_ratio and 0 < centre_ratio < 1:
+        centre = _parse_metadata(_run([
+            "-i", str(path),
+            "-vf",
+            f"fps={fps},{norm},crop=iw*{centre_ratio:.4f}:ih:(iw-iw*{centre_ratio:.4f})/2:0,"
+            f"edgedetect=low=0.1:high=0.3,signalstats,metadata=print:file=-",
+            "-f", "null", "-",
+        ]))
+        centre_by_time = {round(t, 3): vals.get("YAVG", 0.0) for t, vals in centre}
+
     samples: list[FrameSample] = []
     for t, vals in base:
+        key = round(t, 3)
         samples.append(FrameSample(
             time=t,
             motion=vals.get("YDIF", 0.0),
             brightness=vals.get("YAVG", 0.0),
             # Normalised roughly to 0-10; raw edge luma is small and non-linear.
-            sharpness=edge_by_time.get(round(t, 3), 0.0),
+            sharpness=edge_by_time.get(key, 0.0),
+            centre_sharpness=centre_by_time.get(key, 0.0),
         ))
     return samples
 
@@ -318,6 +337,7 @@ def score_shots(
     settings: VisualSettings,
     black: list[Shot] | None = None,
     frozen: list[Shot] | None = None,
+    centre_ratio: float = 0.0,
 ) -> list[ScoredShot]:
     """Average each shot's measurements and decide whether it is usable."""
     black = black or []
@@ -358,8 +378,17 @@ def score_shots(
         exposure_fit = 1.0 - min(1.0, abs(brightness - 118.0) / 118.0)
         score = round(0.5 * min(1.0, sharpness / 3.0) + 0.3 * motion_fit + 0.2 * exposure_fit, 4)
 
+        # How much of the frame's detail survives a centre crop. A shot whose
+        # subject sits off to one side keeps far less edge energy than its share of
+        # the area, and that is exactly the shot an editor needs to look at.
+        crop_risk = 0.0
+        if centre_ratio and sharpness > 0.01:
+            centre = sum(s.centre_sharpness for s in inside) / len(inside)
+            retained = centre / sharpness
+            crop_risk = max(0.0, min(1.0, 1.0 - retained / centre_ratio))
+
         scored.append(ScoredShot(shot, round(motion, 3), round(brightness, 2),
-                                 round(sharpness, 3), score, reason))
+                                 round(sharpness, 3), score, reason, round(crop_risk, 3)))
     return scored
 
 
@@ -377,6 +406,7 @@ class Measurements:
     samples: list[FrameSample] = field(default_factory=list)
     black: list[Shot] = field(default_factory=list)
     frozen: list[Shot] = field(default_factory=list)
+    centre_ratio: float = 0.0
 
     def to_dict(self) -> dict:
         span = lambda s: {"start": round(s.start, 4), "end": round(s.end, 4)}
@@ -384,9 +414,11 @@ class Measurements:
             "shots": [span(s) for s in self.shots],
             "black": [span(s) for s in self.black],
             "frozen": [span(s) for s in self.frozen],
+            "centre_ratio": self.centre_ratio,
             "samples": [
                 {"t": round(f.time, 4), "m": round(f.motion, 4),
-                 "b": round(f.brightness, 3), "s": round(f.sharpness, 4)}
+                 "b": round(f.brightness, 3), "s": round(f.sharpness, 4),
+                 "c": round(f.centre_sharpness, 4)}
                 for f in self.samples
             ],
         }
@@ -399,9 +431,11 @@ class Measurements:
             black=[span(x) for x in d.get("black", [])],
             frozen=[span(x) for x in d.get("frozen", [])],
             samples=[
-                FrameSample(float(x["t"]), float(x["m"]), float(x["b"]), float(x["s"]))
+                FrameSample(float(x["t"]), float(x["m"]), float(x["b"]), float(x["s"]),
+                            float(x.get("c", 0.0)))
                 for x in d.get("samples", [])
             ],
+            centre_ratio=float(d.get("centre_ratio", 0.0)),
         )
 
 
@@ -420,14 +454,22 @@ def measurement_key(settings: VisualSettings) -> dict:
     }
 
 
-def measure(path: str, duration: float, settings: VisualSettings) -> Measurements:
-    """Run every decode-bound measurement over one clip."""
+def measure(
+    path: str, duration: float, settings: VisualSettings, centre_ratio: float | None = None
+) -> Measurements:
+    """Run every decode-bound measurement over one clip.
+
+    `centre_ratio` is the fraction of the width a centre crop would keep. Pass it
+    when the output is a different shape from the source, and each shot gains a
+    crop-risk score.
+    """
     structure = detect_structure(path, duration, settings)
     return Measurements(
         shots=structure.shots,
-        samples=analyse_frames(path, settings),
+        samples=analyse_frames(path, settings, centre_ratio),
         black=structure.black,
         frozen=structure.frozen,
+        centre_ratio=centre_ratio or 0.0,
     )
 
 
@@ -465,6 +507,7 @@ def analyse(
         measured.shots, measured.samples, settings,
         measured.black if settings.drop_black else [],
         measured.frozen,
+        measured.centre_ratio,
     )
 
     rejected = [s for s in scored if not s.usable]

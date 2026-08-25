@@ -198,3 +198,65 @@ def test_real_silent_clip_is_analysable():
     result = analyse(str(FIXTURES / "sample_2997_vertical_silent.mp4"), 4.0)
     assert result.shots, "expected at least one shot"
     assert all(s.shot.end > s.shot.start for s in result.shots)
+
+
+# ------------------------------------------------------------------ crop risk
+
+
+def samples_with_centre(start, end, full, centre, step=0.2):
+    t, out = start, []
+    while t < end:
+        out.append(FrameSample(t, 4.0, 118.0, full, centre))
+        t += step
+    return out
+
+
+def test_centred_detail_is_not_flagged():
+    """A centre crop keeping its full share of the detail is safe."""
+    ratio = 0.32
+    scored = score_shots([Shot(0, 2)], samples_with_centre(0, 2, 3.0, 3.0 * ratio),
+                         VisualSettings(), centre_ratio=ratio)[0]
+    assert scored.crop_risk < 0.05
+
+
+def test_detail_at_the_edges_is_flagged():
+    """The shot a vertical crop would ruin: subject off to one side."""
+    scored = score_shots([Shot(0, 2)], samples_with_centre(0, 2, 3.0, 0.0),
+                         VisualSettings(), centre_ratio=0.32)[0]
+    assert scored.crop_risk > 0.9
+
+
+def test_crop_risk_is_zero_without_a_reframe():
+    """No aspect change means nothing is being thrown away."""
+    scored = score_shots([Shot(0, 2)], samples_with_centre(0, 2, 3.0, 1.0),
+                         VisualSettings())[0]
+    assert scored.crop_risk == 0.0
+
+
+def test_crop_risk_is_bounded():
+    for centre in (0.0, 0.5, 3.0, 99.0):
+        scored = score_shots([Shot(0, 2)], samples_with_centre(0, 2, 3.0, centre),
+                             VisualSettings(), centre_ratio=0.32)[0]
+        assert 0.0 <= scored.crop_risk <= 1.0
+
+
+def test_a_featureless_shot_is_not_flagged():
+    """Nothing to lose in a flat frame; flagging it would be noise."""
+    scored = score_shots([Shot(0, 2)], samples_with_centre(0, 2, 0.001, 0.0),
+                         VisualSettings(), centre_ratio=0.32)[0]
+    assert scored.crop_risk == 0.0
+
+
+def test_measurements_round_trip_through_the_cache():
+    """Cached measurements must preserve crop data, or a re-score silently loses
+    every flag."""
+    from autoedit.visual import Measurements
+    m = Measurements(
+        shots=[Shot(0, 2)],
+        samples=samples_with_centre(0, 2, 3.0, 0.5),
+        centre_ratio=0.32,
+    )
+    back = Measurements.from_dict(m.to_dict())
+    assert back.centre_ratio == pytest.approx(0.32)
+    assert back.samples[0].centre_sharpness == pytest.approx(0.5)
+    assert len(back.samples) == len(m.samples)
