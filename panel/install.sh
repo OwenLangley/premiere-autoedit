@@ -27,10 +27,20 @@ VERSION=$(python3 -c "import json;print(json.load(open('manifest.json'))['versio
 SYSTEM_ROOT="/Library/Application Support/Adobe/UXP/Plugins/External"
 DEST="$SYSTEM_ROOT/${ID}_${VERSION}"
 
+# Only the FIRST install needs root, to create the folder under /Library. After
+# that the plugin directory belongs to the installing user, so day-to-day updates
+# are just a copy -- asking for a password on every code change would be enough
+# friction that people stop running it.
 SUDO=""
-if [ ! -w "$(dirname "$SYSTEM_ROOT")" ] && [ "$(id -u)" -ne 0 ]; then
-  echo "Installing to $SYSTEM_ROOT needs administrator rights."
-  SUDO="sudo"
+if [ "$(id -u)" -ne 0 ]; then
+  if [ -d "$DEST" ]; then
+    [ -w "$DEST" ] || SUDO="sudo"
+  elif [ ! -w "$SYSTEM_ROOT" ]; then
+    SUDO="sudo"
+  fi
+fi
+if [ -n "$SUDO" ]; then
+  echo "First install here needs administrator rights (creating $SYSTEM_ROOT)."
 fi
 
 $SUDO mkdir -p "$DEST"
@@ -40,6 +50,7 @@ $SUDO rsync -a --delete \
   ./ "$DEST/"
 # Readable by everyone; Premiere runs as the logged-in user, not as root.
 $SUDO chmod -R a+rX "$DEST"
+[ -n "$SUDO" ] && $SUDO chown -R "$(id -u):$(id -g)" "$DEST" || true
 
 echo "installed -> $DEST"
 

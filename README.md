@@ -52,17 +52,23 @@ See **Running it with real footage** below.
 ### One-time setup
 
 ```bash
-python3 -m venv .venv && ./.venv/bin/pip install -e engine faster-whisper pytest jsonschema PyYAML
+./setup.sh ~/Desktop/AutoEdit-jobs ~/Footage ~/Music/Library
 ```
 
-```bash
-./panel/install.sh
-```
+That installs ffmpeg's prerequisites check, the engine venv, the panel and the
+background helper, and is safe to re-run. `./setup.sh --check` reports what a
+machine is missing without changing anything. See
+[docs/setting-up-a-new-machine.md](docs/setting-up-a-new-machine.md), which also
+covers what the first run costs and what to decide before rolling this out to
+other editors.
 
-Then restart Premiere, enable **Settings → Plugins → Enable developer mode** if the
-panel does not appear, and open **Window → UXP Plugins → AutoEdit**. In the panel,
-set **Media root** (where your footage lives) and **Jobs folder** (where plans land).
-Both persist.
+Then restart Premiere and open **Window → UXP Plugins → AutoEdit**. In the panel,
+set **Media root** (where your footage lives) and **Jobs folder** (where plans
+land). Both persist.
+
+**The helper is not optional.** UXP cannot start a subprocess, so the panel
+writes a request file and the helper runs the engine. Without it the panel looks
+perfectly healthy and **Create Edit does nothing**, with no error anywhere.
 
 ### Per job
 
