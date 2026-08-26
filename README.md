@@ -52,19 +52,26 @@ See **Running it with real footage** below.
 ### One-time setup
 
 ```bash
-./setup.sh ~/Desktop/AutoEdit-jobs ~/Footage ~/Music/Library
+./setup.sh ~/Footage ~/Music/Library
 ```
 
-That installs ffmpeg's prerequisites check, the engine venv, the panel and the
+Your footage is the only thing you have to decide. The jobs folder is plumbing,
+so setup makes one at `~/Desktop/AutoEdit-jobs` and points the helper at it;
+`--jobs <folder>` overrides that if a team shares one. Re-running keeps whatever
+folder the machine already uses, so an update never moves an editor's jobs.
+
+That checks the prerequisites and installs the engine venv, the panel and the
 background helper, and is safe to re-run. `./setup.sh --check` reports what a
 machine is missing without changing anything. See
 [docs/setting-up-a-new-machine.md](docs/setting-up-a-new-machine.md), which also
 covers what the first run costs and what to decide before rolling this out to
 other editors.
 
-Then restart Premiere and open **Window → UXP Plugins → AutoEdit**. In the panel,
-set **Media root** (where your footage lives) and **Jobs folder** (where plans
-land). Both persist.
+Then restart Premiere and open **Window → UXP Plugins → AutoEdit**, and in the
+panel pick the jobs folder once under **Setup**. That click cannot be scripted:
+a UXP plugin gets folder access only through the picker the editor drives, so a
+path in a config file grants it nothing. It is remembered afterwards, updates
+included.
 
 **The helper is not optional.** UXP cannot start a subprocess, so the panel
 writes a request file and the helper runs the engine. Without it the panel looks

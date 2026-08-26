@@ -3,14 +3,34 @@
 One command, then restart Premiere:
 
 ```bash
-./setup.sh ~/Desktop/AutoEdit-jobs ~/Footage ~/Music/Library
+./setup.sh ~/Footage ~/Music/Library
 ```
+
+The media root is the only argument that matters -- it is the editor's footage
+and only they know where it lives. Give the top of the tree, not one shoot.
 
 To see what a machine is missing without changing anything:
 
 ```bash
 ./setup.sh --check
 ```
+
+## The jobs folder is made for them
+
+Editors do not choose it and do not need to understand it. Setup creates
+`~/Desktop/AutoEdit-jobs`, points the helper at it, and prints the path. It is
+where the panel drops a request and the helper writes back the plan, the receipt
+and the media and music indexes.
+
+`--jobs <folder>` overrides it, which is what a team pointing everyone at one
+folder on shared storage wants. Re-running setup keeps whatever folder the
+machine is already using, so an update never quietly moves an editor's jobs.
+
+**One click cannot be scripted.** After Premiere restarts, the editor has to
+choose that folder once in the panel under **Setup → Jobs folder**. A UXP plugin
+cannot be handed a path -- it only gets folder access the editor grants through
+the picker itself, and there is no API that takes a string. Setup prints the
+exact path to pick. It is remembered afterwards, updates included.
 
 ## The four parts, and why each matters
 
@@ -39,11 +59,10 @@ after it.
 
 ## Things worth deciding before you roll it out
 
-**Where the jobs folder lives.** Each editor can have their own on the Desktop,
-or you can point everyone at one folder on shared storage. Shared means plans and
-receipts are visible to whoever is helping; local means no network dependency.
-The helper takes it as an argument, and the panel can change it without a
-restart.
+**Whether the jobs folder is shared.** The default gives every editor their own
+on the Desktop, which needs no network. `--jobs` on a shared volume instead means
+plans and receipts are visible to whoever is helping. Either way the panel can
+change it later without a restart.
 
 **Whether the media root is shared.** Plans store paths *relative to the media
 root*, so moving footage to a NAS later is a settings change and nothing else.
@@ -57,6 +76,9 @@ remembered per machine.
 ```bash
 git pull && ./setup.sh --check          # then restart Premiere
 ```
+
+`--check` changes nothing, so run it first; re-run `./setup.sh <media-root>` if
+it reports anything missing.
 
 `panel/install.sh` alone is enough if only the panel changed. Only the *first*
 install needs an administrator password; after that the plugin folder belongs to
