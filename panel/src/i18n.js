@@ -138,6 +138,10 @@ const EN = {
   "swap.discard": "Discard {count} swap(s) and open a different plan?",
   "swap.lost": "Swaps are held in the panel only — closing it or restarting Premiere loses them.",
   "swap.previewFailed": "Premiere would not open that clip in the Source Monitor.",
+  "swap.library": "library",
+  "swap.fromLibrary": "{count} from your library",
+  "swap.libraryBuilding": "still indexing the library",
+  "swap.noThumb": "no still yet",
 
   "diag.title": "Diagnostics",
   "diag.selfTest": "Run self-test",
@@ -367,6 +371,10 @@ const JA = {
   "swap.discard": "{count} 箇所の差し替えを破棄して別の編集案を開きますか？",
   "swap.lost": "差し替えはパネル内にのみ保持されます。パネルを閉じたり Premiere を再起動すると失われます。",
   "swap.previewFailed": "そのクリップをソースモニターで開けませんでした。",
+  "swap.library": "ライブラリ",
+  "swap.fromLibrary": "ライブラリから {count} 件",
+  "swap.libraryBuilding": "ライブラリを解析中",
+  "swap.noThumb": "静止画なし",
 
   "diag.title": "診断",
   "diag.selfTest": "セルフテストを実行",

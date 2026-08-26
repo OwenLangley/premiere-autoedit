@@ -55,6 +55,9 @@ const state = {
   // accidental discard they will actually hit -- opening a different plan.
   swaps: new Map(),
   selectedSlot: null,      // atFrame of the block whose alternates are showing
+  // Every shot the helper has found across the media library, not just the
+  // clips in this job. Null until it has written the index once.
+  libraryShots: null,
   watching: null,          // interval id while a job is being worked on
 };
 
@@ -125,6 +128,9 @@ function applyCapabilityLabels(caps) {
   );
   fillSelect("opt-duration-mode", relabel(caps.durationModes, "duration"), [{ value: "none", label: t("duration.none") }]);
   fillSelect("opt-look", [{ value: "", label: t("look.none") }, ...(caps.looks || [])], [{ value: "", label: t("look.none") }]);
+  // Filling the dropdown can change which mode is selected, so the Seconds box
+  // has to be re-checked here and not only on an editor's own change.
+  syncDurationField();
 }
 
 async function refreshSetup() {
@@ -224,6 +230,11 @@ async function selectPlan(ref) {
   state.planName = ref.name;
   renderSummary();
   renderSections();
+  try {
+    state.libraryShots = state.transport ? await state.transport.listLibraryShots() : null;
+  } catch {
+    state.libraryShots = null;   // the strip still works from the plan alone
+  }
   renderStrip();
   $("apply").disabled = false;
   log(`Loaded ${ref.name}`);
@@ -411,55 +422,75 @@ function renderSlotDetail() {
   renderAlternates(slot);
 }
 
+/** What to call a candidate: a plan clip has a mediaId, a library shot a path. */
+function candidateName(c) {
+  if (c.relPath) return c.relPath.split("/").pop() || c.relPath;
+  return mediaName(c.mediaId);
+}
+
 function renderAlternates(slot) {
   const alts = $("alts");
-  if (!state.plan.candidates || !state.plan.candidates.length) {
-    alts.innerHTML = `<div class="why">${state.t("swap.noCandidates")}</div>`;
-    return;
-  }
   // Against the ORIGINAL slot: its duration is what a candidate has to cover,
   // and that never changes, but the group follows whatever is in the slot now
   // so the list re-sorts around a swap the editor has already made.
-  const offered = candidatesFor(state.plan, slot);
+  const offered = candidatesFor(state.plan, slot, state.libraryShots);
   if (!offered.length) {
-    alts.innerHTML = `<div class="why">${state.t("swap.none")}</div>`;
+    const empty = (state.plan.candidates || []).length ? "swap.none" : "swap.noCandidates";
+    alts.innerHTML = `<div class="why head">${state.t(empty)}</div>`;
     return;
   }
 
   const head = document.createElement("div");
-  head.className = "why";
-  head.textContent = state.t("swap.alternates");
+  head.className = "why head";
+  const fromLib = offered.filter((c) => c.fromLibrary).length;
+  head.textContent = state.t("swap.alternates")
+    + (fromLib ? ` · ${state.t("swap.fromLibrary", { count: fromLib })}` : "");
+  // The library index is written progressively, so say when it is still filling
+  // -- an editor who cannot find a clip should know whether to wait or to look
+  // somewhere else.
+  if (state.libraryShots && state.libraryShots.complete === false) {
+    head.textContent += ` · ${state.t("swap.libraryBuilding")}`;
+  }
   alts.appendChild(head);
 
   for (const c of offered) {
-    const row = document.createElement("div");
-    row.className = c.current ? "alt current" : "alt";
+    const card = document.createElement("div");
+    card.className = c.current ? "alt current" : "alt";
 
-    // A thumbnail if the engine made one AND this build can display it. No
-    // capability check: an <img> that will not decode simply never fires load,
-    // so it removes itself and the row reads as text. That degrades quietly in
-    // the one direction quiet degradation is right -- the row still works.
+    // A thumbnail if the engine made one. An <img> whose src will not decode
+    // never fires load, so it swaps itself for a labelled placeholder rather
+    // than leaving a broken box -- the card still works either way.
     if (c.thumbPath) {
       const img = document.createElement("img");
       img.className = "thumb";
-      img.addEventListener("error", () => img.remove());
+      img.addEventListener("error", () => {
+        const ph = document.createElement("div");
+        ph.className = "noshot";
+        ph.textContent = state.t("swap.noThumb");
+        img.replaceWith(ph);
+      });
       img.src = `file://${c.thumbPath}`;
-      row.appendChild(img);
+      card.appendChild(img);
+    } else {
+      const ph = document.createElement("div");
+      ph.className = "noshot";
+      ph.textContent = state.t("swap.noThumb");
+      card.appendChild(ph);
     }
 
     const txt = document.createElement("div");
     txt.className = "txt";
     const title = document.createElement("div");
-    title.textContent = mediaName(c.mediaId);
-    if (c.current) {
+    title.textContent = candidateName(c);
+    for (const [when, key] of [
+      [c.current, "swap.current"],
+      [!c.current && c.sameGroup, "swap.sameSource"],
+      [c.fromLibrary, "swap.library"],
+    ]) {
+      if (!when) continue;
       const tag = document.createElement("span");
       tag.className = "tag";
-      tag.textContent = state.t("swap.current");
-      title.appendChild(tag);
-    } else if (c.sameGroup) {
-      const tag = document.createElement("span");
-      tag.className = "tag";
-      tag.textContent = state.t("swap.sameSource");
+      tag.textContent = state.t(key);
       title.appendChild(tag);
     }
     const sub = document.createElement("div");
@@ -467,7 +498,10 @@ function renderAlternates(slot) {
     sub.textContent = `${c.inSeconds.toFixed(1)}s · ${(c.outSeconds - c.inSeconds).toFixed(1)}s`
       + (c.score ? ` · ${c.score.toFixed(2)}` : "");
     txt.append(title, sub);
+    card.appendChild(txt);
 
+    const acts = document.createElement("div");
+    acts.className = "acts";
     const preview = document.createElement("button");
     preview.textContent = state.t("swap.preview");
     preview.addEventListener("click", async () => {
@@ -477,20 +511,24 @@ function renderAlternates(slot) {
         log(err instanceof AuditionError ? state.t("swap.previewFailed") : String(err), "err");
       }
     });
-
-    row.append(txt, preview);
+    acts.appendChild(preview);
     if (!c.current) {
       const use = document.createElement("button");
+      use.className = "primary";
       use.textContent = state.t("swap.use");
       use.addEventListener("click", () => {
-        state.swaps.set(slot.atFrame, {
-          mediaId: c.mediaId, inSeconds: c.inSeconds, reason: c.reason,
-        });
+        // A library shot is identified by path -- the plan has no id for it yet,
+        // and withSwaps mints one along with the media entry the build needs.
+        state.swaps.set(slot.atFrame, c.fromLibrary
+          ? { relPath: c.relPath, inSeconds: c.inSeconds,
+              durationSeconds: c.durationSeconds, reason: c.reason }
+          : { mediaId: c.mediaId, inSeconds: c.inSeconds, reason: c.reason });
         renderStrip();
       });
-      row.appendChild(use);
+      acts.appendChild(use);
     }
-    alts.appendChild(row);
+    card.appendChild(acts);
+    alts.appendChild(card);
   }
 }
 
@@ -503,10 +541,18 @@ function renderAlternates(slot) {
  * leave eight items in the bin.
  */
 async function previewCandidate(c) {
-  const entry = (state.plan.media || []).find((m) => m.id === c.mediaId);
-  if (!entry) throw new AuditionError(`no media entry for ${c.mediaId}`);
   const resolve = makeResolver(state.settings.mediaToken, state.settings.musicToken);
-  const abs = await resolve(entry.relPath, entry.root);
+  // A library shot has no media entry yet -- it is a path under the media root,
+  // which is exactly what the resolver takes.
+  let relPath = c.relPath;
+  let root;
+  if (!relPath) {
+    const entry = (state.plan.media || []).find((m) => m.id === c.mediaId);
+    if (!entry) throw new AuditionError(`no media entry for ${c.mediaId}`);
+    relPath = entry.relPath;
+    root = entry.root;
+  }
+  const abs = await resolve(relPath, root);
   await audition(abs, { atSeconds: c.inSeconds, play: true });
 }
 
@@ -761,6 +807,26 @@ async function loadMediaList() {
   renderSummary_();
 }
 
+/**
+ * Keep the Seconds box honest about whether anything is reading it.
+ *
+ * Length defaults to "No limit", and the Seconds box next to it defaults to 30
+ * and stays editable. So the form showed "No limit / 30" and an editor could
+ * reasonably read that as thirty seconds -- while `buildRequest` omitted the
+ * duration entirely and the engine ran to whatever the footage gave. A form
+ * that displays a number nothing reads is lying, quietly, in the one place the
+ * editor is most likely to trust it.
+ */
+function syncDurationField() {
+  const off = $("opt-duration-mode").value === "none";
+  const box = $("opt-duration-seconds");
+  box.disabled = off;
+  // Disabled inputs are easy to miss at this size; dim the whole field so the
+  // pair reads as one control rather than two that disagree.
+  const field = box.closest ? box.closest("label.field") : null;
+  if (field) field.style.opacity = off ? "0.45" : "";
+}
+
 function currentForm() {
   const seconds = Number($("opt-duration-seconds").value);
   return {
@@ -932,6 +998,9 @@ for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut
                   "opt-music", "opt-music-start", "opt-music-length"]) {
   $(id).addEventListener("change", renderSummary_);
   $(id).addEventListener("input", renderSummary_);
+  if (id === "opt-duration-mode") {
+    $(id).addEventListener("change", syncDurationField);
+  }
   // Scrolling the panel past a dropdown would otherwise cycle its value, so an
   // editor scrolling to reach Create silently changes what they are asking for.
   $(id).addEventListener("wheel", (e) => e.preventDefault());

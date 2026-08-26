@@ -29,6 +29,7 @@ from .preset import write_preset
 from .music import BeatGrid, MusicError, detect_beats
 from .notes import Note, note
 from .proxy import proxy_path
+from .thumbs import build_thumb, sample_point, thumb_path
 from .timebase import choose_timebase, holds_exactly
 from .visual import (
     Measurements, VisualError, analyse as analyse_visual, measure as measure_visual,
@@ -543,9 +544,15 @@ def cmd_plan(args) -> int:
             # jumps around the source is hard to reason about, and the score is
             # already shown against each one.
             for span in sorted(ranked, key=lambda s: s.shot.start):
+                # A still per span. Cheap enough to do inline -- one keyframe
+                # seek and a JPEG each -- and without it the alternates list is
+                # filenames and timecodes, which is not how anyone picks a shot.
+                at = sample_point(span.shot.start, span.shot.end)
+                tp = thumb_path(cache_root, path, at)
+                thumb = str(tp) if build_thumb(path, tp, at) else None
                 builder.add_candidate(
                     mid, span.shot.start, span.shot.end, span.score,
-                    reason=f"quality {span.score:.2f}",
+                    reason=f"quality {span.score:.2f}", thumb_path=thumb,
                 )
 
             collected.append((mid, cuts, v_track, a_track))

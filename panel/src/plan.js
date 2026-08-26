@@ -191,8 +191,8 @@ function colourFor(key) {
  * @param {any} plan
  * @param {{atFrame:number, durationFrames:number, mediaId:string, inSeconds:number, sectionId?:string}} slot
  */
-function candidatesFor(plan, slot) {
-  if (!plan || !Array.isArray(plan.candidates) || !slot) return [];
+function candidatesFor(plan, slot, library) {
+  if (!plan || !slot) return [];
   const tb = plan.timebase;
   const needed = toSeconds(tb, slot.durationFrames);
   const group = groupKeyOf(slot);
@@ -201,18 +201,53 @@ function candidatesFor(plan, slot) {
   // tighter than any cut the editor can see and far looser than float noise.
   const slack = toSeconds(tb, 1) / 2;
 
-  return plan.candidates
+  const inPlan = (plan.candidates || []).map((c) => ({ ...c, fromLibrary: false }));
+
+  // Shots from the wider library, which the helper indexes in the background.
+  // An editor picking a replacement is thinking about their footage, not about
+  // the six files they happened to tick for this job -- so the pool is the
+  // library, and the ones already in the edit merely sort first.
+  const relPathsInPlan = new Set((plan.media || []).map((m) => m.relPath));
+  const fromLibrary = ((library && library.files) || [])
+    // Skip library entries for footage the plan already carries: those are
+    // covered by the plan's own candidates, which know their mediaId.
+    .filter((c) => !relPathsInPlan.has(c.relPath))
+    .map((c) => ({ ...c, fromLibrary: true }));
+
+  return [...inPlan, ...fromLibrary]
     .filter((c) => c.outSeconds - c.inSeconds >= needed - slack)
     .map((c) => ({
       ...c,
-      sameGroup: groupKeyOf(c) === group,
-      current: c.mediaId === slot.mediaId
+      sameGroup: !c.fromLibrary && groupKeyOf(c) === group,
+      current: !c.fromLibrary && c.mediaId === slot.mediaId
         && Math.abs(c.inSeconds - slot.inSeconds) < slack,
     }))
     .sort((a, b) => {
+      // Already in the edit first, then the rest of the library. Not a filter:
+      // the whole point is that the library is reachable.
       if (a.sameGroup !== b.sameGroup) return a.sameGroup ? -1 : 1;
+      if (a.fromLibrary !== b.fromLibrary) return a.fromLibrary ? 1 : -1;
       return (b.score || 0) - (a.score || 0);
     });
+}
+
+/**
+ * A media id for a library file the plan has never referenced.
+ *
+ * Same shape the engine derives, and checked against what is already in the
+ * plan: two files called `C1367.MP4` in different folders must not collapse
+ * onto one id, or a swap would silently read from the wrong footage.
+ * @param {any} plan @param {string} relPath
+ */
+function libraryMediaId(plan, relPath) {
+  const stem = (relPath.split("/").pop() || "clip").replace(/\.[^.]*$/, "");
+  const base = ([...stem].filter((ch) => /[A-Za-z0-9_-]/.test(ch)).join("") || "LIB").slice(0, 24);
+  const taken = new Set((plan.media || []).map((m) => m.id));
+  if (!taken.has(base)) return base;
+  for (let n = 2; n < 1000; n += 1) {
+    if (!taken.has(`${base}_${n}`)) return `${base}_${n}`;
+  }
+  return `${base}_x`;
 }
 
 /**
@@ -230,16 +265,45 @@ function candidatesFor(plan, slot) {
  * first choice rather than stacking.
  *
  * @param {any} plan
- * @param {Map<number, {mediaId:string, inSeconds:number, reason?:string}> | null} swaps
+ * A pick carries EITHER a mediaId (a span of footage the plan already has) or a
+ * relPath and durationSeconds (a shot from the wider library, which the plan has
+ * never referenced and needs a media entry minted for).
+ *
+ * @param {Map<number, {mediaId?:string, relPath?:string, durationSeconds?:number, inSeconds:number, reason?:string}> | null} swaps
  */
 function withSwaps(plan, swaps) {
   if (!swaps || swaps.size === 0) return plan;
   const tb = plan.timebase;
-  const sourceLength = new Map((plan.media || []).map((m) => [m.id, m.durationSeconds]));
+  const media = [...(plan.media || [])];
+  const sourceLength = new Map(media.map((m) => [m.id, m.durationSeconds]));
+
+  // A swap can name a file the plan has never seen. `media` is what the apply
+  // side imports and resolves, so the entry has to be created here or the
+  // build would reference a mediaId that does not exist -- and validatePlan
+  // would reject it, which is the good outcome, but only after the editor had
+  // already made the choice.
+  const byRelPath = new Map(media.map((m) => [m.relPath, m]));
+  for (const pick of swaps.values()) {
+    if (!pick.relPath || byRelPath.has(pick.relPath)) continue;
+    const entry = {
+      id: libraryMediaId({ media }, pick.relPath),
+      relPath: pick.relPath,
+      durationSeconds: pick.durationSeconds || 0,
+      hasVideo: true,
+    };
+    media.push(entry);
+    byRelPath.set(entry.relPath, entry);
+    sourceLength.set(entry.id, entry.durationSeconds);
+  }
 
   const timeline = (plan.timeline || []).map((c) => {
-    const pick = swaps.get(c.atFrame);
-    if (!pick) return c;
+    const raw = swaps.get(c.atFrame);
+    if (!raw) return c;
+    // A library pick carries a path; a pick from the plan's own pool carries an
+    // id. Resolve to an id here so everything below is uniform.
+    const pick = raw.relPath && byRelPath.has(raw.relPath)
+      ? { ...raw, mediaId: byRelPath.get(raw.relPath).id }
+      : raw;
     const seconds = toSeconds(tb, c.durationFrames);
     // Pull the in point back if taking the slot's full length from here would
     // read past the end of the file. The shortlist already only offers spans
@@ -263,7 +327,7 @@ function withSwaps(plan, swaps) {
       swapped: true,
     };
   });
-  return { ...plan, timeline };
+  return { ...plan, media, timeline };
 }
 
 /**
@@ -475,6 +539,7 @@ module.exports = {
   colourFor,
   candidatesFor,
   withSwaps,
+  libraryMediaId,
   clipTimes,
   toFrames,
   toSeconds,

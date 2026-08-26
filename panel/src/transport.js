@@ -133,6 +133,25 @@ class LocalFolderTransport {
     }
   }
 
+  /**
+   * Every shot the helper has found across the whole media library.
+   *
+   * Separate from the plan on purpose. The plan is a record of one job and must
+   * not change after it is written; this is a rolling index of the footage, and
+   * it grows as the helper works through the library in the background. Null
+   * until the helper has written it once.
+   */
+  async listLibraryShots() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return null;
+    try {
+      const file = await folder.getEntry("library-shots.json");
+      return JSON.parse(await file.read());
+    } catch {
+      return null;
+    }
+  }
+
   /** Write a job request for the helper to pick up. */
   async writeRequest(name, request) {
     const folder = await folderFromToken(this.jobsToken);

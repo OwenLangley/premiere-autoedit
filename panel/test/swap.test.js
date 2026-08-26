@@ -11,7 +11,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const {
-  withSwaps, candidatesFor, groupKeyOf, colourFor, withoutSections,
+  withSwaps, candidatesFor, groupKeyOf, colourFor, withoutSections, validatePlan,
 } = require("../src/plan");
 
 const TB = { fpsNum: 25, fpsDen: 1 };
@@ -167,6 +167,75 @@ test("a plan with no candidates offers no swaps rather than throwing", () => {
 test("story sections take over the grouping when present", () => {
   assert.strictEqual(groupKeyOf({ mediaId: "A001", sectionId: "cooking" }), "cooking");
   assert.strictEqual(groupKeyOf({ mediaId: "A001" }), "A001");
+});
+
+// ----------------------------------------------------------------- library
+
+const LIBRARY = {
+  complete: true,
+  files: [
+    { relPath: "lib/L100.mov", inSeconds: 3, outSeconds: 9, score: 0.95, durationSeconds: 30 },
+    { relPath: "lib/L101.mov", inSeconds: 0, outSeconds: 1, score: 0.99, durationSeconds: 30 },
+    // Same file the plan already uses: must not appear twice.
+    { relPath: "a/A001.mov", inSeconds: 0, outSeconds: 9, score: 0.99, durationSeconds: 60 },
+  ],
+};
+
+test("library shots are offered alongside the plan's own", () => {
+  const p = plan();
+  const offered = candidatesFor(p, p.timeline[0], LIBRARY);
+  assert.ok(offered.some((c) => c.relPath === "lib/L100.mov"), "library shot missing");
+});
+
+test("a library shot too short for the slot is still excluded", () => {
+  const p = plan();
+  const offered = candidatesFor(p, p.timeline[0], LIBRARY);
+  assert.ok(!offered.some((c) => c.relPath === "lib/L101.mov"), "1s span should be out");
+});
+
+test("footage the plan already carries is not listed twice", () => {
+  const p = plan();
+  const offered = candidatesFor(p, p.timeline[0], LIBRARY);
+  assert.strictEqual(offered.filter((c) => c.relPath === "a/A001.mov").length, 0,
+    "the plan's own candidates already cover that file");
+});
+
+test("the plan's own shots sort ahead of the library", () => {
+  const p = plan();
+  const offered = candidatesFor(p, p.timeline[0], LIBRARY);
+  const firstLib = offered.findIndex((c) => c.fromLibrary);
+  const lastOwn = offered.map((c) => c.fromLibrary).lastIndexOf(false);
+  assert.ok(firstLib === -1 || firstLib > lastOwn, "library shots jumped the queue");
+});
+
+test("swapping in a library shot adds the media entry the build needs", () => {
+  const p = plan();
+  const after = withSwaps(p, new Map([[0, {
+    relPath: "lib/L100.mov", inSeconds: 3, durationSeconds: 30,
+  }]]));
+  const added = after.media.find((m) => m.relPath === "lib/L100.mov");
+  assert.ok(added, "no media entry was created for the library file");
+  assert.strictEqual(after.timeline[0].mediaId, added.id);
+  assert.match(added.id, /^[^\s/\\:*?"<>|.]+$/, "id must satisfy the schema pattern");
+  assert.deepStrictEqual(validatePlan(after), [], "the swapped plan must still validate");
+});
+
+test("a library swap is still clamped inside its own source", () => {
+  const p = plan();
+  const after = withSwaps(p, new Map([[0, {
+    relPath: "lib/L100.mov", inSeconds: 29.5, durationSeconds: 30,
+  }]]));
+  assert.strictEqual(after.timeline[0].outSeconds, 30);
+  assert.strictEqual(after.timeline[0].durationFrames, 50);
+});
+
+test("a library file whose name collides with a plan id gets its own", () => {
+  const p = plan();
+  const after = withSwaps(p, new Map([[0, {
+    relPath: "other/A001.mov", inSeconds: 0, durationSeconds: 30,
+  }]]));
+  const ids = after.media.map((m) => m.id);
+  assert.strictEqual(new Set(ids).size, ids.length, "two media entries share an id");
 });
 
 // ------------------------------------------------------------------- colour

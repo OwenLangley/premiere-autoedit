@@ -34,8 +34,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
 
 from autoedit.cli import main as engine_main            # noqa: E402
 from autoedit.options import ASPECT_LABELS, CUT_RATES, PACING  # noqa: E402
-from autoedit.probe import ProbeError, needs_proxy, probe  # noqa: E402
+from autoedit.probe import ProbeError, content_hash, needs_proxy, probe  # noqa: E402
 from autoedit.proxy import build_proxy, proxy_path        # noqa: E402
+from autoedit.thumbs import build_thumb, sample_point, thumb_path  # noqa: E402
+from autoedit.visual import (                             # noqa: E402
+    Measurements, VisualError, VisualSettings, analyse as analyse_visual,
+    measure as measure_visual, measurement_key,
+)
 from autoedit.recipe import list_recipes, load_recipe   # noqa: E402
 
 REQUEST_SUFFIX = ".request.json"
@@ -167,6 +172,114 @@ def ensure_proxies(media_root: Path, work_dir: Path) -> None:
             return
         _proxy_started.add(key)
     threading.Thread(target=worker, name="proxies", daemon=True).start()
+
+
+# How many spans one library file contributes to the shot library. Lower than
+# the per-job cap: this is every file under the media root, not the handful an
+# editor picked, so the total is what has to stay sane.
+MAX_LIBRARY_SPANS = 12
+_shots_lock = threading.Lock()
+_shots_started: set = set()
+
+
+def ensure_library_shots(media_root: Path, work_dir: Path, jobs: Path) -> None:
+    """Analyse the whole library in the background, so alternates are not limited
+    to the clips the editor happened to pick for this job.
+
+    An editor choosing a replacement shot is not thinking "which of the six files
+    I selected" -- they are thinking of their footage. Offering only what is
+    already in the edit answers a question nobody asked.
+
+    Off the job path and heavily cached, for the same reason proxies are: the
+    first pass over a big library is minutes of decoding, and an editor who
+    pressed Create should get a plan now. The file is written after every source
+    so a partial library is usable immediately rather than only at the end.
+    """
+    def worker() -> None:
+        settings = VisualSettings()
+        shots: list[dict] = []
+        done = 0
+        for path in iter_media(media_root):
+            info = _cached_probe(path)
+            if info is None or not info.has_video:
+                continue
+            try:
+                spans = _library_spans(path, info, settings, work_dir)
+            except (VisualError, OSError) as exc:
+                print(f"  shots: skipped {path.name}: {exc}", file=sys.stderr)
+                continue
+            if not spans:
+                continue
+            try:
+                rel = str(path.relative_to(media_root))
+            except ValueError:
+                rel = path.name
+            # durationSeconds travels with every span: swapping in a file the
+            # plan has never seen means synthesising a media entry for it, and
+            # that entry needs a length or the panel cannot keep a swap inside
+            # the source.
+            shots.extend(
+                {**sp, "relPath": rel, "durationSeconds": round(info.duration, 4)}
+                for sp in spans
+            )
+            done += 1
+            # Written as it goes. A library of 200 clips takes a long time, and
+            # a panel that shows nothing until the last one has finished is
+            # indistinguishable from one that is broken.
+            _write_shots(jobs, shots, complete=False)
+        _write_shots(jobs, shots, complete=True)
+        print(f"  shots: {len(shots)} spans from {done} file(s)", file=sys.stderr)
+
+    with _shots_lock:
+        key = str(media_root)
+        if key in _shots_started:
+            return
+        _shots_started.add(key)
+    threading.Thread(target=worker, name="library-shots", daemon=True).start()
+
+
+def _library_spans(path: Path, info, settings, work_dir: Path) -> list[dict]:
+    """The best spans in one file, with a still for each.
+
+    Shares the engine's measurement cache rather than keeping its own: the same
+    decode serves a job that later uses this file, so a library pass makes the
+    next real edit faster instead of duplicating its work.
+    """
+    vkey = hashlib.sha256(
+        json.dumps([content_hash(path), measurement_key(settings), None],
+                   sort_keys=True).encode()
+    ).hexdigest()[:24]
+    vfile = work_dir / "visual" / f"{vkey}.json"
+    if vfile.exists():
+        measured = Measurements.from_dict(json.loads(vfile.read_text()))
+    else:
+        measured = measure_visual(str(path), info.duration, settings, None)
+        vfile.parent.mkdir(parents=True, exist_ok=True)
+        vfile.write_text(json.dumps(measured.to_dict()))
+
+    analysis = analyse_visual(str(path), info.duration, settings, measured)
+    ranked = sorted(analysis.usable, key=lambda s: s.score, reverse=True)[:MAX_LIBRARY_SPANS]
+
+    out = []
+    for span in sorted(ranked, key=lambda s: s.shot.start):
+        at = sample_point(span.shot.start, span.shot.end)
+        tp = thumb_path(work_dir, path, at)
+        out.append({
+            "inSeconds": round(span.shot.start, 4),
+            "outSeconds": round(span.shot.end, 4),
+            "score": round(span.score, 4),
+            "reason": f"quality {span.score:.2f}",
+            **({"thumbPath": str(tp)} if build_thumb(path, tp, at) else {}),
+        })
+    return out
+
+
+def _write_shots(jobs: Path, shots: list[dict], complete: bool) -> None:
+    (jobs / "library-shots.json").write_text(json.dumps({
+        "generatedAt": _now(),
+        "complete": complete,
+        "files": shots,
+    }, indent=2) + "\n")
 
 
 def iter_media(media_root: Path, max_depth: int = MAX_INDEX_DEPTH):
@@ -484,6 +597,7 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
     write_capabilities(jobs)
     write_media_index(jobs, media_root)
     ensure_proxies(media_root, work_dir)
+    ensure_library_shots(media_root, work_dir, jobs)
     music_root = resolve_music_root(jobs, music_root)
     write_music_index(jobs, music_root)
     print(f"watching {jobs} (media root {media_root})", file=sys.stderr)
