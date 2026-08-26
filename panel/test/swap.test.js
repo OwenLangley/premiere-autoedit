@@ -193,11 +193,35 @@ test("a library shot too short for the slot is still excluded", () => {
   assert.ok(!offered.some((c) => c.relPath === "lib/L101.mov"), "1s span should be out");
 });
 
-test("footage the plan already carries is not listed twice", () => {
+test("footage the plan already has candidates for is not listed twice", () => {
   const p = plan();
   const offered = candidatesFor(p, p.timeline[0], LIBRARY);
   assert.strictEqual(offered.filter((c) => c.relPath === "a/A001.mov").length, 0,
     "the plan's own candidates already cover that file");
+});
+
+test("a plan with no candidates of its own still gets the library", () => {
+  // The case that emptied the list in practice: a speech-cut job carries no
+  // candidates, and the library holds exactly the footage it used. Filtering
+  // those out as duplicates left nothing to offer.
+  const p = plan({ candidates: undefined });
+  const offered = candidatesFor(p, p.timeline[0], LIBRARY);
+  assert.ok(offered.length > 0, "no alternates were offered at all");
+  assert.ok(offered.some((c) => c.relPath === "a/A001.mov"),
+    "footage in the plan should be offered when nothing else describes it");
+});
+
+test("a library span of footage the plan holds swaps without minting a media entry", () => {
+  const p = plan({ candidates: undefined });
+  const offered = candidatesFor(p, p.timeline[0], LIBRARY);
+  const known = offered.find((c) => c.relPath === "a/A001.mov");
+  assert.strictEqual(known.fromLibrary, false, "the plan already carries this file");
+  assert.strictEqual(known.mediaId, "A001", "it should resolve to the existing id");
+  const after = withSwaps(p, new Map([[0, {
+    relPath: known.relPath, inSeconds: known.inSeconds, durationSeconds: 60,
+  }]]));
+  assert.strictEqual(after.media.length, p.media.length, "media should not have grown");
+  assert.strictEqual(after.timeline[0].mediaId, "A001");
 });
 
 test("the plan's own shots sort ahead of the library", () => {

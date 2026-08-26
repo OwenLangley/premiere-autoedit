@@ -207,19 +207,36 @@ function candidatesFor(plan, slot, library) {
   // An editor picking a replacement is thinking about their footage, not about
   // the six files they happened to tick for this job -- so the pool is the
   // library, and the ones already in the edit merely sort first.
-  const relPathsInPlan = new Set((plan.media || []).map((m) => m.relPath));
+  const idByRelPath = new Map((plan.media || []).map((m) => [m.relPath, m.id]));
+  const relPathById = new Map((plan.media || []).map((m) => [m.id, m.relPath]));
+
+  // Drop a library span only when the plan has its OWN candidates for that file,
+  // because then it is already represented and better described.
+  //
+  // This used to skip any file the plan merely referenced, which quietly emptied
+  // the list in the commonest case there is: a speech-cut job carries no
+  // candidates at all, and its footage is exactly what the library has indexed,
+  // so every span was discarded as a duplicate of nothing.
+  const covered = new Set(
+    (plan.candidates || []).map((c) => relPathById.get(c.mediaId)).filter(Boolean)
+  );
   const fromLibrary = ((library && library.files) || [])
-    // Skip library entries for footage the plan already carries: those are
-    // covered by the plan's own candidates, which know their mediaId.
-    .filter((c) => !relPathsInPlan.has(c.relPath))
-    .map((c) => ({ ...c, fromLibrary: true }));
+    .filter((c) => !covered.has(c.relPath))
+    .map((c) => ({
+      ...c,
+      // A library span of footage the plan already carries is not "from the
+      // library" as far as the editor or the build is concerned -- it has a
+      // media entry, so it groups and swaps like any other span.
+      mediaId: idByRelPath.get(c.relPath),
+      fromLibrary: !idByRelPath.has(c.relPath),
+    }));
 
   return [...inPlan, ...fromLibrary]
     .filter((c) => c.outSeconds - c.inSeconds >= needed - slack)
     .map((c) => ({
       ...c,
       sameGroup: !c.fromLibrary && groupKeyOf(c) === group,
-      current: !c.fromLibrary && c.mediaId === slot.mediaId
+      current: !!c.mediaId && c.mediaId === slot.mediaId
         && Math.abs(c.inSeconds - slot.inSeconds) < slack,
     }))
     .sort((a, b) => {
