@@ -31,7 +31,8 @@ _VISUAL_FIELDS = {
     "snap_to_beats", "beats_per_shot", "min_beat_confidence",
 }
 _VALID_FILLER_MODES = {"off", "conservative", "aggressive"}
-_MUSIC_FIELDS = {"beat_priority", "beats_per_cut", "min_beat_confidence"}
+_MUSIC_FIELDS = {"beat_priority", "beats_per_cut", "min_beat_confidence",
+                 "max_shot_beats"}
 _VALID_BEAT_PRIORITIES = {"music", "speech"}
 
 
@@ -71,7 +72,17 @@ class MusicSettings:
 
     beat_priority: str = "speech"
     beats_per_cut: int = 1          # the quantum in music mode; 4 would be a bar
-    min_beat_confidence: float = 0.25
+    # How long any one shot may run, in beats, when the music leads. This is what
+    # makes the pacing control mean something in a montage: without it, a source
+    # handed a 2.4s share spent it all on one shot, so a six-clip edit had six
+    # cuts however punchy the setting. Scaled by pacing in apply_pacing().
+    max_shot_beats: int = 4
+    # Calibrated against measured values rather than guessed. On the grid-fit
+    # metric (see detect_beats), four real tracks scored 0.19, 0.27, 0.38 and
+    # 0.47, while speech recordings with no beat at all scored 0.09 and 0.14.
+    # The old 0.25 was tuned for a different metric entirely and rejected a track
+    # whose beat the editor could hear perfectly well.
+    min_beat_confidence: float = 0.15
 
     @property
     def music_wins(self) -> bool:
@@ -188,6 +199,8 @@ def load_recipe(name_or_path: str | Path) -> Recipe:
         )
     if music.beats_per_cut < 1:
         raise RecipeError(f"{path.name}: beats_per_cut must be at least 1")
+    if music.max_shot_beats < 1:
+        raise RecipeError(f"{path.name}: max_shot_beats must be at least 1")
 
     return Recipe(
         name=raw.get("name", path.stem),

@@ -302,7 +302,7 @@ drift, clips land on the wrong frame and nothing else would catch it.
 Engine, on this machine:
 
 - End to end on real media: probe → ffmpeg → transcript → cuts → validated plan
-- 284 Python tests, 100 JS tests, clean type check
+- 296 Python tests, 100 JS tests, clean type check
 - 224 cross-language timebase conformance assertions
 
 Panel, **against Premiere Pro 26.3.2**:

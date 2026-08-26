@@ -22,7 +22,7 @@ from .probe import ProbeError, content_hash, needs_proxy, probe
 from .recipe import RecipeError, list_recipes, load_recipe
 from .transcribe import TranscriptionError, extract_audio, get_provider
 from .transcript import Transcript
-from .options import (JobOptions, OptionError, apply_pacing, fit_duration_across,
+from .options import (PACING, JobOptions, OptionError, apply_pacing, fit_duration_across,
                       working_frame_size, ASPECT_LABELS)
 from .preset import write_preset
 from .music import BeatGrid, MusicError, detect_beats
@@ -560,11 +560,28 @@ def cmd_plan(args) -> int:
     # at once. Interchangeable b-roll drops its weakest shots; a speech edit drops
     # from the end, because the opening of a narrative is not negotiable.
     if options.duration_mode != "none":
-        strategy = "worst" if visual_used else "tail"
+        # A montage should draw on everything the editor picked. "tail" keeps the
+        # opening and drops the rest, which is right for an interview and wrong
+        # for a social short -- it turned six selected clips into two.
+        if visual_used:
+            strategy = "worst"
+        elif recipe.music.music_wins and len(collected) > 1:
+            strategy = "spread"
+        else:
+            strategy = "tail"
+        # In a montage the beat sets how long a shot may run, so the pacing
+        # control finally changes the number of cuts rather than only their
+        # length. Without a usable grid there is no beat to cap against.
+        max_shot = quantum = None
+        if strategy == "spread" and beats and beats.beat_interval > 0:
+            shot_beats = max(1, round(recipe.music.max_shot_beats * PACING[options.pacing].beats))
+            max_shot = beats.beat_interval * shot_beats
+            quantum = beats.beat_interval
         fitted = fit_duration_across(
             [(mid, cuts) for mid, cuts, _, _ in collected],
             options.duration_mode, options.duration_seconds,
             options.duration_tolerance, detection.min_clip_length, strategy,
+            max_shot=max_shot, quantum=quantum,
         )
         by_id = dict(fitted)
         collected = [(mid, by_id.get(mid, cuts), v, a) for mid, cuts, v, a in collected]
@@ -648,6 +665,20 @@ def cmd_plan(args) -> int:
                 )
         except ProbeError as exc:
             print(f"warning: could not add the music bed: {exc}", file=sys.stderr)
+
+    # Check the length that was actually DELIVERED, not the one the fitter aimed
+    # at. Beat quantising runs after the fit and can only shorten -- a shot cannot
+    # be rounded up into material that is not there -- so an edit can hit its
+    # target on paper and come out well under it. Saying so is the difference
+    # between a tool that is wrong and a tool that is honest about being limited.
+    if options.duration_mode in ("exactly", "about") and options.duration_seconds:
+        delivered = tb.to_seconds(builder.duration_frames)
+        target = float(options.duration_seconds)
+        slack = target * (options.duration_tolerance if options.duration_mode == "about" else 0.05)
+        if delivered < target - slack:
+            key = ("length.shortOfAbout" if options.duration_mode == "about"
+                   else "length.shortOfTarget")
+            builder.add_warning("length", note(key, total=delivered, seconds=target))
 
     if proxied:
         builder.add_warning("media", note("media.proxyAttached", count=len(proxied)))

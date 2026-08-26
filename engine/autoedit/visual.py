@@ -104,7 +104,12 @@ class VisualSettings:
     # Beats
     snap_to_beats: bool = True
     beats_per_shot: int = 4          # one bar at 4/4
-    min_beat_confidence: float = 0.25
+    # Calibrated against measured values rather than guessed. On the grid-fit
+    # metric (see detect_beats), four real tracks scored 0.19, 0.27, 0.38 and
+    # 0.47, while speech recordings with no beat at all scored 0.09 and 0.14.
+    # The old 0.25 was tuned for a different metric entirely and rejected a track
+    # whose beat the editor could hear perfectly well.
+    min_beat_confidence: float = 0.15
 
 
 def _normalise(settings: "VisualSettings") -> str:

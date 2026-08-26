@@ -41,7 +41,7 @@ def pulse_envelope(bpm: float, duration: float, jitter: float = 0.0) -> np.ndarr
 def test_recovers_tempo_from_a_clean_pulse_train(bpm):
     env = pulse_envelope(bpm, 20.0)
     rough, confidence = estimate_tempo(env)
-    fitted, _, _ = fit_grid(env, rough, 20.0)
+    fitted, _, _, _ = fit_grid(env, rough, 20.0)
     assert fitted == pytest.approx(bpm, rel=0.02)
     assert confidence > 0.0
 
@@ -54,14 +54,14 @@ def test_grid_fitting_beats_raw_autocorrelation_for_precision():
     """
     env = pulse_envelope(120.0, 30.0)
     rough, _ = estimate_tempo(env)
-    fitted, _, _ = fit_grid(env, rough, 30.0)
+    fitted, _, _, _ = fit_grid(env, rough, 30.0)
     assert abs(fitted - 120.0) <= abs(rough - 120.0) + 1e-9
 
 
 def test_tempo_survives_a_little_timing_jitter():
     env = pulse_envelope(120.0, 20.0, jitter=0.8)
     rough, _ = estimate_tempo(env)
-    fitted, _, _ = fit_grid(env, rough, 20.0)
+    fitted, _, _, _ = fit_grid(env, rough, 20.0)
     assert fitted == pytest.approx(120.0, rel=0.05)
 
 
@@ -81,7 +81,7 @@ def test_too_short_input_is_handled():
 def test_beats_are_evenly_spaced_at_the_reported_tempo():
     env = pulse_envelope(120.0, 20.0)
     rough, _ = estimate_tempo(env)
-    bpm, beats, _ = fit_grid(env, rough, 20.0)
+    bpm, beats, _, _ = fit_grid(env, rough, 20.0)
     gaps = np.diff(beats)
     assert gaps.std() < 1e-6
     assert gaps.mean() == pytest.approx(60.0 / bpm, rel=1e-6)
@@ -90,7 +90,7 @@ def test_beats_are_evenly_spaced_at_the_reported_tempo():
 def test_beats_stay_inside_the_media():
     env = pulse_envelope(120.0, 20.0)
     rough, _ = estimate_tempo(env)
-    _, beats, _ = fit_grid(env, rough, 5.0)
+    _, beats, _, _ = fit_grid(env, rough, 5.0)
     assert all(0.0 <= b <= 5.0 for b in beats)
 
 
@@ -123,12 +123,62 @@ def test_reports_octave_ambiguity_at_the_range_extremes():
     The grid should say so rather than quietly pick one."""
     env = pulse_envelope(200.0, 20.0)
     rough, _ = estimate_tempo(env)
-    bpm, _, ambiguous = fit_grid(env, rough, 20.0)
+    bpm, _, ambiguous, _ = fit_grid(env, rough, 20.0)
     assert ambiguous or bpm == pytest.approx(200.0, rel=0.03)
 
 
 def test_a_clear_mid_range_tempo_is_not_flagged_ambiguous():
     env = pulse_envelope(120.0, 20.0)
     rough, _ = estimate_tempo(env)
-    _, _, ambiguous = fit_grid(env, rough, 20.0)
+    _, _, ambiguous, _ = fit_grid(env, rough, 20.0)
     assert not ambiguous
+
+
+# --- what "confidence" actually measures ------------------------------------
+#
+# It used to be `estimate_tempo`'s autocorrelation peakiness -- measured BEFORE
+# the grid was refined and never updated afterwards. That answers "is there a
+# clear periodicity in this signal", not "is the grid we settled on right", and
+# the two come apart badly: a track with a dead-even 126 BPM grid scored 0.14,
+# fell under the 0.25 floor, and its edit ignored the music entirely while the
+# editor could hear the beat perfectly well.
+
+
+def test_confidence_describes_the_grid_that_was_fitted():
+    from autoedit.music import fit_grid, onset_envelope
+    import numpy as np
+    # A clean pulse train: the grid should explain nearly every onset.
+    sr, bpm = 22050, 120.0
+    n = int(sr * 20)
+    x = np.zeros(n, dtype=np.float32)
+    for i in range(int(20 * bpm / 60)):
+        at = int(i * sr * 60 / bpm)
+        if at < n:
+            x[at:at + 200] = 1.0
+    env = onset_envelope(x)
+    _, _, _, fit = fit_grid(env, bpm, 20.0)
+    assert fit > 0.5, f"a clean click track should fit well, got {fit}"
+
+
+def test_noise_does_not_fit_a_grid():
+    from autoedit.music import fit_grid, onset_envelope
+    import numpy as np
+    rng = np.random.default_rng(7)
+    env = onset_envelope(rng.normal(0, 0.2, 22050 * 10).astype(np.float32))
+    _, _, _, fit = fit_grid(env, 120.0, 10.0)
+    assert fit < 0.5, f"noise should not fit a grid, got {fit}"
+
+
+def test_the_floor_sits_between_measured_music_and_measured_speech():
+    """The threshold is calibrated, not guessed.
+
+    Measured grid-fit values: real music 0.19 / 0.27 / 0.38 / 0.47, speech with
+    no beat 0.09 / 0.14. The floor has to pass all of the first group and none of
+    the second.
+    """
+    from autoedit.recipe import MusicSettings
+    floor = MusicSettings().min_beat_confidence
+    music = [0.190, 0.274, 0.376, 0.471]
+    speech = [0.087, 0.142]
+    assert all(m > floor for m in music), "a real track would be refused"
+    assert all(s < floor for s in speech), "beatless audio would be accepted"

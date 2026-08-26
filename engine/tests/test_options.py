@@ -224,3 +224,125 @@ def test_dimensions_come_out_even():
     for w, h in [(4096, 2160), (3840, 1606), (5464, 3070), (2049, 1081)]:
         out_w, out_h = working_frame_size(w, h)
         assert out_w % 2 == 0 and out_h % 2 == 0, f"{w}x{h} -> {out_w}x{out_h}"
+
+
+# --- spreading a target across every source ---------------------------------
+#
+# The complaint: "the edits are only using two clips". A 15s target was filled
+# from the first file's spans and the other five were dropped whole -- and the
+# same defect made the cut sparse, because fewer sources means fewer, longer
+# shots.
+
+from autoedit.detect import CutPlan, Keep  # noqa: E402
+
+
+def _plan(*spans):
+    return CutPlan(keeps=[Keep(a, b, "t", 1.0, 1) for a, b in spans], warnings=[])
+
+
+def _sources(n, span=(0.0, 6.0)):
+    return [(f"C{i}", _plan(span, (10.0, 13.0), (20.0, 22.0))) for i in range(n)]
+
+
+def test_every_selected_clip_appears():
+    out = fit_duration_across(_sources(6), "exactly", 15.0, min_clip_length=0.35,
+                              strategy="spread")
+    used = [mid for mid, plan in out if plan.keeps]
+    assert len(used) == 6, f"only {len(used)} of 6 sources survived"
+
+
+def test_a_source_whose_first_span_overruns_its_share_is_trimmed_not_dropped():
+    # Share is 15/6 = 2.5s but every first span is 6s. Skipping them would drop
+    # every source; trimming keeps them all.
+    out = fit_duration_across(_sources(6), "exactly", 15.0, min_clip_length=0.35,
+                              strategy="spread")
+    for mid, plan in out:
+        assert plan.keeps, f"{mid} contributed nothing"
+        assert plan.keeps[0].duration <= 2.6
+
+
+def test_the_target_is_still_respected():
+    out = fit_duration_across(_sources(6), "exactly", 15.0, min_clip_length=0.35,
+                              strategy="spread")
+    total = sum(k.duration for _, plan in out for k in plan.keeps)
+    assert total <= 15.5, f"overshot the target at {total}s"
+
+
+def test_leftover_budget_goes_back_to_sources_that_can_use_it():
+    # Two tiny sources and one long one: the long one should absorb the slack
+    # rather than leaving the edit short.
+    plans = [("tiny1", _plan((0.0, 0.5))), ("tiny2", _plan((0.0, 0.5))),
+             ("long", _plan((0.0, 4.0), (5.0, 9.0), (10.0, 14.0)))]
+    out = fit_duration_across(plans, "exactly", 12.0, min_clip_length=0.35,
+                              strategy="spread")
+    total = sum(k.duration for _, plan in out for k in plan.keeps)
+    assert total > 8.0, f"left {12.0 - total:.1f}s of the target unused"
+
+
+def test_tail_is_unchanged_for_speech_recipes():
+    # A narrative keeps its opening; that behaviour must not have moved.
+    out = fit_duration_across(_sources(6), "exactly", 15.0, min_clip_length=0.35,
+                              strategy="tail")
+    used = [mid for mid, plan in out if plan.keeps]
+    assert len(used) < 6
+
+
+def test_a_shot_cap_turns_one_long_shot_into_several():
+    """The other half of "only 3 or 4 cuts".
+
+    Without a cap each source spent its whole share on one shot, so a six-clip
+    edit had six cuts however punchy the pacing was.
+    """
+    plans = [(f"C{i}", _plan((0.0, 6.0), (8.0, 12.0), (14.0, 18.0))) for i in range(3)]
+    loose = fit_duration_across(plans, "exactly", 12.0, min_clip_length=0.35,
+                                strategy="spread")
+    tight = fit_duration_across(plans, "exactly", 12.0, min_clip_length=0.35,
+                                strategy="spread", max_shot=1.0)
+    n_loose = sum(len(p.keeps) for _, p in loose)
+    n_tight = sum(len(p.keeps) for _, p in tight)
+    assert n_tight > n_loose, f"the cap made no difference ({n_tight} vs {n_loose})"
+
+
+def test_shots_land_on_whole_beats_when_a_quantum_is_given():
+    beat = 0.5
+    plans = [(f"C{i}", _plan((0.0, 9.0))) for i in range(3)]
+    # "upTo" rather than "exactly": exact mode deliberately stretches the LAST
+    # clip to land on the target, and that stretch is not beat-aligned.
+    out = fit_duration_across(plans, "upTo", 12.0, min_clip_length=0.35,
+                              strategy="spread", max_shot=2.0, quantum=beat)
+    for _, plan in out:
+        for k in plan.keeps:
+            beats = k.duration / beat
+            # A couple of frames of slack is deliberate -- see BEAT_SLACK.
+            assert abs(beats - round(beats)) < 0.15, f"{k.duration}s is {beats} beats"
+
+
+def test_the_cap_does_not_starve_the_target():
+    """Capping shot length must not quietly halve the edit.
+
+    Trimming spans to exactly a whole number of beats did: frame snapping left
+    them a frame short, the beat quantiser dropped a whole beat from each, and a
+    15s target came out at 7.6s.
+    """
+    # Sources with plenty of separate spans, which is the realistic case -- the
+    # silences between them are what make each join a visible cut.
+    plans = [(f"C{i}", _plan(*[(t, t + 2.0) for t in range(0, 30, 4)])) for i in range(4)]
+    out = fit_duration_across(plans, "upTo", 16.0, min_clip_length=0.35,
+                              strategy="spread", max_shot=1.0, quantum=0.5)
+    total = sum(k.duration for _, plan in out for k in plan.keeps)
+    assert total > 15.0, f"delivered only {total:.1f}s of a 16s target"
+
+
+def test_a_source_with_one_long_span_contributes_one_shot_and_no_more():
+    """A deliberate limit, recorded so it is not mistaken for a bug.
+
+    Filling a share from a single span would mean slicing it into consecutive
+    pieces -- and consecutive pieces of the same span are laid end to end, so the
+    join between them shows nothing. That would inflate the cut count with
+    invisible cuts, which is worse than coming up short and saying so. The
+    shortfall is reported instead (see the delivered-length check in cli.py).
+    """
+    plans = [(f"C{i}", _plan((0.0, 20.0))) for i in range(4)]
+    out = fit_duration_across(plans, "upTo", 16.0, min_clip_length=0.35,
+                              strategy="spread", max_shot=1.0, quantum=0.5)
+    assert all(len(plan.keeps) == 1 for _, plan in out)

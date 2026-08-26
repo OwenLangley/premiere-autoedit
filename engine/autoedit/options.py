@@ -11,6 +11,7 @@ so the two cannot drift apart.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from typing import Any, Literal
 
@@ -87,6 +88,12 @@ PACING: dict[str, PacingProfile] = {
     "standard": PacingProfile("Standard", 1.0, 1.0, 1.0, None, beats=1.0),
     "punchy": PacingProfile("Punchy", 0.6, 0.7, 0.7, "aggressive", beats=0.5),
 }
+
+
+# A couple of frames at 59.94. Spans handed to the beat quantiser carry this on
+# top of their whole-beat length, so that snapping the source points to the frame
+# grid cannot leave them a frame short -- which would cost a whole beat.
+BEAT_SLACK = 0.04
 
 
 class OptionError(ValueError):
@@ -268,6 +275,108 @@ def fit_duration(
     return CutPlan(kept, plan.drops, warnings)
 
 
+def _spread_across_sources(
+    plans: "list[tuple[str, CutPlan]]", seconds: float, min_clip_length: float,
+    max_shot: float | None = None, quantum: float | None = None,
+) -> "tuple[set[int], dict[int, float]]":
+    """Give every source a share of the target, so all of them appear.
+
+    The tail strategy walked the flattened keeps and stopped when the budget ran
+    out, which meant a 15s target was filled entirely from the FIRST file and the
+    other five were dropped. An editor who selected six clips did not mean "use
+    the first two" -- and the sparse result was the same complaint from the other
+    side: fewer sources means fewer, longer shots.
+
+    Each source gets an equal share and, if its first surviving span is longer
+    than that share, the span is TRIMMED rather than skipped -- otherwise a file
+    whose first sentence runs long contributes nothing at all. Whatever is left
+    over is then handed round again, in order, so a short source does not waste
+    the budget it could not use.
+    """
+    ordered = [(mid, list(plan.keeps)) for mid, plan in plans if plan.keeps]
+    surviving: set[int] = set()
+    trimmed: dict[int, float] = {}
+    if not ordered:
+        return surviving, trimmed
+
+    share = seconds / len(ordered)
+    # Spend the share on even shots rather than max-length ones plus a stub.
+    # Capping at max_shot alone gave a 5.3-beat share a 4-beat shot and a 1-beat
+    # remainder, which reads as a limp rather than a rhythm; two 2.6-beat shots
+    # sit on the grid and feel deliberate.
+    if max_shot and max_shot > 0:
+        per_source_shots = max(1, math.ceil(share / max_shot - 1e-9))
+        max_shot = share / per_source_shots
+        if quantum and quantum > 0:
+            # Whole beats, plus a couple of frames.
+            #
+            # An even division of the share lands on fractions -- 1.77 beats, say
+            # -- and the beat quantiser downstream can only place whole ones. With
+            # the span trimmed to exactly 1.77 there is nothing to round UP into,
+            # so every shot rounded down and a 15s target came out at 7.6s.
+            #
+            # Snapping to a whole 2.0 is still not quite enough: the source points
+            # get snapped to the source frame grid later, and a span that ends up
+            # a single frame short makes the quantiser drop a WHOLE beat. The
+            # slack is what stops a one-frame error costing half a second.
+            max_shot = max(quantum, round(max_shot / quantum) * quantum) + BEAT_SLACK
+    used = 0.0
+
+    for _, keeps in ordered:
+        taken = 0.0
+        for k in keeps:
+            # `max_shot` caps any single shot, so a source spends its share over
+            # several spans instead of one long one. Those spans come from
+            # different moments in the clip -- the silences between them were
+            # removed -- so each join is a real, visible cut rather than an
+            # invisible join in continuous footage.
+            room = share - taken
+            if max_shot:
+                room = min(room, max_shot)
+            if room < min_clip_length:
+                break
+            if k.duration <= room:
+                surviving.add(id(k))
+                taken += k.duration
+            else:
+                # Trim rather than skip: a source whose first span overruns its
+                # share would otherwise never appear at all.
+                trimmed[id(k)] = room
+                surviving.add(id(k))
+                taken += room
+            if share - taken < min_clip_length:
+                break
+        used += taken
+
+    # Hand back what the short sources could not use. This pass TRIMS as well as
+    # takes: every remaining span was longer than the leftover budget, so a
+    # whole-spans-only pass took nothing at all and a 15s target landed at 11.9s.
+    remaining = seconds - used
+    progressed = True
+    while remaining >= min_clip_length and progressed:
+        progressed = False
+        for _, keeps in ordered:
+            if remaining < min_clip_length:
+                break
+            for k in keeps:
+                if id(k) in surviving:
+                    continue
+                room = min(remaining, max_shot) if max_shot else remaining
+                take = min(k.duration, room)
+                if quantum and quantum > 0:
+                    # Whole beats plus slack, for the same reason as above.
+                    whole = math.floor(take / quantum + 1e-9) * quantum
+                    take = min(k.duration, whole + BEAT_SLACK) if whole else take
+                if take >= min_clip_length:
+                    surviving.add(id(k))
+                    if take < k.duration - 1e-9:
+                        trimmed[id(k)] = take
+                    remaining -= take
+                    progressed = True
+                break   # only ever the next span in order, never a later one
+    return surviving, trimmed
+
+
 def fit_duration_across(
     plans: list[tuple[str, CutPlan]],
     mode: str,
@@ -275,6 +384,8 @@ def fit_duration_across(
     tolerance: float = 0.15,
     min_clip_length: float = 0.4,
     strategy: str = "tail",
+    max_shot: float | None = None,
+    quantum: float | None = None,
 ) -> list[tuple[str, CutPlan]]:
     """Fit a duration target across every source in the job.
 
@@ -309,6 +420,10 @@ def fit_duration_across(
         while ranked and sum(k.duration for _, k in ranked) > seconds:
             ranked.pop(0)
         surviving = set(id(k) for _, k in ranked)
+    elif strategy == "spread":
+        surviving, trimmed_ids = _spread_across_sources(
+            plans, seconds, min_clip_length, max_shot, quantum
+        )
     else:
         surviving, running = set(), 0.0
         for media_id, keep in flat:
@@ -320,7 +435,9 @@ def fit_duration_across(
     # Fill the remaining budget with a trimmed clip rather than leaving it unused.
     # Dropping only whole clips turned "up to 3s" into 1.6s, which is not what
     # anyone means by that.
-    running = sum(k.duration for _, k in flat if id(k) in surviving)
+    running = sum(
+        trimmed_ids.get(id(k), k.duration) for _, k in flat if id(k) in surviving
+    )
     headroom = seconds - running
     if headroom >= min_clip_length:
         for _, keep in flat:

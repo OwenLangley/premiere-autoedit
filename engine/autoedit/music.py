@@ -187,7 +187,7 @@ def _tempo_prior(bpm: float) -> float:
     return float(np.exp(-0.5 * (np.log2(bpm / 120.0) / 0.9) ** 2))
 
 
-def fit_grid(envelope: np.ndarray, rough_bpm: float, duration: float) -> tuple[float, list[float], bool]:
+def fit_grid(envelope: np.ndarray, rough_bpm: float, duration: float) -> tuple[float, list[float], bool, float]:
     """Refine tempo and phase together by fitting a grid to the onsets.
 
     Two problems are solved here, and autocorrelation alone solves neither.
@@ -250,6 +250,7 @@ def fit_grid(envelope: np.ndarray, rough_bpm: float, duration: float) -> tuple[f
 
     candidates: list[tuple[float, float, float]] = []
     best = (-1.0, rough_bpm, 0.0)
+    best_fit = 0.0
     for multiplier in (0.5, 1.0, 2.0):
         base = rough_bpm * multiplier
         if not (MIN_BPM * 0.9 <= base <= MAX_BPM * 1.1):
@@ -264,6 +265,7 @@ def fit_grid(envelope: np.ndarray, rough_bpm: float, duration: float) -> tuple[f
             candidates.append((score, float(bpm), phase))
             if score > best[0]:
                 best = (score, float(bpm), phase)
+                best_fit = fit
 
     _, bpm, phase = best
     step = (60.0 / bpm) * frame_rate
@@ -279,7 +281,7 @@ def fit_grid(envelope: np.ndarray, rough_bpm: float, duration: float) -> tuple[f
         if (1.8 < ratio < 2.2 or 0.45 < ratio < 0.55) and score > rival:
             rival = score
     ambiguous = bool(rival > 0 and rival >= best[0] * 0.85)
-    return bpm, beats, ambiguous
+    return bpm, beats, ambiguous, float(best_fit)
 
 
 def detect_beats(path: str | Path, duration: float, work_dir: str | Path = "/tmp") -> BeatGrid:
@@ -294,7 +296,17 @@ def detect_beats(path: str | Path, duration: float, work_dir: str | Path = "/tmp
     if bpm <= 0:
         return BeatGrid(0.0, [], [], 0.0)
 
-    bpm, beats, ambiguous = fit_grid(envelope, bpm, duration)
+    bpm, beats, ambiguous, fit = fit_grid(envelope, bpm, duration)
     downbeats = beats[::4]                     # assume 4/4, the promo default
+    # Confidence describes the grid that is actually going to be used, which is
+    # the one `fit_grid` settled on -- how well it explains the onsets, as an F1
+    # of precision and recall.
+    #
+    # It used to be `estimate_tempo`'s autocorrelation peakiness, measured BEFORE
+    # refinement and never updated. That number answers "is there a clear
+    # periodicity in the signal", not "is this grid right", and the two come
+    # apart badly: a track with a dead-even 126 BPM grid scored 0.14 and was
+    # refused, so its edit ignored the music entirely while the editor could hear
+    # the beat perfectly well.
     return BeatGrid(bpm=bpm, beats=beats, downbeats=downbeats,
-                    confidence=confidence, octave_ambiguous=ambiguous)
+                    confidence=float(fit), octave_ambiguous=ambiguous)

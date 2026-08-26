@@ -31,7 +31,7 @@ visual:
   shot_duration: 1.60      # nominal take length when there is no music bed
   snap_to_beats: true
   beats_per_shot: 4        # one bar at 4/4
-  min_beat_confidence: 0.25
+  min_beat_confidence: 0.15
 
 # Drop a single audio-only file alongside the footage and it becomes the bed.
 # Only ever fires when there is exactly one candidate -- guessing between several
