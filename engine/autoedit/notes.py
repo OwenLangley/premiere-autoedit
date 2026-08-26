@@ -122,6 +122,11 @@ CATALOGUE: dict[str, str] = {
         "{count} clip(s) are not an exact fit for the {chosen} sequence, so those cuts "
         "can be a frame out; check the joins on {files}",
 
+    # --- alternates the editor can swap in ---------------------------------
+    "swap.candidatesTruncated":
+        "{file} has {found} usable spans; only the best {kept} are offered as "
+        "alternates, so a shot you remember may not be in the list",
+
     # --- language ----------------------------------------------------------
     "language.uncertain":
         "{file}: only {confidence:.0%} sure this is {language} -- set the language in the "

@@ -8,7 +8,10 @@
  */
 
 const { applyPlan, ApplyError } = require("./apply");
-const { validatePlan, summarize, sections, withoutSections } = require("./plan");
+const {
+  validatePlan, summarize, sections, withoutSections,
+  withSwaps, candidatesFor, groupKeyOf, colourFor,
+} = require("./plan");
 const {
   LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
   makeResolver, loadSettings, saveSettings,
@@ -46,6 +49,12 @@ const state = {
   // "restart Premiere to read the label you cannot read" is not an instruction.
   t: makeTranslator("en"),
   selectedMedia: new Set(),
+  // Shot swaps the editor has made, keyed by the slot's atFrame. Panel memory
+  // only, deliberately: nothing is written back to the jobs folder, so closing
+  // the panel discards them. The editor is told that, and warned before the one
+  // accidental discard they will actually hit -- opening a different plan.
+  swaps: new Map(),
+  selectedSlot: null,      // atFrame of the block whose alternates are showing
   watching: null,          // interval id while a job is being worked on
 };
 
@@ -158,8 +167,11 @@ function clearPlan() {
   state.plan = null;
   state.planName = null;
   state.disabled.clear();
+  state.swaps.clear();
+  state.selectedSlot = null;
   $("plan-summary").classList.add("hidden");
   $("sections-block").classList.add("hidden");
+  $("swap-block").classList.add("hidden");
   $("plan-messages").innerHTML = "";
   $("apply").disabled = true;
 }
@@ -172,6 +184,26 @@ function message(text, bad) {
 }
 
 async function selectPlan(ref) {
+  // Swaps live in memory only, so switching plans destroys them. Ask first --
+  // this is the one way an editor loses ten minutes of work without meaning to.
+  if (state.swaps.size && ref.name !== state.planName) {
+    // window.confirm is not a thing UXP guarantees, and nothing else in this
+    // panel has ever called it. Where it exists, ask. Where it does not, the
+    // switch still happens -- refusing to change plans because a dialog is
+    // unavailable would be a worse bug than the one being guarded against --
+    // but it is said loudly rather than silently.
+    const ask = typeof window !== "undefined" && typeof window.confirm === "function"
+      ? window.confirm
+      : null;
+    if (ask) {
+      if (!ask.call(window, state.t("swap.discard", { count: state.swaps.size }))) {
+        $("plan-list").value = state.planName || "";
+        return;
+      }
+    } else {
+      log(state.t("swap.discard", { count: state.swaps.size }), "err");
+    }
+  }
   clearPlan();
   let plan;
   try {
@@ -192,6 +224,7 @@ async function selectPlan(ref) {
   state.planName = ref.name;
   renderSummary();
   renderSections();
+  renderStrip();
   $("apply").disabled = false;
   log(`Loaded ${ref.name}`);
 }
@@ -248,6 +281,8 @@ function renderSections() {
     cb.addEventListener("change", () => {
       if (cb.checked) state.disabled.delete(sect.id);
       else state.disabled.add(sect.id);
+      // The strip dims what is switched off, so it has to hear about this.
+      renderStrip();
     });
     const label = document.createElement("div");
     label.className = "grow";
@@ -262,9 +297,225 @@ function renderSections() {
   }
 }
 
+// --------------------------------------------------------------- shot review
+
+/** The slot as it stands now, with any swap already applied. */
+function slotAt(atFrame) {
+  const live = withSwaps(state.plan, state.swaps);
+  return (live.timeline || []).find((c) => c.atFrame === atFrame) || null;
+}
+
+function mediaName(mediaId) {
+  const m = (state.plan.media || []).find((x) => x.id === mediaId);
+  if (!m) return mediaId;
+  const rel = m.relPath || "";
+  return rel.split("/").pop() || mediaId;
+}
+
+/**
+ * The proportional strip: one block per clip, width by duration, colour by group.
+ *
+ * Blocks are `flex-grow` on duration rather than a fixed pixel width, so the
+ * whole edit always fills the panel however wide it is docked. A minimum width
+ * stops a half-second clip in a two-minute edit becoming unclickable -- at which
+ * point proportion is a slight lie, but an invisible block is a worse one.
+ */
+function renderStrip() {
+  const block = $("swap-block");
+  const strip = $("strip");
+  strip.innerHTML = "";
+  const clips = (state.plan && state.plan.timeline) || [];
+  if (!clips.length) {
+    block.classList.add("hidden");
+    return;
+  }
+  block.classList.remove("hidden");
+
+  const live = withSwaps(state.plan, state.swaps);
+  for (const c of live.timeline) {
+    const b = document.createElement("button");
+    b.className = "blk";
+    b.style.flexGrow = String(Math.max(c.durationFrames, 1));
+    b.style.background = colourFor(groupKeyOf(c));
+    if (c.swapped) b.classList.add("swapped");
+    if (state.selectedSlot === c.atFrame) b.classList.add("on");
+    // Dimmed rather than removed: the editor should see that a section is
+    // switched off without the edit appearing to change shape underneath them.
+    if (c.sectionId && state.disabled.has(c.sectionId)) b.classList.add("off");
+    b.title = `${mediaName(c.mediaId)} — ${(c.outSeconds - c.inSeconds).toFixed(2)}s`;
+    b.addEventListener("click", () => {
+      state.selectedSlot = state.selectedSlot === c.atFrame ? null : c.atFrame;
+      renderStrip();
+    });
+    strip.appendChild(b);
+  }
+
+  renderSlotDetail();
+  const n = state.swaps.size;
+  $("swap-count").textContent = n ? state.t("swap.count", { count: n }) : state.t("swap.lost");
+  $("swap-reset").disabled = n === 0;
+}
+
+function renderSlotDetail() {
+  const detail = $("slot-detail");
+  const alts = $("alts");
+  detail.innerHTML = "";
+  alts.innerHTML = "";
+
+  if (state.selectedSlot === null) {
+    detail.innerHTML = `<div class="why">${state.t("swap.pickPrompt")}</div>`;
+    return;
+  }
+  const slot = slotAt(state.selectedSlot);
+  if (!slot) return;
+
+  const who = document.createElement("div");
+  who.className = "who";
+  const left = document.createElement("div");
+  left.style.cssText = "display:flex;align-items:center;gap:6px;min-width:0";
+  const sw = document.createElement("div");
+  sw.className = "swatch";
+  sw.style.background = colourFor(groupKeyOf(slot));
+  const name = document.createElement("b");
+  name.textContent = mediaName(slot.mediaId);
+  left.append(sw, name);
+  if (slot.swapped) {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = state.t("swap.swapped");
+    left.appendChild(tag);
+  }
+  const time = document.createElement("span");
+  time.className = "why";
+  time.textContent = `${slot.inSeconds.toFixed(2)}–${slot.outSeconds.toFixed(2)}s`;
+  who.append(left, time);
+  detail.appendChild(who);
+
+  if (slot.reason) {
+    const why = document.createElement("div");
+    why.className = "why";
+    why.textContent = slot.reason;
+    detail.appendChild(why);
+  }
+  if (slot.swapped) {
+    const undo = document.createElement("button");
+    undo.textContent = state.t("swap.revert");
+    undo.style.marginTop = "6px";
+    undo.addEventListener("click", () => {
+      state.swaps.delete(slot.atFrame);
+      renderStrip();
+    });
+    detail.appendChild(undo);
+  }
+
+  renderAlternates(slot);
+}
+
+function renderAlternates(slot) {
+  const alts = $("alts");
+  if (!state.plan.candidates || !state.plan.candidates.length) {
+    alts.innerHTML = `<div class="why">${state.t("swap.noCandidates")}</div>`;
+    return;
+  }
+  // Against the ORIGINAL slot: its duration is what a candidate has to cover,
+  // and that never changes, but the group follows whatever is in the slot now
+  // so the list re-sorts around a swap the editor has already made.
+  const offered = candidatesFor(state.plan, slot);
+  if (!offered.length) {
+    alts.innerHTML = `<div class="why">${state.t("swap.none")}</div>`;
+    return;
+  }
+
+  const head = document.createElement("div");
+  head.className = "why";
+  head.textContent = state.t("swap.alternates");
+  alts.appendChild(head);
+
+  for (const c of offered) {
+    const row = document.createElement("div");
+    row.className = c.current ? "alt current" : "alt";
+
+    // A thumbnail if the engine made one AND this build can display it. No
+    // capability check: an <img> that will not decode simply never fires load,
+    // so it removes itself and the row reads as text. That degrades quietly in
+    // the one direction quiet degradation is right -- the row still works.
+    if (c.thumbPath) {
+      const img = document.createElement("img");
+      img.className = "thumb";
+      img.addEventListener("error", () => img.remove());
+      img.src = `file://${c.thumbPath}`;
+      row.appendChild(img);
+    }
+
+    const txt = document.createElement("div");
+    txt.className = "txt";
+    const title = document.createElement("div");
+    title.textContent = mediaName(c.mediaId);
+    if (c.current) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = state.t("swap.current");
+      title.appendChild(tag);
+    } else if (c.sameGroup) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = state.t("swap.sameSource");
+      title.appendChild(tag);
+    }
+    const sub = document.createElement("div");
+    sub.className = "sub";
+    sub.textContent = `${c.inSeconds.toFixed(1)}s · ${(c.outSeconds - c.inSeconds).toFixed(1)}s`
+      + (c.score ? ` · ${c.score.toFixed(2)}` : "");
+    txt.append(title, sub);
+
+    const preview = document.createElement("button");
+    preview.textContent = state.t("swap.preview");
+    preview.addEventListener("click", async () => {
+      try {
+        await previewCandidate(c);
+      } catch (err) {
+        log(err instanceof AuditionError ? state.t("swap.previewFailed") : String(err), "err");
+      }
+    });
+
+    row.append(txt, preview);
+    if (!c.current) {
+      const use = document.createElement("button");
+      use.textContent = state.t("swap.use");
+      use.addEventListener("click", () => {
+        state.swaps.set(slot.atFrame, {
+          mediaId: c.mediaId, inSeconds: c.inSeconds, reason: c.reason,
+        });
+        renderStrip();
+      });
+      row.appendChild(use);
+    }
+    alts.appendChild(row);
+  }
+}
+
+/**
+ * Show a candidate in the Source Monitor, parked at its in point.
+ *
+ * Reuses `audition()` rather than adding a second opener: it already opens a
+ * path at a given second WITHOUT importing it into the project, which is the
+ * property that matters here -- flicking through eight candidates must not
+ * leave eight items in the bin.
+ */
+async function previewCandidate(c) {
+  const entry = (state.plan.media || []).find((m) => m.id === c.mediaId);
+  if (!entry) throw new AuditionError(`no media entry for ${c.mediaId}`);
+  const resolve = makeResolver(state.settings.mediaToken, state.settings.musicToken);
+  const abs = await resolve(entry.relPath, entry.root);
+  await audition(abs, { atSeconds: c.inSeconds, play: true });
+}
+
 async function onApply() {
   if (!state.plan) return;
-  const plan = withoutSections(state.plan, [...state.disabled]);
+  // Swap first, while every slot is still where the engine put it, then drop
+  // sections and let that ripple. The other order would have the ripple move
+  // slots out from under the atFrame keys the swaps are held by.
+  const plan = withoutSections(withSwaps(state.plan, state.swaps), [...state.disabled]);
   if (!plan.timeline.length) {
     log("Nothing selected to build.", "err");
     return;
@@ -292,6 +543,11 @@ async function onApply() {
         // another machine -- it should not depend on who happened to build it.
         warnings: report.warnings.map((w) => (typeof w === "string" ? w : w.message)),
         excludedSections: [...state.disabled],
+        // What the editor changed by hand. The receipt is the only record of it
+        // anywhere, since swaps are never written back to the plan.
+        swaps: [...state.swaps.entries()].map(([atFrame, pick]) => ({
+          atFrame, mediaId: pick.mediaId, inSeconds: pick.inSeconds,
+        })),
       });
     }
   } catch (err) {
@@ -681,6 +937,11 @@ for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut
   $(id).addEventListener("wheel", (e) => e.preventDefault());
 }
 $("apply").addEventListener("click", onApply);
+
+$("swap-reset").addEventListener("click", () => {
+  state.swaps.clear();
+  renderStrip();
+});
 $("plan-list").addEventListener("change", (e) => {
   const value = /** @type {any} */ (e.target).value;
   const ref = state.plans.find((p) => p.name === value);

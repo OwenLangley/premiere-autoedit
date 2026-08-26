@@ -114,6 +114,12 @@ class EditPlanBuilder:
     _markers: list[dict] = field(default_factory=list)
     _transcripts: list[dict] = field(default_factory=list)
     _warnings: list[dict] = field(default_factory=list)
+    # Spans the analyser judged usable, whether or not one was placed. The panel
+    # offers these as alternates for a slot, so this is deliberately the WHOLE
+    # usable pool rather than the leftovers: a shot already on the timeline is a
+    # perfectly good alternate somewhere else, and a different moment of it is
+    # often the swap an editor actually wants.
+    _candidates: list[dict] = field(default_factory=list)
     _playhead: int = 0          # next free frame on the timeline
     _sequence_preset: str | None = None
     _frame_size: tuple[int, int] | None = None
@@ -132,6 +138,40 @@ class EditPlanBuilder:
         if entry.id in self._media:
             raise PlanError(f"duplicate media id {entry.id!r}")
         self._media[entry.id] = entry
+        return self
+
+    def add_candidate(
+        self, media_id: str, in_seconds: float, out_seconds: float,
+        score: float = 0.0, reason: str = "", section_id: str | None = None,
+        thumb_path: str | None = None,
+    ) -> "EditPlanBuilder":
+        """Offer a usable span as an alternate the editor can swap in.
+
+        Stored in SECONDS, like every other source in/out in the plan, because a
+        candidate is a span of a source file and has no position on the
+        timeline. The panel trims it to whatever the slot's length happens to be
+        -- which is why the span is recorded whole rather than pre-cut.
+        """
+        if media_id not in self._media:
+            raise PlanError(f"unknown media id {media_id!r} -- add_media first")
+        if out_seconds <= in_seconds:
+            raise PlanError(
+                f"candidate for {media_id!r} ends at or before it starts "
+                f"({in_seconds} -> {out_seconds})"
+            )
+        entry: dict[str, Any] = {
+            "mediaId": media_id,
+            "inSeconds": round(float(in_seconds), 4),
+            "outSeconds": round(float(out_seconds), 4),
+            "score": round(float(score), 4),
+        }
+        if reason:
+            entry["reason"] = reason
+        if section_id:
+            entry["sectionId"] = section_id
+        if thumb_path:
+            entry["thumbPath"] = thumb_path
+        self._candidates.append(entry)
         return self
 
     def add_warning(
@@ -484,7 +524,7 @@ class EditPlanBuilder:
         for key, value in (
             ("graphics", self._graphics), ("effects", self._effects),
             ("markers", self._markers), ("transcripts", self._transcripts),
-            ("warnings", self._warnings),
+            ("candidates", self._candidates), ("warnings", self._warnings),
         ):
             if value:
                 plan[key] = value

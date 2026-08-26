@@ -195,6 +195,9 @@ async function runSelfTest(onProgress) {
   say("probing transcript schema");
   await probeTranscriptSchema(project, report);
 
+  say("probing whether a local image renders");
+  await probeImageRendering(report);
+
   // --- the question we came for -------------------------------------------
   say("determining clip placement strategy");
   let strategy = STRATEGY.IN_OUT;
@@ -381,6 +384,154 @@ async function probeTranscriptSchema(project, report) {
       characterisation: true,
     });
   }
+}
+
+/**
+ * Can this build show a picture the panel read off disk?
+ *
+ * Nothing in the panel has ever displayed an image. There is no <img> anywhere,
+ * and the bundled uxp typings declare no binary read and no object URL, so the
+ * honest answer before running this is "nobody knows". A thumbnail grid of
+ * candidate shots depends entirely on the answer, and building ffmpeg frame
+ * extraction first and finding out afterwards would be minutes of CPU per job
+ * spent on files nothing can display.
+ *
+ * Three separate things have to work and they fail differently, so each is
+ * reported on its own:
+ *
+ *   1. reading a file as binary at all      (storage.formats.binary)
+ *   2. turning those bytes into a data URI  (base64 of an ArrayBuffer)
+ *   3. an <img> actually decoding it        (naturalWidth > 0 after load)
+ *
+ * Step 3 is the one that cannot be reasoned about. An <img> whose src is
+ * rejected does not throw -- it just stays 0x0 forever -- so this waits for
+ * load/error with a timeout rather than assuming silence means success.
+ *
+ * Writes a 1x1 PNG itself rather than hunting for a JPEG on disk: the question
+ * is whether the pipeline works, and a file that is certainly there and
+ * certainly valid keeps a missing fixture from being read as a UXP limitation.
+ */
+async function probeImageRendering(report) {
+  // A 1x1 red PNG. Bytes rather than a base64 string so step 1 is a real read
+  // of a real file, not a round trip through a constant.
+  const PNG_1X1 = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00,
+    0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
+    0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d, 0xb0, 0x00, 0x00, 0x00,
+    0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+  ];
+
+  const formats = require("uxp").storage.formats;
+  let file = null;
+  try {
+    const folder = await fs.getDataFolder();
+    file = await folder.createFile("probe.png", { overwrite: true });
+    await file.write(new Uint8Array(PNG_1X1).buffer, { format: formats.binary });
+    report.add("image/write-binary", true, { characterisation: true });
+  } catch (err) {
+    report.add("image/write-binary", false, {
+      error: String((err && err.message) || err),
+      note: "cannot write binary at all; thumbnails are impossible on this build",
+      characterisation: true,
+    });
+    return;
+  }
+
+  let bytes = null;
+  try {
+    bytes = await file.read({ format: formats.binary });
+    report.add("image/read-binary", !!bytes, {
+      byteLength: bytes && (bytes.byteLength || bytes.length),
+      characterisation: true,
+    });
+  } catch (err) {
+    report.add("image/read-binary", false, {
+      error: String((err && err.message) || err), characterisation: true,
+    });
+    return;
+  }
+
+  let dataUri = null;
+  try {
+    const view = new Uint8Array(bytes);
+    let binary = "";
+    for (let i = 0; i < view.length; i += 1) binary += String.fromCharCode(view[i]);
+    // btoa is not guaranteed present in UXP; Buffer is, via the Node-ish shim.
+    const b64 = typeof btoa === "function"
+      ? btoa(binary)
+      : Buffer.from(view).toString("base64");
+    dataUri = `data:image/png;base64,${b64}`;
+    report.add("image/data-uri", true, {
+      length: dataUri.length,
+      method: typeof btoa === "function" ? "btoa" : "Buffer",
+      characterisation: true,
+    });
+  } catch (err) {
+    report.add("image/data-uri", false, {
+      error: String((err && err.message) || err), characterisation: true,
+    });
+    return;
+  }
+
+  // The real question. Both src forms are tried because they can fail
+  // independently: a data URI may be blocked by CSP while file:// is allowed,
+  // or the reverse.
+  for (const [label, src] of [
+    ["data-uri", dataUri],
+    ["file-url", `file://${file.nativePath}`],
+  ]) {
+    try {
+      const width = await renderProbe(src);
+      report.add(`image/renders-${label}`, width > 0, {
+        naturalWidth: width,
+        note: width > 0
+          ? "an <img> decoded it; a thumbnail grid is possible"
+          : "the <img> never reported a size, so this src form does not display",
+        characterisation: true,
+      });
+    } catch (err) {
+      report.add(`image/renders-${label}`, false, {
+        error: String((err && err.message) || err), characterisation: true,
+      });
+    }
+  }
+}
+
+/**
+ * Put an <img> in the document and wait for it to decide.
+ *
+ * Resolves with naturalWidth (0 means it never decoded). A rejected src is
+ * silent in UXP -- no throw, no error event guaranteed -- so the timeout is the
+ * actual answer in the failure case, not a safety net.
+ * @param {string} src
+ */
+function renderProbe(src) {
+  return new Promise((resolve) => {
+    let img;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      const w = (img && img.naturalWidth) || 0;
+      if (img && img.parentNode) img.parentNode.removeChild(img);
+      resolve(w);
+    };
+    try {
+      img = document.createElement("img");
+      // Off-screen but still laid out; display:none can stop a decode.
+      img.style.cssText = "position:absolute;left:-9999px;top:0;width:1px;height:1px";
+      img.addEventListener("load", finish);
+      img.addEventListener("error", finish);
+      document.body.appendChild(img);
+      img.src = src;
+    } catch {
+      finish();
+      return;
+    }
+    setTimeout(finish, 3000);
+  });
 }
 
 function check(missing, label, obj, methods) {

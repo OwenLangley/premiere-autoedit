@@ -40,6 +40,12 @@ from .visual import (
 # a human look. Tuned to flag a minority of shots -- a marker on everything is
 # the same as no markers at all.
 CROP_RISK_THRESHOLD = 0.35
+# How many alternates one source may contribute. A long clip can yield hundreds
+# of usable spans, and nobody scans hundreds -- but a plan carrying them all is
+# megabytes the panel parses on every refresh. Best-scoring survive, and the
+# editor is told when the list was cut short rather than left to wonder why a
+# shot they remember is missing.
+MAX_CANDIDATES_PER_MEDIA = 40
 
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac", ".aif", ".aiff", ".flac", ".ogg", ".mp4", ".mov"}
 
@@ -519,6 +525,29 @@ def cmd_plan(args) -> int:
                 (mid, s.shot.start, s.shot.end, s.crop_risk)
                 for s in analysis.usable if s.crop_risk >= CROP_RISK_THRESHOLD
             )
+
+            # Offer every usable span as an alternate the editor can swap in.
+            # The whole pool, not the leftovers: a span already on the timeline
+            # is a fine alternate for a DIFFERENT slot, and reaching for another
+            # moment of the same shot is the commonest swap there is. Rejected
+            # spans stay out -- handing back the shots the scorer just called
+            # unusable is not a choice, it is noise.
+            ranked = sorted(analysis.usable, key=lambda s: s.score, reverse=True)
+            if len(ranked) > MAX_CANDIDATES_PER_MEDIA:
+                builder.add_warning("swap", note(
+                    "swap.candidatesTruncated", file=path.name,
+                    found=len(ranked), kept=MAX_CANDIDATES_PER_MEDIA,
+                ), mid)
+                ranked = ranked[:MAX_CANDIDATES_PER_MEDIA]
+            # Back into shot order once the cut is made: an alternates list that
+            # jumps around the source is hard to reason about, and the score is
+            # already shown against each one.
+            for span in sorted(ranked, key=lambda s: s.shot.start):
+                builder.add_candidate(
+                    mid, span.shot.start, span.shot.end, span.score,
+                    reason=f"quality {span.score:.2f}",
+                )
+
             collected.append((mid, cuts, v_track, a_track))
             continue
 

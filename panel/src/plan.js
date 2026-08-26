@@ -140,6 +140,133 @@ function sections(plan) {
 }
 
 /**
+ * What groups a clip with its alternates, and what colours it.
+ *
+ * A story section when the job has one, otherwise the source it came from. That
+ * fallback is not a placeholder: before story tagging exists, "other moments of
+ * this same clip" is a genuinely useful set to be offered, and it means the swap
+ * machinery ships and gets used without waiting on anything.
+ * @param {{sectionId?: string, mediaId: string}} entry
+ */
+function groupKeyOf(entry) {
+  return (entry && entry.sectionId) || (entry && entry.mediaId) || "";
+}
+
+/**
+ * A stable colour for a group.
+ *
+ * Hashed from the key rather than handed out in encounter order, so a clip is
+ * the same colour every time the plan is opened, on every editor's machine.
+ * Colour is the only thing carrying structure in a 400px strip; if it shuffled
+ * between refreshes it would be worse than no colour at all.
+ *
+ * Golden-angle stepping over the hash spreads neighbouring hues apart, so two
+ * groups landing on similar hues is unlikely rather than a coin toss.
+ * @param {string} key
+ */
+function colourFor(key) {
+  let h = 2166136261;
+  for (let i = 0; i < String(key).length; i += 1) {
+    h ^= String(key).charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const hue = Math.round((((h >>> 0) % 360) * 137.508) % 360);
+  return `hsl(${hue} 62% 52%)`;
+}
+
+/**
+ * Alternates that could stand in for one timeline slot, best first.
+ *
+ * Two rules, both load-bearing:
+ *
+ * A candidate is only offered when its span is at least as long as the slot.
+ * The swap keeps the slot's exact length (see `withSwaps`), so a shorter span
+ * cannot fill it -- offering one would mean either a gap or a re-time, and
+ * re-timing moves every cut after it off the beat.
+ *
+ * Same-group candidates come first, but the others are NOT filtered out. An
+ * editor who wants a different shot entirely should not be stuck because the
+ * grouping is currently "same source file" and this slot's file has nothing
+ * else long enough.
+ * @param {any} plan
+ * @param {{atFrame:number, durationFrames:number, mediaId:string, inSeconds:number, sectionId?:string}} slot
+ */
+function candidatesFor(plan, slot) {
+  if (!plan || !Array.isArray(plan.candidates) || !slot) return [];
+  const tb = plan.timebase;
+  const needed = toSeconds(tb, slot.durationFrames);
+  const group = groupKeyOf(slot);
+  // A hair under, because a span measured to 4 decimal places can sit a
+  // rounding error below a duration derived from frames. Half a frame is far
+  // tighter than any cut the editor can see and far looser than float noise.
+  const slack = toSeconds(tb, 1) / 2;
+
+  return plan.candidates
+    .filter((c) => c.outSeconds - c.inSeconds >= needed - slack)
+    .map((c) => ({
+      ...c,
+      sameGroup: groupKeyOf(c) === group,
+      current: c.mediaId === slot.mediaId
+        && Math.abs(c.inSeconds - slot.inSeconds) < slack,
+    }))
+    .sort((a, b) => {
+      if (a.sameGroup !== b.sameGroup) return a.sameGroup ? -1 : 1;
+      return (b.score || 0) - (a.score || 0);
+    });
+}
+
+/**
+ * Apply the editor's swaps, keeping every slot exactly where and as long as it
+ * was.
+ *
+ * This is the whole contract of the feature. `atFrame` and `durationFrames` are
+ * carried through untouched and only the source changes -- because the cut
+ * positions were placed on musical beats, and any change to a duration shifts
+ * every clip after it off the grid. A swap that re-times is not a swap, it is a
+ * different edit.
+ *
+ * Keyed on `atFrame`: it is the slot's identity, it is unique on a track, and
+ * it survives the swap itself, so swapping the same slot twice replaces the
+ * first choice rather than stacking.
+ *
+ * @param {any} plan
+ * @param {Map<number, {mediaId:string, inSeconds:number, reason?:string}> | null} swaps
+ */
+function withSwaps(plan, swaps) {
+  if (!swaps || swaps.size === 0) return plan;
+  const tb = plan.timebase;
+  const sourceLength = new Map((plan.media || []).map((m) => [m.id, m.durationSeconds]));
+
+  const timeline = (plan.timeline || []).map((c) => {
+    const pick = swaps.get(c.atFrame);
+    if (!pick) return c;
+    const seconds = toSeconds(tb, c.durationFrames);
+    // Pull the in point back if taking the slot's full length from here would
+    // read past the end of the file. The shortlist already only offers spans
+    // long enough, so this is the rounding tail -- but reading half a frame
+    // past the end is precisely how this project produced timelines of stills
+    // once already, and it costs one line to make impossible rather than
+    // unlikely. The slot's LENGTH is what must not move; where inside the
+    // source it starts is free.
+    const limit = sourceLength.get(pick.mediaId);
+    const inSeconds = Number.isFinite(limit)
+      ? Math.max(0, Math.min(pick.inSeconds, limit - seconds))
+      : pick.inSeconds;
+    return {
+      ...c,
+      mediaId: pick.mediaId,
+      inSeconds: Number(inSeconds.toFixed(6)),
+      // Derived from the slot's frame count, never from the candidate's own
+      // out point: the slot's length is what must survive.
+      outSeconds: Number((inSeconds + seconds).toFixed(6)),
+      reason: pick.reason || "swapped by the editor",
+      swapped: true,
+    };
+  });
+  return { ...plan, timeline };
+}
+
+/**
  * Remove the named sections and re-close the resulting gaps.
  *
  * Ripple rather than leave holes: an editor who rejects the outro expects the
@@ -344,6 +471,10 @@ module.exports = {
   summarize,
   sections,
   withoutSections,
+  groupKeyOf,
+  colourFor,
+  candidatesFor,
+  withSwaps,
   clipTimes,
   toFrames,
   toSeconds,

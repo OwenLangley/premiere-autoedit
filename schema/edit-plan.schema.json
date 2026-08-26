@@ -101,6 +101,13 @@
         "$ref": "#/definitions/clipEntry"
       }
     },
+    "candidates": {
+      "type": "array",
+      "description": "Alternates the editor can swap into a slot. Optional: a plan without it loads and builds exactly as before, and the panel simply offers no swaps.",
+      "items": {
+        "$ref": "#/definitions/candidateEntry"
+      }
+    },
     "graphics": {
       "type": "array",
       "items": {
@@ -504,6 +511,45 @@
               }
             }
           }
+        }
+      }
+    },
+    "candidateEntry": {
+      "type": "object",
+      "description": "A usable span the analyser found, offered to the editor as an alternate for a timeline slot. Carries no position: it is a span of a source, and the panel trims it to the length of whichever slot it is swapped into. The pool includes spans that were placed -- a shot already on the timeline is a valid alternate elsewhere, and a different moment of it is often the swap that is wanted.",
+      "additionalProperties": false,
+      "required": [
+        "mediaId",
+        "inSeconds",
+        "outSeconds"
+      ],
+      "properties": {
+        "mediaId": {
+          "type": "string"
+        },
+        "inSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "outSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "score": {
+          "type": "number",
+          "description": "The analyser's quality score, same scale as clip confidence. Orders the alternates; does not gate them."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the analyser rated it as it did, shown beside the alternate."
+        },
+        "sectionId": {
+          "type": "string",
+          "description": "Which story section this span belongs to, when the job has one. Absent otherwise, in which case the panel groups by source instead."
+        },
+        "thumbPath": {
+          "type": "string",
+          "description": "Absolute path to a still from this span. Absolute, unlike relPath, because it is a cache artefact and not media the editor owns. Absent when thumbnails were not built."
         }
       }
     }

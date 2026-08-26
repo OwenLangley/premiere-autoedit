@@ -69,6 +69,41 @@
       .summary-line { color: var(--accent); font-size: 11px; margin: 6px 0; min-height: 15px; }
       .disclosure { display: flex; align-items: center; gap: 6px; cursor: pointer;
                     color: var(--dim); font-size: 11px; user-select: none; }
+
+      /* --- the shot strip ---------------------------------------------------
+         400px docked means ~30px a clip on a ten-clip edit. That is too narrow
+         to label, so the strip carries STRUCTURE -- proportion and colour -- and
+         the detail lives underneath for whichever block is selected. */
+      #strip { display: flex; gap: 1px; height: 34px; border-radius: 3px;
+               overflow: hidden; background: #202020; border: 1px solid var(--line); }
+      #strip .blk { min-width: 6px; border: none; padding: 0; border-radius: 0;
+                    position: relative; cursor: pointer; opacity: .85; }
+      #strip .blk:hover { opacity: 1; }
+      #strip .blk.on { opacity: 1; box-shadow: inset 0 0 0 2px var(--text); }
+      /* A swapped block has to be legible at 6px wide, so it is a bar across the
+         foot rather than anything that needs room. */
+      #strip .blk.swapped::after {
+        content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
+        background: var(--text);
+      }
+      #strip .blk.off { opacity: .18; }
+      #slot-detail { margin-top: 8px; }
+      #slot-detail .who { display: flex; justify-content: space-between; gap: 8px; }
+      #slot-detail .who b { font-weight: 600; }
+      #slot-detail .why { color: var(--dim); font-size: 11px; margin-top: 2px; }
+      .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+      #alts { max-height: 210px; overflow-y: auto; margin-top: 6px; }
+      .alt { display: flex; gap: 7px; align-items: center; padding: 4px;
+             border-bottom: 1px solid var(--line); }
+      .alt:last-child { border-bottom: none; }
+      .alt:hover { background: #2c2c2c; }
+      .alt .thumb { width: 48px; height: 27px; flex: none; border-radius: 2px;
+                    background: #111; object-fit: cover; }
+      .alt .txt { flex: 1; min-width: 0; font-size: 11px; }
+      .alt .txt .sub { color: var(--dim); }
+      .alt.current { background: rgba(74,144,217,.10); }
+      .tag { font-size: 10px; color: var(--dim); border: 1px solid var(--line);
+             border-radius: 2px; padding: 0 3px; margin-left: 4px; }
     </style>
   </head>
   <body>
@@ -199,6 +234,23 @@
     <div id="sections-block" class="hidden">
       <h2 data-i18n="sections.title">Include</h2>
       <section id="sections"></section>
+    </div>
+
+    <div id="swap-block" class="hidden">
+      <h2 data-i18n="swap.title">Shots</h2>
+      <section>
+        <div id="strip"></div>
+        <div class="hint" id="strip-hint" data-i18n="swap.hint">
+          Each block is a clip, sized by how long it runs. Click one to see other
+          shots that could take its place.
+        </div>
+        <div id="slot-detail"></div>
+        <div id="alts"></div>
+        <div class="row" id="swap-tools" style="margin-top:8px">
+          <div class="grow hint" id="swap-count" style="margin:0"></div>
+          <button id="swap-reset" data-i18n="swap.revertAll">Undo all swaps</button>
+        </div>
+      </section>
     </div>
 
     <section>

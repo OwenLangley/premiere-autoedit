@@ -119,6 +119,26 @@ const EN = {
   "plan.buildHint": "Always builds a new sequence. Each stage is one undo step.",
   "plan.none": "No jobs folder set",
   "sections.title": "Include",
+
+  // --- reviewing and swapping shots ----------------------------------------
+  "swap.title": "Shots",
+  "swap.hint": "Each block is a clip, sized by how long it runs. Click one to see other shots that could take its place.",
+  "swap.alternates": "Other shots that fit",
+  "swap.pickPrompt": "Click a clip above.",
+  "swap.current": "in use",
+  "swap.sameSource": "same clip",
+  "swap.preview": "Preview",
+  "swap.use": "Use this",
+  "swap.swapped": "swapped",
+  "swap.revert": "Put the original back",
+  "swap.revertAll": "Undo all swaps",
+  "swap.count": "{count} swapped",
+  "swap.none": "Nothing else is long enough to fill this slot.",
+  "swap.noCandidates": "This plan carries no alternates. Re-run the edit to generate them.",
+  "swap.discard": "Discard {count} swap(s) and open a different plan?",
+  "swap.lost": "Swaps are held in the panel only — closing it or restarting Premiere loses them.",
+  "swap.previewFailed": "Premiere would not open that clip in the Source Monitor.",
+
   "diag.title": "Diagnostics",
   "diag.selfTest": "Run self-test",
   "diag.selfTestHint":
@@ -224,6 +244,8 @@ const EN = {
     "sequence set to {chosen}fps to match the footage; the recipe asks for {recipe}fps, which no whole number of source frames lands on exactly",
   "warn.timebase.mixedRates":
     "{count} clip(s) are not an exact fit for the {chosen}fps sequence, so those cuts can be a frame out — check the joins on {files}",
+  "warn.swap.candidatesTruncated":
+    "{file} has {found} usable shots; only the best {kept} are offered as alternates, so one you remember may not be listed",
 };
 
 const JA = {
@@ -324,6 +346,26 @@ const JA = {
   "plan.buildHint": "毎回新しいシーケンスを作成します。各工程は取り消し 1 回分です。",
   "plan.none": "ジョブフォルダが未設定です",
   "sections.title": "含める範囲",
+
+  // --- ショットの確認と差し替え --------------------------------------------
+  "swap.title": "ショット",
+  "swap.hint": "各ブロックが 1 つのクリップで、幅は長さを表します。クリックすると差し替え候補が表示されます。",
+  "swap.alternates": "差し替えできるショット",
+  "swap.pickPrompt": "上のクリップをクリックしてください。",
+  "swap.current": "使用中",
+  "swap.sameSource": "同じクリップ",
+  "swap.preview": "プレビュー",
+  "swap.use": "これに差し替え",
+  "swap.swapped": "差し替え済み",
+  "swap.revert": "元のショットに戻す",
+  "swap.revertAll": "差し替えをすべて取り消す",
+  "swap.count": "{count} 箇所を差し替え",
+  "swap.none": "この長さを埋められるショットが他にありません。",
+  "swap.noCandidates": "この編集案には差し替え候補がありません。編集を作り直すと生成されます。",
+  "swap.discard": "{count} 箇所の差し替えを破棄して別の編集案を開きますか？",
+  "swap.lost": "差し替えはパネル内にのみ保持されます。パネルを閉じたり Premiere を再起動すると失われます。",
+  "swap.previewFailed": "そのクリップをソースモニターで開けませんでした。",
+
   "diag.title": "診断",
   "diag.selfTest": "セルフテストを実行",
   "diag.selfTestHint":
@@ -429,6 +471,8 @@ const JA = {
     "素材に合わせてシーケンスを {chosen}fps に設定しました（レシピの指定は {recipe}fps ですが、素材のフレームがちょうど収まりません）",
   "warn.timebase.mixedRates":
     "{count} 個のクリップが {chosen}fps のシーケンスにぴったり収まらないため、つなぎ目が 1 フレームずれることがあります。{files} の編集点を確認してください",
+  "warn.swap.candidatesTruncated":
+    "{file} には使用できるショットが {found} 個ありますが、上位 {kept} 個のみを差し替え候補として表示します。記憶にあるショットが一覧にない場合があります",
 };
 
 const CATALOGUES = { en: EN, ja: JA };
