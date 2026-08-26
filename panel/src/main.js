@@ -14,7 +14,8 @@ const {
 } = require("./plan");
 const {
   LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
-  makeResolver, readImageDataUri, lastImageError, loadSettings, saveSettings,
+  makeResolver, readImageDataUri, lastImageError, writeDiagnostic,
+  loadSettings, saveSettings,
 } = require("./transport");
 const {
   isVideoFile, buildRequest, validateRequest, requestFileName, describeRequest,
@@ -59,6 +60,7 @@ const state = {
   // clips in this job. Null until it has written the index once.
   libraryShots: null,
   thumbFailureLogged: false,
+  thumbDiagnosed: false,
   watching: null,          // interval id while a job is being worked on
 };
 
@@ -446,6 +448,44 @@ function renderAlternates(slot) {
     const empty = (state.plan.candidates || []).length ? "swap.none" : "swap.noCandidates";
     alts.innerHTML = `<div class="why head">${state.t(empty)}</div>`;
     return;
+  }
+
+  // One-shot diagnostic, written to disk rather than to the panel's own log,
+  // because the log has to be copied out by hand and this has now cost four
+  // rounds. Records what the shot list is actually working with: how many
+  // alternates, how many carry a still, and what happens when the first one is
+  // read. Harmless to leave -- one small file, written once per panel session.
+  if (!state.thumbDiagnosed) {
+    state.thumbDiagnosed = true;
+    const first = offered.find((c) => c.thumbPath);
+    const facts = {
+      at: new Date().toISOString(),
+      planName: state.planName,
+      offered: offered.length,
+      withThumbPath: offered.filter((c) => c.thumbPath).length,
+      planCandidates: (state.plan.candidates || []).length,
+      libraryLoaded: !!state.libraryShots,
+      librarySpans: (state.libraryShots && state.libraryShots.files || []).length,
+      jobsTokenPresent: !!state.settings.jobsToken,
+      firstThumbPath: first ? first.thumbPath : null,
+    };
+    if (first) {
+      readImageDataUri(first.thumbPath, state.settings.jobsToken)
+        .then((uri) => {
+          facts.readOk = !!uri;
+          facts.uriLength = uri ? uri.length : 0;
+          facts.uriPrefix = uri ? uri.slice(0, 40) : null;
+          facts.error = uri ? null : lastImageError();
+          return writeDiagnostic("thumb-debug.json", facts);
+        })
+        .catch((err) => {
+          facts.readOk = false;
+          facts.threw = String((err && err.message) || err);
+          return writeDiagnostic("thumb-debug.json", facts);
+        });
+    } else {
+      writeDiagnostic("thumb-debug.json", facts);
+    }
   }
 
   const head = document.createElement("div");
