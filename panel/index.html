@@ -115,7 +115,7 @@
       .alt { border: 1px solid var(--line); border-radius: 3px; overflow: hidden;
              background: #202020; display: flex; flex-direction: column;
              /* Two across a docked panel, more when it is floated wider. */
-             flex: 1 1 140px; min-width: 140px; max-width: 220px; }
+             flex: 1 1 150px; min-width: 150px; max-width: 230px; }
       .alt:hover { border-color: var(--dim); }
       /* An explicit height rather than aspect-ratio: UXP's CSS is a subset and
          aspect-ratio is a recent addition, so a fixed box is one less thing
@@ -132,8 +132,15 @@
       .alt .txt { padding: 5px 6px; font-size: 11px; min-width: 0; }
       .alt .txt > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .alt .txt .sub { color: var(--dim); }
-      .alt .acts { display: flex; gap: 4px; padding: 0 6px 6px; }
-      .alt .acts button { flex: 1; padding: 4px 6px; font-size: 11px; }
+      /* Stacked, not side by side. Two buttons sharing a 140px card leave about
+         sixty pixels each, which clips "Use this" in English and clips harder in
+         Japanese, where these labels are longer. A card is narrow by design --
+         several shots have to be comparable at once -- so the buttons give way,
+         not the grid. */
+      .alt .acts { display: flex; flex-direction: column; gap: 4px; padding: 0 6px 6px; }
+      .alt .acts button { width: 100%; padding: 5px 6px; font-size: 11px;
+                          white-space: nowrap; overflow: hidden;
+                          text-overflow: ellipsis; }
       .alt.current { border-color: var(--accent); background: rgba(74,144,217,.10); }
       .tag { font-size: 10px; color: var(--dim); border: 1px solid var(--line);
              border-radius: 2px; padding: 0 3px; margin-left: 4px; }

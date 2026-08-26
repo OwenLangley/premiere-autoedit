@@ -119,6 +119,8 @@ const EN = {
   "plan.buildHint": "Always builds a new sequence. Each stage is one undo step.",
   "plan.none": "No jobs folder set",
   "sections.title": "Include",
+  "sections.clips": "{count} clip(s)",
+  "sections.graphics": "{count} graphic(s)",
 
   // --- reviewing and swapping shots ----------------------------------------
   "swap.title": "Shots",
@@ -352,6 +354,8 @@ const JA = {
   "plan.buildHint": "毎回新しいシーケンスを作成します。各工程は取り消し 1 回分です。",
   "plan.none": "ジョブフォルダが未設定です",
   "sections.title": "含める範囲",
+  "sections.clips": "クリップ {count} 個",
+  "sections.graphics": "グラフィック {count} 個",
 
   // --- ショットの確認と差し替え --------------------------------------------
   "swap.title": "ショット",

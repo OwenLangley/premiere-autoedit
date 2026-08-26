@@ -103,6 +103,18 @@ function applyTranslations() {
   fillSelect("opt-language", spokenLanguages(), spokenLanguages());
   if (state.capabilities) applyCapabilityLabels(state.capabilities);
   fillMusicSelect();
+  // The shot list is built in JavaScript, so its labels are whatever language
+  // was current when it was drawn -- they are not markup and this function
+  // cannot reach them. Left alone, switching language gave a heading in the new
+  // one and buttons still in the old, which reads as the panel translating at
+  // random. Redraw it.
+  // Every view built in JavaScript, not just the strip: the summary and the
+  // section list read their labels through state.t at draw time too.
+  if (state.plan) {
+    renderSummary();
+    renderSections();
+    renderStrip();
+  }
   renderSummary_();
   // The folder rows hold values, not labels, so the generic walk skips them --
   // but "not set" is still a phrase and still has to follow the language.
@@ -305,8 +317,10 @@ function renderSections() {
     label.textContent = sect.label;
     const meta = document.createElement("div");
     meta.className = "meta";
-    const bits = [`${sect.clips} clip${sect.clips === 1 ? "" : "s"}`];
-    if (sect.graphics) bits.push(`${sect.graphics} gfx`);
+    // Was hardcoded English, which left "3 clips" sitting inside an otherwise
+    // Japanese panel -- the same defect as the buttons, pointing the other way.
+    const bits = [state.t("sections.clips", { count: sect.clips })];
+    if (sect.graphics) bits.push(state.t("sections.graphics", { count: sect.graphics }));
     meta.textContent = bits.join(" · ");
     row.append(cb, label, meta);
     box.appendChild(row);

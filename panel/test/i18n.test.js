@@ -127,3 +127,19 @@ test("a keyed build warning is translated, and falls back when it is not known",
   });
   assert.equal(unknown, "the English still says it");
 });
+
+test("every string the shot list draws exists in both catalogues", () => {
+  // These labels are built in JavaScript rather than carried on data-i18n
+  // markup, so nothing else in this suite would notice one going missing --
+  // and the symptom would be an English hole in an otherwise Japanese panel.
+  const src = fs.readFileSync(path.join(__dirname, "..", "src", "main.js"), "utf8");
+  const used = [...src.matchAll(/state\.t\("([a-zA-Z.]+)"/g)].map((m) => m[1]);
+  const missing = [...new Set(used)].filter((k) => !(k in EN) || !(k in JA));
+  assert.deepStrictEqual(missing, [], "keys drawn by main.js with no translation");
+});
+
+test("no shot-list label is left as English in the Japanese catalogue", () => {
+  const keys = Object.keys(EN).filter((k) => k.startsWith("swap.") || k.startsWith("sections."));
+  const untranslated = keys.filter((k) => JA[k] === EN[k] && /[A-Za-z]{4}/.test(EN[k]));
+  assert.deepStrictEqual(untranslated, []);
+});
