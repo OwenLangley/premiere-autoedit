@@ -602,7 +602,15 @@ async function assemblyRoundTrip(project, mediaPath, strategy) {
     jobId: "selftest",
     recipe: "selftest",
     timebase,
-    media: [{ id: "SRC", relPath: name, durationSeconds: 7.0 }],
+    // Carry what a REAL plan carries. The engine always writes timebase,
+    // hasVideo and the dimensions, and `sourceTimebase()` in apply.js reads
+    // media.timebase first and only falls back to the sequence's. Omitting it
+    // meant this check exercised a plan shape the engine never emits, so a
+    // failure here could not be read as a failure of anything shipped.
+    media: [{
+      id: "SRC", relPath: name, durationSeconds: 7.0,
+      timebase, hasVideo: true, hasAudio: true, width: 1920, height: 1080,
+    }],
     sequence: { name: `AutoEdit selftest ${Date.now()}`, videoTracks: 1, audioTracks: 1 },
     timeline: [
       { mediaId: "SRC", inSeconds: 0.0, outSeconds: 1.0, atFrame: 0,  durationFrames: 25, videoTrack: 0, audioTrack: 0, fadeInFrames: 0, fadeOutFrames: 0 },
