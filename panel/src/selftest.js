@@ -589,6 +589,10 @@ async function probeRealThumbnail(report, config) {
     });
     return;
   }
+  // No token here -- the self-test has no jobs folder. This therefore exercises
+  // the direct path only, which is precisely the route under suspicion, so a
+  // failure here alongside working thumbnails in the panel is the answer rather
+  // than a contradiction.
   const uri = await readImageDataUri(path);
   if (!uri) {
     report.add("image/reads-work-dir-thumbnail", false, {

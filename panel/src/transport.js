@@ -16,6 +16,42 @@ const fs = require("uxp").storage.localFileSystem;
 const formats = require("uxp").storage.formats;
 
 /**
+ * Get at a file two ways, because only one of them is blessed.
+ *
+ * `getEntryWithUrl` on an absolute path is the obvious route and may simply be
+ * refused: UXP's real currency is the persistent token an editor granted through
+ * the folder picker, and `localFileSystem: fullAccess` does not clearly extend
+ * to arbitrary paths nobody picked.
+ *
+ * Every thumbnail lives under the work directory, which by default sits inside
+ * the jobs folder -- and the panel holds a token for exactly that. So when the
+ * direct route fails, walk down from the token instead. That is access the
+ * editor explicitly granted, which is the kind UXP is built around.
+ *
+ * @param {string} absPath @param {string} [jobsToken]
+ */
+async function entryForImage(absPath, jobsToken) {
+  try {
+    const entry = await fs.getEntryWithUrl(`file://${absPath}`);
+    if (entry) return entry;
+  } catch {
+    /* fall through to the token */
+  }
+  if (!jobsToken) return null;
+  const folder = await folderFromToken(jobsToken);
+  if (!folder || !folder.nativePath) return null;
+  const root = folder.nativePath.replace(/\/+$/, "");
+  if (absPath !== root && !absPath.startsWith(`${root}/`)) return null;
+  const parts = absPath.slice(root.length + 1).split("/").filter(Boolean);
+  let node = folder;
+  for (const part of parts) {
+    node = await node.getEntry(part);
+    if (!node) return null;
+  }
+  return node;
+}
+
+/**
  * A local image as a data URI the panel can actually display.
  *
  * `<img src="file:///Users/...">` does not work for arbitrary paths. The
@@ -40,7 +76,7 @@ const _imageCache = new Map();
 let _imageError = null;
 function lastImageError() { return _imageError; }
 
-async function readImageDataUri(absPath) {
+async function readImageDataUri(absPath, jobsToken) {
   if (!absPath) return null;
   // Only successes are cached. Caching a null would make one transient failure
   // permanent for the life of the panel, and the editor's only symptom would be
@@ -48,7 +84,8 @@ async function readImageDataUri(absPath) {
   if (_imageCache.has(absPath)) return _imageCache.get(absPath);
   let uri = null;
   try {
-    const file = await fs.getEntryWithUrl(`file://${absPath}`);
+    const file = await entryForImage(absPath, jobsToken);
+    if (!file) throw new Error("could not open the file by path or through the jobs folder");
     const bytes = await file.read({ format: formats.binary });
     const view = new Uint8Array(bytes);
     let binary = "";

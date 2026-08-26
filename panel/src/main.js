@@ -470,7 +470,7 @@ function renderAlternates(slot) {
     shot.textContent = state.t("swap.noThumb");
     card.appendChild(shot);
     if (c.thumbPath) {
-      readImageDataUri(c.thumbPath).then((uri) => {
+      readImageDataUri(c.thumbPath, state.settings.jobsToken).then((uri) => {
         if (!shot.parentNode) return;
         if (!uri) {
           // Say why, once. Grey boxes with no explanation are what made this
