@@ -50,7 +50,7 @@ macOS with Premiere Pro 26. Homebrew first if you do not have it
 
 ```bash
 brew install ffmpeg python@3.11
-git clone https://github.com/FrostieNips/premiere-autoedit.git
+git clone https://github.com/OwenLangley/premiere-autoedit.git
 cd premiere-autoedit
 ./setup.sh ~/Footage
 ```
