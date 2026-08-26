@@ -423,6 +423,13 @@ function renderSlotDetail() {
   renderAlternates(slot);
 }
 
+/** Report the first thumbnail failure and then stay quiet about it. */
+function reportThumbFailure(why) {
+  if (!why || state.thumbFailureLogged) return;
+  state.thumbFailureLogged = true;
+  log(`thumbnails: ${why}`, "err");
+}
+
 /** What to call a candidate: a plan clip has a mediaId, a library shot a path. */
 function candidateName(c) {
   if (c.relPath) return c.relPath.split("/").pop() || c.relPath;
@@ -461,32 +468,39 @@ function renderAlternates(slot) {
     // A thumbnail if the engine made one. An <img> whose src will not decode
     // never fires load, so it swaps itself for a labelled placeholder rather
     // than leaving a broken box -- the card still works either way.
-    // The picture goes in as a placeholder first and is filled in once the
-    // bytes are read. A file:// src does not work for paths outside the
-    // plugin's own folder -- it fails silently, which is what the grey boxes
-    // were -- so the image is inlined as a data URI instead.
+    // Both the picture and its placeholder go in up front and one of them is
+    // hidden, rather than swapping nodes once the bytes arrive.
+    //
+    // The previous version called shot.replaceWith(img), which was the only use
+    // of replaceWith in the whole panel -- everything else here has always used
+    // appendChild and innerHTML. UXP implements a subset of the DOM, and a
+    // method it does not have throws, and the throw went into a .catch that
+    // ignored it. The result was a placeholder that never changed and no sign
+    // of why. Toggling `style.display` touches nothing that is not already
+    // proven to work in this panel.
+    const img = document.createElement("img");
+    img.className = "thumb";
+    img.style.display = "none";
+    card.appendChild(img);
+
     const shot = document.createElement("div");
     shot.className = "noshot";
     shot.textContent = state.t("swap.noThumb");
     card.appendChild(shot);
+
     if (c.thumbPath) {
       readImageDataUri(c.thumbPath, state.settings.jobsToken).then((uri) => {
-        if (!shot.parentNode) return;
         if (!uri) {
-          // Say why, once. Grey boxes with no explanation are what made this
-          // take three attempts to diagnose.
-          const why = lastImageError();
-          if (why && !state.thumbFailureLogged) {
-            state.thumbFailureLogged = true;
-            log(`thumbnails: ${why}`, "err");
-          }
+          reportThumbFailure(lastImageError());
           return;
         }
-        const img = document.createElement("img");
-        img.className = "thumb";
         img.src = uri;
-        shot.replaceWith(img);
-      }).catch(() => { /* the card is still usable without a picture */ });
+        img.style.display = "block";
+        shot.style.display = "none";
+      }).catch((err) => {
+        // Never silent again. This catch is what hid the last bug.
+        reportThumbFailure(String((err && err.message) || err));
+      });
     }
 
     const txt = document.createElement("div");
@@ -834,8 +848,12 @@ function syncDurationField() {
   box.disabled = off;
   // Disabled inputs are easy to miss at this size; dim the whole field so the
   // pair reads as one control rather than two that disagree.
-  const field = box.closest ? box.closest("label.field") : null;
-  if (field) field.style.opacity = off ? "0.45" : "";
+  //
+  // By id rather than closest(): UXP implements a subset of the DOM, and this
+  // panel has one hard-won example of a method that is simply absent. Reaching
+  // for the element directly needs nothing that is not used twenty times over
+  // elsewhere in this file.
+  $("duration-seconds-field").style.opacity = off ? "0.45" : "";
 }
 
 function currentForm() {

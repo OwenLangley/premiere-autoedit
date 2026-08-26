@@ -196,6 +196,9 @@ async function runSelfTest(onProgress) {
   say("probing transcript schema");
   await probeTranscriptSchema(project, report);
 
+  say("checking which DOM methods this build has");
+  probeDomSurface(report);
+
   say("probing whether a local image renders");
   await probeImageRendering(report);
   await probeRealThumbnail(report, await readConfig());
@@ -613,6 +616,40 @@ async function probeRealThumbnail(report, config) {
       ? "read from the work directory and decoded; the shot list can show stills"
       : "read fine but the <img> would not decode it -- the bytes reached the "
         + "panel, so suspect the encoding rather than permissions",
+    characterisation: true,
+  });
+}
+
+/**
+ * Which DOM methods this build of UXP actually implements.
+ *
+ * UXP ships a subset, and a method it lacks throws at the call site -- which is
+ * survivable when something reports it and invisible when a .catch eats it. The
+ * shot list showed empty placeholders for three rounds because it called
+ * `replaceWith`, the one modern DOM method in the whole panel, and UXP does not
+ * have it.
+ *
+ * Recorded as characterisation rather than pass/fail: the point is to have the
+ * list, so the next person reaching for a convenient method can check instead
+ * of finding out from a user.
+ */
+function probeDomSurface(report) {
+  const el = document.createElement("div");
+  const surface = {};
+  for (const m of [
+    "appendChild", "removeChild", "replaceChild", "insertBefore",
+    "replaceWith", "remove", "closest", "matches", "prepend", "after", "before",
+    "querySelector", "addEventListener", "setAttribute", "getBoundingClientRect",
+  ]) {
+    surface[m] = typeof (/** @type {any} */ (el))[m] === "function";
+  }
+  const missing = Object.keys(surface).filter((m) => !surface[m]);
+  report.add("dom/api-surface", true, {
+    present: Object.keys(surface).filter((m) => surface[m]),
+    missing,
+    note: missing.length
+      ? `not implemented on this build: ${missing.join(", ")} -- do not use these`
+      : "every method probed is present",
     characterisation: true,
   });
 }
