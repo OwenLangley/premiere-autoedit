@@ -45,7 +45,28 @@ adds two floats to decide where a clip lands, so a 200-cut assembly cannot drift
 
 ## Quick start
 
-See **Running it with real footage** below.
+macOS with Premiere Pro 26. Homebrew first if you do not have it
+([brew.sh](https://brew.sh)), then:
+
+```bash
+brew install ffmpeg python@3.11
+git clone https://github.com/FrostieNips/premiere-autoedit.git
+cd premiere-autoedit
+./setup.sh ~/Footage
+```
+
+`~/Footage` is your own rushes -- the top of the tree, not one shoot. That is
+the only path you choose; setup makes the rest. It asks for your password once,
+because Premiere 26 only loads plugins from `/Library`.
+
+Then **restart Premiere**, open **Window -> UXP Plugins -> AutoEdit**, and under
+**Setup** pick the jobs folder setup just printed. That click is the one step
+that cannot be scripted -- a UXP plugin only gets folder access through the
+picker you drive yourself.
+
+`./setup.sh --check` tells you what a machine is missing without changing
+anything. Details, and what the first run costs, in
+[docs/setting-up-a-new-machine.md](docs/setting-up-a-new-machine.md).
 
 ## Running it with real footage
 
