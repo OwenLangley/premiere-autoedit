@@ -410,6 +410,14 @@ async function probeTranscriptSchema(project, report) {
  * Writes a 1x1 PNG itself rather than hunting for a JPEG on disk: the question
  * is whether the pipeline works, and a file that is certainly there and
  * certainly valid keeps a missing fixture from being read as a UXP limitation.
+ *
+ * The probe is written TWICE, and that is the point. The first version wrote
+ * only into the plugin's own data folder, which UXP always permits, and
+ * reported that a file:// src renders -- so thumbnails were built against a
+ * file:// src and came out as empty grey boxes, because the real ones live in
+ * the work directory, well outside that sandbox, where the same src is silently
+ * inert. A check that answers a narrower question than it appears to is worse
+ * than no check: it is a wrong answer with a passing mark next to it.
  */
 async function probeImageRendering(report) {
   // A 1x1 red PNG. Bytes rather than a base64 string so step 1 is a real read
@@ -475,20 +483,41 @@ async function probeImageRendering(report) {
     return;
   }
 
-  // The real question. Both src forms are tried because they can fail
-  // independently: a data URI may be blocked by CSP while file:// is allowed,
-  // or the reverse.
-  for (const [label, src] of [
+  // The same PNG somewhere the plugin does not own, because that is where real
+  // thumbnails live. /tmp is the same place this report is written to, so it is
+  // already known to be reachable through the storage API.
+  let outsidePath = null;
+  try {
+    const folder = await fs.getEntryWithUrl(`file://${IO_DIR}`);
+    const outside = await folder.createFile("probe-outside.png", { overwrite: true });
+    await outside.write(new Uint8Array(PNG_1X1).buffer, { format: formats.binary });
+    outsidePath = outside.nativePath;
+    report.add("image/write-outside-plugin", true, { path: outsidePath, characterisation: true });
+  } catch (err) {
+    report.add("image/write-outside-plugin", false, {
+      error: String((err && err.message) || err), characterisation: true,
+    });
+  }
+
+  // The real question. Each src form is tried because they fail independently:
+  // a data URI may be blocked by CSP while file:// is allowed, or the reverse --
+  // and file:// can work inside the plugin folder and not outside it, which is
+  // exactly the trap this check fell into.
+  const targets = [
     ["data-uri", dataUri],
-    ["file-url", `file://${file.nativePath}`],
-  ]) {
+    ["file-url-in-plugin", `file://${file.nativePath}`],
+  ];
+  if (outsidePath) targets.push(["file-url-outside-plugin", `file://${outsidePath}`]);
+  for (const [label, src] of targets) {
     try {
       const width = await renderProbe(src);
       report.add(`image/renders-${label}`, width > 0, {
         naturalWidth: width,
         note: width > 0
-          ? "an <img> decoded it; a thumbnail grid is possible"
-          : "the <img> never reported a size, so this src form does not display",
+          ? "an <img> decoded it"
+          : "the <img> never reported a size, so this src form does not display. "
+            + "Thumbnails must be read through the storage API and inlined as a "
+            + "data URI instead.",
         characterisation: true,
       });
     } catch (err) {

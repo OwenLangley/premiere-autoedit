@@ -13,6 +13,53 @@
  */
 
 const fs = require("uxp").storage.localFileSystem;
+const formats = require("uxp").storage.formats;
+
+/**
+ * A local image as a data URI the panel can actually display.
+ *
+ * `<img src="file:///Users/...">` does not work for arbitrary paths. The
+ * self-test proved a file:// src renders, but it proved it for a file in the
+ * plugin's OWN data folder, which UXP always permits -- so it answered a
+ * narrower question than it looked like it was answering. Thumbnails live in
+ * the work directory, well outside that sandbox, and there the same src is
+ * silently inert: no error, no load event, just an empty box.
+ *
+ * Reading the bytes through the storage API and inlining them sidesteps the
+ * question entirely. `getEntryWithUrl` is the same call brandkit.js already
+ * uses to read arbitrary absolute paths, so this is a route with mileage on it.
+ *
+ * Results are cached: a shot list re-renders on every click, and re-reading and
+ * re-encoding thirty JPEGs each time would be felt.
+ *
+ * @param {string} absPath
+ * @returns {Promise<string|null>} a data: URI, or null if it cannot be read
+ */
+const _imageCache = new Map();
+async function readImageDataUri(absPath) {
+  if (!absPath) return null;
+  if (_imageCache.has(absPath)) return _imageCache.get(absPath);
+  let uri = null;
+  try {
+    const file = await fs.getEntryWithUrl(`file://${absPath}`);
+    const bytes = await file.read({ format: formats.binary });
+    const view = new Uint8Array(bytes);
+    let binary = "";
+    // Chunked: a 25KB still is 25,000 arguments to String.fromCharCode in one
+    // go if applied naively, which blows the argument limit on bigger files.
+    const CHUNK = 8192;
+    for (let i = 0; i < view.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, view.subarray(i, i + CHUNK));
+    }
+    const b64 = typeof btoa === "function" ? btoa(binary) : Buffer.from(view).toString("base64");
+    const ext = absPath.toLowerCase().endsWith(".png") ? "png" : "jpeg";
+    uri = `data:image/${ext};base64,${b64}`;
+  } catch {
+    uri = null;   // a missing still is a card without a picture, not an error
+  }
+  _imageCache.set(absPath, uri);
+  return uri;
+}
 
 const SETTINGS_KEY = "autoedit.settings";
 
@@ -276,6 +323,7 @@ module.exports = {
   pickFolder,
   folderFromToken,
   makeResolver,
+  readImageDataUri,
   loadSettings,
   saveSettings,
 };

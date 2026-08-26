@@ -14,7 +14,7 @@ const {
 } = require("./plan");
 const {
   LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
-  makeResolver, loadSettings, saveSettings,
+  makeResolver, readImageDataUri, loadSettings, saveSettings,
 } = require("./transport");
 const {
   isVideoFile, buildRequest, validateRequest, requestFileName, describeRequest,
@@ -460,22 +460,22 @@ function renderAlternates(slot) {
     // A thumbnail if the engine made one. An <img> whose src will not decode
     // never fires load, so it swaps itself for a labelled placeholder rather
     // than leaving a broken box -- the card still works either way.
+    // The picture goes in as a placeholder first and is filled in once the
+    // bytes are read. A file:// src does not work for paths outside the
+    // plugin's own folder -- it fails silently, which is what the grey boxes
+    // were -- so the image is inlined as a data URI instead.
+    const shot = document.createElement("div");
+    shot.className = "noshot";
+    shot.textContent = state.t("swap.noThumb");
+    card.appendChild(shot);
     if (c.thumbPath) {
-      const img = document.createElement("img");
-      img.className = "thumb";
-      img.addEventListener("error", () => {
-        const ph = document.createElement("div");
-        ph.className = "noshot";
-        ph.textContent = state.t("swap.noThumb");
-        img.replaceWith(ph);
-      });
-      img.src = `file://${c.thumbPath}`;
-      card.appendChild(img);
-    } else {
-      const ph = document.createElement("div");
-      ph.className = "noshot";
-      ph.textContent = state.t("swap.noThumb");
-      card.appendChild(ph);
+      readImageDataUri(c.thumbPath).then((uri) => {
+        if (!uri || !shot.parentNode) return;
+        const img = document.createElement("img");
+        img.className = "thumb";
+        img.src = uri;
+        shot.replaceWith(img);
+      }).catch(() => { /* the card is still usable without a picture */ });
     }
 
     const txt = document.createElement("div");
