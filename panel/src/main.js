@@ -14,7 +14,7 @@ const {
 } = require("./plan");
 const {
   LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
-  makeResolver, readImageDataUri, loadSettings, saveSettings,
+  makeResolver, readImageDataUri, lastImageError, loadSettings, saveSettings,
 } = require("./transport");
 const {
   isVideoFile, buildRequest, validateRequest, requestFileName, describeRequest,
@@ -58,6 +58,7 @@ const state = {
   // Every shot the helper has found across the media library, not just the
   // clips in this job. Null until it has written the index once.
   libraryShots: null,
+  thumbFailureLogged: false,
   watching: null,          // interval id while a job is being worked on
 };
 
@@ -470,7 +471,17 @@ function renderAlternates(slot) {
     card.appendChild(shot);
     if (c.thumbPath) {
       readImageDataUri(c.thumbPath).then((uri) => {
-        if (!uri || !shot.parentNode) return;
+        if (!shot.parentNode) return;
+        if (!uri) {
+          // Say why, once. Grey boxes with no explanation are what made this
+          // take three attempts to diagnose.
+          const why = lastImageError();
+          if (why && !state.thumbFailureLogged) {
+            state.thumbFailureLogged = true;
+            log(`thumbnails: ${why}`, "err");
+          }
+          return;
+        }
         const img = document.createElement("img");
         img.className = "thumb";
         img.src = uri;

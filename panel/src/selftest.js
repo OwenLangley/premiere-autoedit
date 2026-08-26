@@ -19,6 +19,7 @@ const fs = require("uxp").storage.localFileSystem;
 
 const { applyPlan, verifyStrategy, indexProjectMedia, normalizePath, STRATEGY } = require("./apply");
 const { toSeconds } = require("./timebase");
+const { readImageDataUri, lastImageError } = require("./transport");
 
 const IO_DIR = "/tmp/autoedit-selftest";
 
@@ -197,6 +198,7 @@ async function runSelfTest(onProgress) {
 
   say("probing whether a local image renders");
   await probeImageRendering(report);
+  await probeRealThumbnail(report, await readConfig());
 
   // --- the question we came for -------------------------------------------
   say("determining clip placement strategy");
@@ -560,6 +562,54 @@ function renderProbe(src) {
       return;
     }
     setTimeout(finish, 3000);
+  });
+}
+
+/**
+ * Run the REAL thumbnail path on a REAL thumbnail.
+ *
+ * The synthetic probe above answers "can this build display an image". It has
+ * now twice failed to answer the question that matters, which is "can the panel
+ * display the actual files the engine writes, where it writes them". So this
+ * calls the exact function the shot list calls, on a path taken from the work
+ * directory, and reports what came back.
+ *
+ * The path comes from config.json (`thumbPath`), because the self-test does not
+ * know where the jobs folder is -- the panel holds that as a UXP token that
+ * cannot be turned back into a path from here.
+ */
+async function probeRealThumbnail(report, config) {
+  const path = config && config.thumbPath;
+  if (!path) {
+    report.add("image/reads-work-dir-thumbnail", true, {
+      note: "no thumbPath in /tmp/autoedit-selftest/config.json, so this was "
+          + "skipped. Put the absolute path of any file from <jobs>/.cache/thumbs "
+          + "in there and re-run to test the real path.",
+      characterisation: true,
+    });
+    return;
+  }
+  const uri = await readImageDataUri(path);
+  if (!uri) {
+    report.add("image/reads-work-dir-thumbnail", false, {
+      path,
+      error: lastImageError(),
+      note: "the storage API would not read a still from the work directory. "
+          + "That is where every thumbnail lives, so the shot list can show none.",
+      characterisation: true,
+    });
+    return;
+  }
+  const width = await renderProbe(uri);
+  report.add("image/reads-work-dir-thumbnail", width > 0, {
+    path,
+    uriLength: uri.length,
+    naturalWidth: width,
+    note: width > 0
+      ? "read from the work directory and decoded; the shot list can show stills"
+      : "read fine but the <img> would not decode it -- the bytes reached the "
+        + "panel, so suspect the encoding rather than permissions",
+    characterisation: true,
   });
 }
 

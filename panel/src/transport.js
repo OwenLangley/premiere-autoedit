@@ -36,8 +36,15 @@ const formats = require("uxp").storage.formats;
  * @returns {Promise<string|null>} a data: URI, or null if it cannot be read
  */
 const _imageCache = new Map();
+/** The first failure, kept so the panel can say WHY rather than showing blanks. */
+let _imageError = null;
+function lastImageError() { return _imageError; }
+
 async function readImageDataUri(absPath) {
   if (!absPath) return null;
+  // Only successes are cached. Caching a null would make one transient failure
+  // permanent for the life of the panel, and the editor's only symptom would be
+  // pictures that never come back.
   if (_imageCache.has(absPath)) return _imageCache.get(absPath);
   let uri = null;
   try {
@@ -54,8 +61,14 @@ async function readImageDataUri(absPath) {
     const b64 = typeof btoa === "function" ? btoa(binary) : Buffer.from(view).toString("base64");
     const ext = absPath.toLowerCase().endsWith(".png") ? "png" : "jpeg";
     uri = `data:image/${ext};base64,${b64}`;
-  } catch {
-    uri = null;   // a missing still is a card without a picture, not an error
+  } catch (err) {
+    // A missing still is a card without a picture, not a failed build -- but
+    // swallowing the reason is how this went two rounds without a diagnosis.
+    // Keep the first one so something can report it.
+    if (!_imageError) {
+      _imageError = `${absPath}: ${String((err && err.message) || err)}`;
+    }
+    return null;
   }
   _imageCache.set(absPath, uri);
   return uri;
@@ -324,6 +337,7 @@ module.exports = {
   folderFromToken,
   makeResolver,
   readImageDataUri,
+  lastImageError,
   loadSettings,
   saveSettings,
 };
