@@ -27,6 +27,7 @@ const MUSIC_LIBRARY_PREFIX = "library:";
 const DEFAULTS = {
   aspect: "source",
   pacing: "standard",
+  cutRate: "",
   durationMode: "none",
   music: "auto",
 };
@@ -188,7 +189,7 @@ function jobIdWasChanged(raw) {
 /**
  * @param {{
  *   jobId: string, recipe: string, media: string[],
- *   aspect?: string, pacing?: string, look?: string|null,
+ *   aspect?: string, pacing?: string, cutRate?: string|number, look?: string|null,
  *   durationMode?: string, durationSeconds?: number|null,
  *   music?: string, visual?: boolean,
  *   musicStart?: number, musicLength?: number, musicSnap?: boolean, language?: string,
@@ -200,6 +201,11 @@ function buildRequest(form) {
     pacing: form.pacing || DEFAULTS.pacing,
     music: form.music || DEFAULTS.music,
   };
+
+  // Only sent when the editor has actually chosen one. Absent means "follow the
+  // pacing setting", which is what the recipe intended.
+  const rate = Number(form.cutRate);
+  if (Number.isFinite(rate) && rate > 0) options.cutRate = rate;
 
   const mode = form.durationMode || DEFAULTS.durationMode;
   if (mode !== "none" && form.durationSeconds) {
@@ -315,6 +321,7 @@ function describeRequest(request, capabilities, translator) {
     if (key) bits.push(t(key, { seconds: o.duration.seconds }));
   }
   if (o.pacing && o.pacing !== "standard") bits.push(label(caps.pacing, "pacing", o.pacing));
+  if (o.cutRate) bits.push(label(caps.cutRates, "cutRate", String(o.cutRate)));
   if (o.look) bits.push(t("sum.look", { name: o.look }));
   if (o.visual) bits.push(t("sum.fromPictures"));
   if (o.music === MUSIC_NONE) bits.push(t("sum.noMusic"));

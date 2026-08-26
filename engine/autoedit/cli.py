@@ -22,7 +22,8 @@ from .probe import ProbeError, content_hash, needs_proxy, probe
 from .recipe import RecipeError, list_recipes, load_recipe
 from .transcribe import TranscriptionError, extract_audio, get_provider
 from .transcript import Transcript
-from .options import (PACING, JobOptions, OptionError, apply_pacing, fit_duration_across,
+from .options import (PACING, VALID_CUT_RATES, JobOptions, OptionError, apply_pacing,
+                      fit_duration_across,
                       working_frame_size, ASPECT_LABELS)
 from .preset import write_preset
 from .music import BeatGrid, MusicError, detect_beats
@@ -186,6 +187,7 @@ def _options_from_args(args) -> JobOptions:
         or ("upTo" if getattr(args, "duration", None) else "none"),
         duration_seconds=getattr(args, "duration", None),
         pacing=getattr(args, "pacing", None) or "standard",
+        cut_rate=getattr(args, "cut_rate", None),
         look=getattr(args, "look", None),
         music="none" if getattr(args, "no_music", False) else "auto",
         visual=bool(getattr(args, "visual", False)),
@@ -573,15 +575,22 @@ def cmd_plan(args) -> int:
         # control finally changes the number of cuts rather than only their
         # length. Without a usable grid there is no beat to cap against.
         max_shot = quantum = None
+        exact_shot = False
         if strategy == "spread" and beats and beats.beat_interval > 0:
-            shot_beats = max(1, round(recipe.music.max_shot_beats * PACING[options.pacing].beats))
+            # The editor's dial wins outright when they have set one; pacing is
+            # only the default. Scaling their explicit "every 2 beats" by the
+            # pacing profile would make the control lie about what it does.
+            shot_beats = options.cut_rate or max(
+                1, round(recipe.music.max_shot_beats * PACING[options.pacing].beats)
+            )
             max_shot = beats.beat_interval * shot_beats
             quantum = beats.beat_interval
+            exact_shot = options.cut_rate is not None
         fitted = fit_duration_across(
             [(mid, cuts) for mid, cuts, _, _ in collected],
             options.duration_mode, options.duration_seconds,
             options.duration_tolerance, detection.min_clip_length, strategy,
-            max_shot=max_shot, quantum=quantum,
+            max_shot=max_shot, quantum=quantum, exact_shot=exact_shot,
         )
         by_id = dict(fitted)
         collected = [(mid, by_id.get(mid, cuts), v, a) for mid, cuts, v, a in collected]
@@ -819,6 +828,8 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--duration", type=float, help="target length in seconds")
     pl.add_argument("--duration-mode", choices=["upTo", "exactly", "about"],
                     help="how strictly to honour --duration (default: upTo)")
+    pl.add_argument("--cut-rate", type=int, choices=sorted(VALID_CUT_RATES), default=None,
+                    help="beats per shot when the music leads; omit to follow --pacing")
     pl.add_argument("--pacing", choices=["relaxed", "standard", "punchy"],
                     help="scales the recipe's timing (default: standard)")
     pl.add_argument("--look", help="brand kit LUT key to apply")

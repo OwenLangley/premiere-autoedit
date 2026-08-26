@@ -301,3 +301,33 @@ test("an empty length field means 'follow the edit', not zero seconds", () => {
   assert.equal(parseSeconds(" 12.5 "), 12.5);
   assert.equal(parseSeconds(20), 20);
 });
+
+// --- the cut-rate dial ------------------------------------------------------
+//
+// Pacing was the only control over how often the picture changes, and it is
+// three coarse steps that also move silence and clip-length thresholds. This is
+// the direct dial: beats per shot, in musical units so it means the same thing
+// whatever the track's tempo.
+
+test("no choice means no option, so the recipe's pacing still decides", () => {
+  const r = buildRequest({ jobId: "EP1", recipe: "social-short", media: ["a.mp4"] });
+  assert.strictEqual(r.options.cutRate, undefined);
+});
+
+test("a chosen rate reaches the request as a number", () => {
+  const r = buildRequest({ jobId: "EP1", recipe: "social-short", media: ["a.mp4"], cutRate: "2" });
+  assert.strictEqual(r.options.cutRate, 2);
+});
+
+test("an empty or nonsense value is treated as no choice", () => {
+  for (const v of ["", "auto", null, undefined, "0", "-1"]) {
+    const r = buildRequest({ jobId: "EP1", recipe: "social-short", media: ["a.mp4"], cutRate: v });
+    assert.strictEqual(r.options.cutRate, undefined, `${JSON.stringify(v)} should mean "follow pacing"`);
+  }
+});
+
+test("the summary names the rate the editor picked", () => {
+  const caps = { cutRates: [{ value: "4", label: "Every bar" }] };
+  const r = buildRequest({ jobId: "EP1", recipe: "social-short", media: ["a.mp4"], cutRate: "4" });
+  assert.match(describeRequest(r, caps), /Every bar/);
+});

@@ -346,3 +346,30 @@ def test_a_source_with_one_long_span_contributes_one_shot_and_no_more():
     out = fit_duration_across(plans, "upTo", 16.0, min_clip_length=0.35,
                               strategy="spread", max_shot=1.0, quantum=0.5)
     assert all(len(plan.keeps) == 1 for _, plan in out)
+
+
+# --- the editor's cut-rate dial ---------------------------------------------
+
+
+def test_a_cut_rate_must_be_one_of_the_offered_values():
+    from autoedit.options import JobOptions, OptionError
+    with pytest.raises(OptionError, match="cut rate"):
+        JobOptions(cut_rate=3)
+    with pytest.raises(OptionError, match="cut rate"):
+        JobOptions(cut_rate=0)
+
+
+def test_the_offered_cut_rates_are_all_valid():
+    from autoedit.options import CUT_RATES, JobOptions
+    for beats, _ in CUT_RATES:
+        JobOptions(cut_rate=beats)      # must not raise
+
+
+def test_no_cut_rate_leaves_pacing_in_charge():
+    from autoedit.options import JobOptions
+    assert JobOptions.from_request({"pacing": "punchy"}).cut_rate is None
+
+
+def test_a_cut_rate_survives_the_request():
+    from autoedit.options import JobOptions
+    assert JobOptions.from_request({"cutRate": 4}).cut_rate == 4

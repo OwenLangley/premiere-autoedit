@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
 
 from autoedit.cli import main as engine_main            # noqa: E402
-from autoedit.options import ASPECT_LABELS, PACING      # noqa: E402
+from autoedit.options import ASPECT_LABELS, CUT_RATES, PACING  # noqa: E402
 from autoedit.probe import ProbeError, needs_proxy, probe  # noqa: E402
 from autoedit.proxy import build_proxy, proxy_path        # noqa: E402
 from autoedit.recipe import list_recipes, load_recipe   # noqa: E402
@@ -90,6 +90,7 @@ def write_capabilities(jobs: Path) -> None:
         "recipes": recipes,
         "aspects": [{"value": k, "label": v} for k, v in ASPECT_LABELS.items()],
         "pacing": [{"value": k, "label": v.label} for k, v in PACING.items()],
+        "cutRates": [{"value": str(n), "label": lbl} for n, lbl in CUT_RATES],
         "durationModes": [
             {"value": "none", "label": "No limit"},
             {"value": "upTo", "label": "Up to"},
@@ -331,6 +332,8 @@ def request_to_argv(
 
     if options.get("pacing", "standard") != "standard":
         argv += ["--pacing", options["pacing"]]
+    if options.get("cutRate"):
+        argv += ["--cut-rate", str(int(options["cutRate"]))]
     if options.get("look"):
         argv += ["--look", options["look"]]
     if options.get("visual"):

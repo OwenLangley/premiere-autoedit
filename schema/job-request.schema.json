@@ -140,6 +140,16 @@
         },
         "language": {
           "type": "string"
+        },
+        "cutRate": {
+          "type": "integer",
+          "enum": [
+            1,
+            2,
+            4,
+            8
+          ],
+          "description": "Beats per shot when the music leads. Omit to follow `pacing`, which is what the recipe intended; set it to overrule that for this job."
         }
       }
     }

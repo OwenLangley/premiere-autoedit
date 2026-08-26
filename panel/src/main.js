@@ -109,6 +109,11 @@ function applyCapabilityLabels(caps) {
     (list || []).map((x) => ({ value: x.value, label: t(`${prefix}.${x.value}`, {}, x.label) }));
   fillSelect("opt-aspect", relabel(caps.aspects, "aspect"), [{ value: "source", label: t("aspect.source") }]);
   fillSelect("opt-pacing", relabel(caps.pacing, "pacing"), [{ value: "standard", label: t("pacing.standard") }]);
+  fillSelect(
+    "opt-cut-rate",
+    [{ value: "", label: t("cutRate.auto") }, ...relabel(caps.cutRates, "cutRate")],
+    [{ value: "", label: t("cutRate.auto") }],
+  );
   fillSelect("opt-duration-mode", relabel(caps.durationModes, "duration"), [{ value: "none", label: t("duration.none") }]);
   fillSelect("opt-look", [{ value: "", label: t("look.none") }, ...(caps.looks || [])], [{ value: "", label: t("look.none") }]);
 }
@@ -508,6 +513,7 @@ function currentForm() {
     media: [...state.selectedMedia],
     aspect: $("opt-aspect").value,
     pacing: $("opt-pacing").value,
+    cutRate: $("opt-cut-rate").value,
     look: $("opt-look").value || null,
     visual: $("opt-visual").checked,
     durationMode: $("opt-duration-mode").value,
@@ -665,7 +671,7 @@ $("media-none").addEventListener("click", () => {
   loadMediaList();
 });
 $("opt-visual").addEventListener("change", renderSummary_);
-for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing",
+for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut-rate",
                   "opt-look", "opt-duration-mode", "opt-duration-seconds",
                   "opt-music", "opt-music-start", "opt-music-length"]) {
   $(id).addEventListener("change", renderSummary_);

@@ -96,6 +96,19 @@ PACING: dict[str, PacingProfile] = {
 BEAT_SLACK = 0.04
 
 
+# How often the picture may change, in beats, when the music leads. Offered as a
+# short list rather than a free number: these are the musically meaningful
+# values, and a dropdown cannot be typed wrong. `None` follows the pacing
+# setting, which is what the recipe intended.
+CUT_RATES: list[tuple[int, str]] = [
+    (1, "Every beat"),
+    (2, "Every 2 beats"),
+    (4, "Every bar"),
+    (8, "Every 2 bars"),
+]
+VALID_CUT_RATES = frozenset(n for n, _ in CUT_RATES)
+
+
 class OptionError(ValueError):
     pass
 
@@ -107,6 +120,9 @@ class JobOptions:
     duration_seconds: float | None = None
     duration_tolerance: float = 0.15
     pacing: str = "standard"
+    # Beats per shot when the music leads. None follows the pacing setting; a
+    # number is the editor overruling it for this job.
+    cut_rate: int | None = None
     look: str | None = None
     music: str = "auto"
     visual: bool = False
@@ -128,6 +144,11 @@ class JobOptions:
             raise OptionError(f"duration mode {self.duration_mode!r} needs a length in seconds")
         if self.duration_seconds is not None and self.duration_seconds <= 0:
             raise OptionError("duration must be positive")
+        if self.cut_rate is not None and self.cut_rate not in VALID_CUT_RATES:
+            raise OptionError(
+                f"cut rate must be one of {sorted(VALID_CUT_RATES)} beats, "
+                f"got {self.cut_rate}"
+            )
 
     @property
     def frame_size(self) -> tuple[int, int] | None:
@@ -144,6 +165,7 @@ class JobOptions:
             duration_seconds=duration.get("seconds"),
             duration_tolerance=duration.get("tolerance", 0.15),
             pacing=options.get("pacing", "standard"),
+            cut_rate=options.get("cutRate") or None,
             look=options.get("look"),
             music=options.get("music", "auto"),
             visual=bool(options.get("visual", False)),
@@ -278,6 +300,7 @@ def fit_duration(
 def _spread_across_sources(
     plans: "list[tuple[str, CutPlan]]", seconds: float, min_clip_length: float,
     max_shot: float | None = None, quantum: float | None = None,
+    exact_shot: bool = False,
 ) -> "tuple[set[int], dict[int, float]]":
     """Give every source a share of the target, so all of them appear.
 
@@ -304,7 +327,13 @@ def _spread_across_sources(
     # Capping at max_shot alone gave a 5.3-beat share a 4-beat shot and a 1-beat
     # remainder, which reads as a limp rather than a rhythm; two 2.6-beat shots
     # sit on the grid and feel deliberate.
-    if max_shot and max_shot > 0:
+    if max_shot and max_shot > 0 and exact_shot:
+        # The editor named a rate. Use it as written and let the remainder of a
+        # share become a shorter final shot -- a pickup, which is musically
+        # ordinary. Dividing evenly instead turned "every bar" into 2.3-beat
+        # shots, so the control did not do what its label said.
+        max_shot = max_shot + (BEAT_SLACK if quantum else 0.0)
+    elif max_shot and max_shot > 0:
         per_source_shots = max(1, math.ceil(share / max_shot - 1e-9))
         max_shot = share / per_source_shots
         if quantum and quantum > 0:
@@ -386,6 +415,7 @@ def fit_duration_across(
     strategy: str = "tail",
     max_shot: float | None = None,
     quantum: float | None = None,
+    exact_shot: bool = False,
 ) -> list[tuple[str, CutPlan]]:
     """Fit a duration target across every source in the job.
 
@@ -422,7 +452,7 @@ def fit_duration_across(
         surviving = set(id(k) for _, k in ranked)
     elif strategy == "spread":
         surviving, trimmed_ids = _spread_across_sources(
-            plans, seconds, min_clip_length, max_shot, quantum
+            plans, seconds, min_clip_length, max_shot, quantum, exact_shot
         )
     else:
         surviving, running = set(), 0.0
