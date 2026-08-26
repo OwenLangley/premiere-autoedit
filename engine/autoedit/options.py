@@ -100,7 +100,8 @@ BEAT_SLACK = 0.04
 # short list rather than a free number: these are the musically meaningful
 # values, and a dropdown cannot be typed wrong. `None` follows the pacing
 # setting, which is what the recipe intended.
-CUT_RATES: list[tuple[int, str]] = [
+CUT_RATES: list[tuple[float, str]] = [
+    (0.5, "Twice per beat"),
     (1, "Every beat"),
     (2, "Every 2 beats"),
     (4, "Every bar"),
@@ -122,7 +123,7 @@ class JobOptions:
     pacing: str = "standard"
     # Beats per shot when the music leads. None follows the pacing setting; a
     # number is the editor overruling it for this job.
-    cut_rate: int | None = None
+    cut_rate: float | None = None
     look: str | None = None
     music: str = "auto"
     visual: bool = False

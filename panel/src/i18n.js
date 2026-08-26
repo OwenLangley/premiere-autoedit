@@ -26,6 +26,7 @@ const EN = {
   // units rather than seconds: a bar means the same thing at any tempo, and
   // "0.95s" would not survive changing the track.
   "cutRate.auto": "Follow pacing",
+  "cutRate.0.5": "Twice per beat",
   "cutRate.1": "Every beat",
   "cutRate.2": "Every 2 beats",
   "cutRate.4": "Every bar",
@@ -68,7 +69,7 @@ const EN = {
   "edit.length": "Length",
   "edit.seconds": "Seconds",
   "edit.pacing": "Pacing",
-  "edit.cutRate": "Cut rate",
+  "edit.cutRate": "Cut on",
   "edit.look": "Look",
   "edit.spokenLanguage": "Spoken language",
   "edit.create": "Create edit",
@@ -233,6 +234,7 @@ const JA = {
   "aspect.square": "正方形 1:1",
   "aspect.portrait45": "縦位置 4:5",
   "cutRate.auto": "テンポに合わせる",
+  "cutRate.0.5": "1 拍に 2 回",
   "cutRate.1": "1 拍ごと",
   "cutRate.2": "2 拍ごと",
   "cutRate.4": "1 小節ごと",
@@ -274,7 +276,7 @@ const JA = {
   "edit.length": "尺",
   "edit.seconds": "秒数",
   "edit.pacing": "テンポ",
-  "edit.cutRate": "カット間隔",
+  "edit.cutRate": "カットの位置",
   "edit.look": "カラー",
   "edit.spokenLanguage": "話されている言語",
   "edit.create": "編集を作成",

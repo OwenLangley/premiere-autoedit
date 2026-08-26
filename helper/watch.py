@@ -90,7 +90,7 @@ def write_capabilities(jobs: Path) -> None:
         "recipes": recipes,
         "aspects": [{"value": k, "label": v} for k, v in ASPECT_LABELS.items()],
         "pacing": [{"value": k, "label": v.label} for k, v in PACING.items()],
-        "cutRates": [{"value": str(n), "label": lbl} for n, lbl in CUT_RATES],
+        "cutRates": [{"value": _num(n), "label": lbl} for n, lbl in CUT_RATES],
         "durationModes": [
             {"value": "none", "label": "No limit"},
             {"value": "upTo", "label": "Up to"},
@@ -304,6 +304,12 @@ def write_media_index(jobs: Path, media_root: Path) -> None:
     (jobs / "media-index.json").write_text(json.dumps(index, indent=2) + "\n")
 
 
+def _num(value) -> str:
+    """A number the way a person writes it: "2", not "2.0"; "0.5" stays "0.5"."""
+    f = float(value)
+    return str(int(f)) if f == int(f) else str(f)
+
+
 def request_to_argv(
     request: dict, jobs: Path, media_root: Path, work_dir: Path,
     music_root: Path | None = None,
@@ -333,7 +339,7 @@ def request_to_argv(
     if options.get("pacing", "standard") != "standard":
         argv += ["--pacing", options["pacing"]]
     if options.get("cutRate"):
-        argv += ["--cut-rate", str(int(options["cutRate"]))]
+        argv += ["--cut-rate", _num(options["cutRate"])]
     if options.get("look"):
         argv += ["--look", options["look"]]
     if options.get("visual"):

@@ -412,6 +412,23 @@ def cmd_plan(args) -> int:
         except (MusicError, ProbeError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
+    # How often to cut, in beats. The editor's dial wins outright when they have
+    # set one; pacing is only the default. Scaling their explicit "every 2 beats"
+    # by the pacing profile would make the control lie about what it does.
+    cut_every = options.cut_rate or max(
+        1, round(recipe.music.max_shot_beats * PACING[options.pacing].beats)
+    )
+
+    # Where the bed begins in the track, snapped the same way resolve_music_chunk
+    # will snap it. The cut planner needs this BEFORE the timeline exists,
+    # because the beat times it works from are track times and the timeline runs
+    # from zero: sequence t is track (bed_start + t).
+    bed_start = max(0.0, float(getattr(args, "music_start", None) or 0.0))
+    if beats and beats.beats and not getattr(args, "no_music_snap", False):
+        snapped = beats.snap(bed_start)
+        if snapped >= 0:
+            bed_start = snapped
+
     work_dir = cache_root / args.job
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -597,11 +614,11 @@ def cmd_plan(args) -> int:
             # The editor's dial wins outright when they have set one; pacing is
             # only the default. Scaling their explicit "every 2 beats" by the
             # pacing profile would make the control lie about what it does.
-            shot_beats = options.cut_rate or max(
-                1, round(recipe.music.max_shot_beats * PACING[options.pacing].beats)
-            )
+            shot_beats = cut_every
             max_shot = beats.beat_interval * shot_beats
-            quantum = beats.beat_interval
+            # The gap between candidate cut points, which is what the allocator
+            # should round to -- not the beat, when the editor is subdividing.
+            quantum = beats.beat_interval * shot_beats
             exact_shot = options.cut_rate is not None
         fitted = fit_duration_across(
             [(mid, cuts) for mid, cuts, _, _ in collected],
@@ -622,6 +639,7 @@ def cmd_plan(args) -> int:
             crossfade_seconds=recipe.sequence.crossfade_seconds,
             beats=beats, music=recipe.music,
             min_clip_seconds=detection.min_clip_length,
+            bed_start=bed_start, every=cut_every,
         )
 
     # Mark the shots a centre crop is likely to spoil. A heuristic, not subject
@@ -848,8 +866,9 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--duration", type=float, help="target length in seconds")
     pl.add_argument("--duration-mode", choices=["upTo", "exactly", "about"],
                     help="how strictly to honour --duration (default: upTo)")
-    pl.add_argument("--cut-rate", type=int, choices=sorted(VALID_CUT_RATES), default=None,
-                    help="beats per shot when the music leads; omit to follow --pacing")
+    pl.add_argument("--cut-rate", type=float, choices=sorted(VALID_CUT_RATES), default=None,
+                    help="beats per shot when the music leads; 0.5 also cuts halfway "
+                         "between beats. Omit to follow --pacing")
     pl.add_argument("--pacing", choices=["relaxed", "standard", "punchy"],
                     help="scales the recipe's timing (default: standard)")
     pl.add_argument("--look", help="brand kit LUT key to apply")

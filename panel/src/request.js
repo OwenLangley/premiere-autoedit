@@ -204,6 +204,8 @@ function buildRequest(form) {
 
   // Only sent when the editor has actually chosen one. Absent means "follow the
   // pacing setting", which is what the recipe intended.
+  // 0.5 is a real setting -- cut halfway between beats as well as on them -- so
+  // this must not round to an integer.
   const rate = Number(form.cutRate);
   if (Number.isFinite(rate) && rate > 0) options.cutRate = rate;
 

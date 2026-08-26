@@ -283,6 +283,36 @@ seeing it leaves silence, and silence sends you looking at your own code. The
 
     grep 'upic::' ~/Library/Logs/Adobe/Adobe*Premiere*/UXPLogs_*.log | tail -8
 
+## 5h. A song is not a metronome
+
+Cut placement used to be arithmetic: `round(k * beat_interval * fps)` from beat
+zero. That is exact, and exactly wrong, because a song's spacing drifts. Measured
+on a click track accelerating from 100 to 130 BPM over twenty seconds, an even
+grid sits a median 70ms from the real beats and a worst 546ms -- more than a beat
+adrift by the end.
+
+`track_beats()` now uses the fitted grid only as a starting guess. Each predicted
+beat is pulled to the nearest real onset when one is within 28% of the current
+interval, the interval is nudged toward the spacing actually observed, and the
+next prediction runs from where the music WAS rather than from where arithmetic
+said it should be. Errors stop compounding because nothing is computed from beat
+zero. Same track: median 11ms, worst 65ms, and the right number of beats.
+
+Two things worth keeping:
+
+**`beat_interval` is now measured, not derived.** With tracked beats the spacing
+genuinely varies, so `60/bpm` is the wrong number to compute with. `bpm` stays
+as the headline for reporting.
+
+**Subdividing uses the midpoint of two ACTUAL beats.** "Twice per beat" adds a
+cut halfway between each pair, which stays correct as the tempo moves -- a fixed
+half-interval offset would not.
+
+The verification worth copying: measure cuts against the WAVEFORM, never against
+the grid the engine detected. Every earlier check here was self-referential and
+a wrong grid passed all of them. End to end on a real track, the planner lands a
+median 4.4ms from a tracked beat -- a quarter of a video frame.
+
 ## 6. Several APIs are synchronous despite the async house style
 
 `getTrackItems()`, `getComponentCount()`, `getComponentAtIndex()` return values

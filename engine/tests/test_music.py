@@ -200,3 +200,83 @@ def test_the_floor_no_longer_separates_music_from_speech_and_that_is_fine():
     speech = [0.261, 0.292, 0.402]
     assert not all(x < floor for x in speech), "if this passes, re-read the docstring"
     assert floor < 0.414, "the floor must not refuse the weakest real track"
+
+
+# --- following the beat instead of assuming a fixed one ---------------------
+#
+# "Since the time between beats can change throughout a song..." -- exactly so.
+# fit_grid finds ONE tempo and lays a perfectly even grid, which drifts away
+# from any song that is not metronomic.
+
+
+def _drifting(bpm_start, bpm_end, dur=20.0):
+    """A click track that accelerates, plus the true beat times."""
+    import numpy as np, math
+    from autoedit.music import SAMPLE_RATE
+    n = int(SAMPLE_RATE * dur)
+    x = np.zeros(n, dtype=np.float32)
+    t, times = 0.0, []
+    while t < dur:
+        times.append(t)
+        at = int(t * SAMPLE_RATE)
+        for k in range(min(900, n - at)):
+            x[at + k] += math.sin(2 * math.pi * 1200 * k / SAMPLE_RATE) * math.exp(-k / 300.0)
+        t += 60.0 / (bpm_start + (bpm_end - bpm_start) * (t / dur))
+    return x, times
+
+
+def test_the_tracker_follows_a_song_that_speeds_up():
+    """The measurement that motivated all of this.
+
+    An even grid over a track accelerating 100 -> 130 BPM sits a median 70ms and
+    a worst 546ms from the real beats -- over a beat adrift by the end, which is
+    what "it isn't cutting to the beat" sounds like.
+    """
+    import numpy as np
+    from autoedit.music import (onset_envelope, fit_grid, track_beats,
+                                SAMPLE_RATE, HOP, WINDOW)
+    x, truth = _drifting(100.0, 130.0)
+    env = onset_envelope(x)
+    bpm, grid, _, _ = fit_grid(env, 115.0, 20.0)
+    tracked = track_beats(env, bpm, 20.0, SAMPLE_RATE / HOP,
+                          (WINDOW / 2 + HOP / 2) / SAMPLE_RATE)
+
+    def worst(beats):
+        beats = np.array(beats)
+        return max(float(np.min(np.abs(beats - t))) for t in truth)
+
+    assert worst(tracked) < 0.10, f"tracked beats drifted {worst(tracked)*1000:.0f}ms"
+    assert worst(tracked) < worst(grid) / 3, "tracking should beat a fixed grid outright"
+    assert abs(len(tracked) - len(truth)) <= 2, "should find about the right number of beats"
+
+
+def test_beat_interval_is_measured_not_assumed():
+    """With tracked beats the spacing varies, so 60/bpm is the wrong number."""
+    from autoedit.music import BeatGrid
+    g = BeatGrid(bpm=120.0, beats=[0.0, 0.5, 1.1, 1.6, 2.2])
+    assert abs(g.beat_interval - 0.5) < 0.11
+
+
+def test_cut_points_thin_out_the_beats():
+    from autoedit.music import BeatGrid
+    g = BeatGrid(bpm=120.0, beats=[i * 0.5 for i in range(9)])
+    assert g.cut_points(1) == g.beats
+    assert g.cut_points(2) == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert g.cut_points(4) == [0.0, 2.0, 4.0]
+
+
+def test_subdividing_uses_the_midpoint_of_real_beats():
+    """Which is why it stays right when the tempo moves.
+
+    Halfway between two ACTUAL beats is still halfway when the gap changes; a
+    fixed half-interval offset would not be.
+    """
+    from autoedit.music import BeatGrid
+    g = BeatGrid(bpm=120.0, beats=[0.0, 0.5, 1.4])      # deliberately uneven
+    pts = g.cut_points(0.5)
+    assert pts == [0.0, 0.25, 0.5, 0.95, 1.4], pts
+
+
+def test_no_beats_means_no_cut_points():
+    from autoedit.music import BeatGrid
+    assert BeatGrid(bpm=0.0, beats=[]).cut_points(1) == []

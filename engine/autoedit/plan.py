@@ -11,6 +11,7 @@ floats together to decide where a clip lands.
 from __future__ import annotations
 
 import json
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,6 +123,8 @@ class EditPlanBuilder:
     _beats_dropped: int = 0
     _beat_grid_refused: bool = False
     _beat_bpm: float = 0.0
+    # Cut positions in sequence frames, from the beats found in the waveform.
+    _cut_frames: list = field(default_factory=list)
 
     # ------------------------------------------------------------- inputs
 
@@ -163,6 +166,8 @@ class EditPlanBuilder:
         beats: "BeatGrid | None" = None,
         music: "MusicSettings | None" = None,
         min_clip_seconds: float = 0.0,
+        bed_start: float = 0.0,
+        every: float = 1.0,
     ) -> "EditPlanBuilder":
         """Lay a clip's surviving spans end-to-end from the current playhead.
 
@@ -182,6 +187,16 @@ class EditPlanBuilder:
         last = len(cut_plan.keeps) - 1
 
         grid = self._usable_grid(beats, music)
+        # The bed's own times are TRACK times; the timeline runs from zero. The
+        # bed is laid at sequence frame 0 starting `bed_start` into the track, so
+        # sequence t is track (bed_start + t) and the candidates shift by that.
+        self._cut_frames = (
+            sorted({
+                self.timebase.to_frames(t - bed_start)
+                for t in grid.cut_points(every) if t >= bed_start
+            })
+            if grid else []
+        )
         # The silence that follows each keep, which is the slack a cut may be
         # nudged into without eating a word.
         slack_after = _slack_after(cut_plan)
@@ -198,7 +213,7 @@ class EditPlanBuilder:
 
             if grid:
                 frames = self._fit_to_beats(
-                    frames, grid, music, slack_after.get(i, 0.0), min_clip_seconds
+                    frames, music, slack_after.get(i, 0.0), min_clip_seconds
                 )
                 if frames < 1:
                     self._beats_dropped += 1
@@ -285,51 +300,48 @@ class EditPlanBuilder:
             return None
         return beats
 
-    def _fit_to_beats(self, frames, grid, music, slack_seconds, min_clip_seconds):
-        """Choose a clip length so the NEXT cut lands on the beat.
+    def _fit_to_beats(self, frames, music, slack_seconds, min_clip_seconds):
+        """Choose a clip length so the NEXT cut lands on the music.
 
-        Positions are computed as absolute multiples of the beat interval and then
-        rounded, never accumulated from rounded durations. At 104 BPM one beat is
-        34.58 frames at 59.94fps; rounding each duration to 35 would drift 0.42 of
-        a frame per cut, which over a twenty-cut edit is an eighth of a second of
-        creeping sync error. Absolute positions cannot compound.
+        Positions come from a list of times the beat tracker actually found in
+        the waveform, not from `k * interval`. That is the whole point: a song's
+        spacing drifts, and arithmetic from beat zero drifts with it. Snapping to
+        real onsets means an error never compounds -- each cut is placed against
+        where the music is at that moment.
         """
-        beat_frames = grid.beat_interval * self.timebase.fps
-        if beat_frames < 1:
+        candidates = self._cut_frames
+        if not candidates:
             return frames
 
         playhead = self._playhead
         natural_end = playhead + frames
 
         if music.music_wins:
-            # Round the segment to the nearest whole number of beats rather than
-            # forcing every shot to the same length. Forcing it would chop speech
-            # into one-second fragments; rounding keeps what was said and still
-            # puts the join on the grid.
-            quantum = max(1, music.beats_per_cut) * beat_frames
-            index = round(natural_end / quantum)
-            floor_index = int(playhead // quantum)
-            index = max(index, floor_index + 1)
-            end = round(index * quantum)
-            while end - playhead > frames and index > floor_index + 1:
-                index -= 1
-                end = round(index * quantum)
-            if end - playhead > frames:
-                # Not even one quantum of material. Better dropped than left as a
-                # short clip that knocks everything after it off the grid.
+            # The last cut point at or before what the material allows. Going
+            # past it would need frames that do not exist, and Premiere pads a
+            # short clip by holding its last frame.
+            i = bisect_right(candidates, natural_end) - 1
+            while i >= 0 and candidates[i] <= playhead:
+                i -= 1
+            if i < 0:
                 return 0
             self._beats_snapped += 1
-            return int(end - playhead)
+            return int(candidates[i] - playhead)
 
         # Speech has priority: move the cut only if it is already close to a beat
         # and the surrounding silence can absorb the move.
-        target = round(round(natural_end / beat_frames) * beat_frames)
+        i = bisect_left(candidates, natural_end)
+        near = [c for c in candidates[max(0, i - 1):i + 1] if c > playhead]
+        if not near:
+            self._beats_held += 1
+            return frames
+        target = min(near, key=lambda c: abs(c - natural_end))
         move = target - natural_end
         budget = MAX_BEAT_NUDGE * self.timebase.fps
         room = slack_seconds * self.timebase.fps
         fits = (
             abs(move) <= budget
-            and (move <= room)                                   # extending eats silence
+            and move <= room                                     # extending eats silence
             and (target - playhead) >= min_clip_seconds * self.timebase.fps
             and (target - playhead) >= 1
         )
