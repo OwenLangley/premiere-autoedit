@@ -268,9 +268,15 @@ async function applyPlan(plan, options) {
   // --- verify what actually landed ----------------------------------------
   progress("verify", "checking the timeline against the plan");
   try {
-    const check = await verifyApplied(sequence, plan);
+    const check = await verifyApplied(sequence, plan, strategy);
     report.verification = check;
     if (!check.ok) {
+      for (const w of check.wrongSource) {
+        report.warnings.push(
+          `the clip at frame ${w.atFrame} on V${w.track + 1} is "${w.actual}", but the plan ` +
+          `asked for "${w.expected}" -- the timeline is the right shape and the wrong footage`
+        );
+      }
       for (const g of check.gaps) {
         report.warnings.push(
           `${g.gapFrames}-frame gap after clip ${g.afterIndex} on V${g.track + 1} -- that is black on screen`
@@ -680,16 +686,25 @@ function describeMissingSource(plan, clip) {
  * quiet one: a clip landing a frame short leaves a single black frame between
  * cuts, which survives review and shows up in the delivered master.
  *
- * @param {any} sequence @param {any} plan
- * @returns {Promise<{ok: boolean, gaps: any[], mismatches: any[]}>}
+ * It also checks WHICH source landed in each slot, not only where and how long.
+ * Position and duration alone once passed a sequence made entirely of frozen
+ * stills, and they would equally pass one where every slot holds the same shot:
+ * both are correct to the frame and wrong to look at. In subclip mode the
+ * placed item's name is the subclip name the plan asked for, so identity is
+ * readable rather than inferred.
+ *
+ * @param {any} sequence @param {any} plan @param {string} [strategy]
+ * @returns {Promise<{ok: boolean, gaps: any[], mismatches: any[], wrongSource: any[]}>}
  */
-async function verifyApplied(sequence, plan) {
+async function verifyApplied(sequence, plan, strategy) {
   const tb = plan.timebase;
   const toFrames = (seconds) => Math.round((seconds * tb.fpsNum) / tb.fpsDen);
   /** @type {any[]} */
   const mismatches = [];
   /** @type {any[]} */
   const gaps = [];
+  /** @type {any[]} */
+  const wrongSource = [];
 
   const wanted = new Map();
   /** @type {any[]} */
@@ -715,18 +730,45 @@ async function verifyApplied(sequence, plan) {
       continue;
     }
     const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false) || [];
-    /** @type {{at:number,dur:number}[]} */
+    /** @type {{at:number,dur:number,source:string|null}[]} */
     const actual = [];
     for (const item of items) {
       const start = await item.getStartTime();
       const end = await item.getEndTime();
-      actual.push({ at: toFrames(start.seconds), dur: toFrames(end.seconds - start.seconds) });
+      let source = null;
+      try {
+        const pi = await item.getProjectItem();
+        source = pi ? String(pi.name || "").normalize("NFC") : null;
+      } catch {
+        source = null;   // unreadable identity is not a reason to fail the build
+      }
+      actual.push({
+        at: toFrames(start.seconds),
+        dur: toFrames(end.seconds - start.seconds),
+        source,
+      });
     }
     actual.sort((a, b) => a.at - b.at);
 
     planned.sort((a, b) => a.atFrame - b.atFrame);
     if (actual.length !== planned.length) {
       mismatches.push({ track: trackIndex, expectedClips: planned.length, actualClips: actual.length });
+    }
+
+    // Identity. Only meaningful in subclip mode, where each slot gets its own
+    // named item; with shared in/out points every slot legitimately holds the
+    // same master and the name says nothing.
+    if (strategy === STRATEGY.SUBCLIP) {
+      for (let i = 0; i < Math.min(actual.length, planned.length); i += 1) {
+        const want = subclipName(planned[i], plan).normalize("NFC");
+        const got = actual[i].source;
+        if (got && got !== want) {
+          wrongSource.push({
+            track: trackIndex, atFrame: planned[i].atFrame,
+            expected: want, actual: got, mediaId: planned[i].mediaId,
+          });
+        }
+      }
     }
     planned.forEach((c, i) => {
       const got = actual[i];
@@ -783,7 +825,10 @@ async function verifyApplied(sequence, plan) {
     }
   }
 
-  return { ok: mismatches.length === 0 && gaps.length === 0, gaps, mismatches };
+  return {
+    ok: mismatches.length === 0 && gaps.length === 0 && wrongSource.length === 0,
+    gaps, mismatches, wrongSource,
+  };
 }
 
 // --------------------------------------------------------------- graphics

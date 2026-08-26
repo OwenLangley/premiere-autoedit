@@ -249,6 +249,45 @@ function candidatesFor(plan, slot, library) {
 }
 
 /**
+ * The still that best represents what a timeline slot is showing.
+ *
+ * Timeline entries carry no thumbPath of their own -- they were written before
+ * stills existed, and a speech-cut plan has no candidates to hang one off. So
+ * this finds the indexed span of the same footage that CONTAINS the slot's in
+ * point, which is by definition a picture of the same moment.
+ *
+ * Falls back to the nearest span in the same file rather than giving up: an
+ * approximate frame from the right clip tells an editor which shot they are
+ * looking at, and that is the entire job here.
+ *
+ * @param {any} plan @param {any} clip @param {any} library
+ * @returns {string|null}
+ */
+function thumbForClip(plan, clip, library) {
+  const spans = [
+    ...(plan.candidates || []).filter((c) => c.mediaId === clip.mediaId && c.thumbPath),
+  ];
+  const rel = (plan.media || []).find((m) => m.id === clip.mediaId);
+  if (rel && library && Array.isArray(library.files)) {
+    for (const f of library.files) {
+      if (f.relPath === rel.relPath && f.thumbPath) spans.push(f);
+    }
+  }
+  if (!spans.length) return null;
+  const inside = spans.find(
+    (sp) => clip.inSeconds >= sp.inSeconds && clip.inSeconds < sp.outSeconds
+  );
+  if (inside) return inside.thumbPath;
+  let best = spans[0];
+  let bestGap = Math.abs(best.inSeconds - clip.inSeconds);
+  for (const sp of spans) {
+    const gap = Math.abs(sp.inSeconds - clip.inSeconds);
+    if (gap < bestGap) { best = sp; bestGap = gap; }
+  }
+  return best.thumbPath;
+}
+
+/**
  * A media id for a library file the plan has never referenced.
  *
  * Same shape the engine derives, and checked against what is already in the
@@ -555,6 +594,7 @@ module.exports = {
   groupKeyOf,
   colourFor,
   candidatesFor,
+  thumbForClip,
   withSwaps,
   libraryMediaId,
   clipTimes,

@@ -10,7 +10,7 @@
 const { applyPlan, ApplyError } = require("./apply");
 const {
   validatePlan, summarize, sections, withoutSections,
-  withSwaps, candidatesFor, groupKeyOf, colourFor,
+  withSwaps, candidatesFor, groupKeyOf, colourFor, thumbForClip,
 } = require("./plan");
 const {
   LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
@@ -358,6 +358,20 @@ function renderStrip() {
     // switched off without the edit appearing to change shape underneath them.
     if (c.sectionId && state.disabled.has(c.sectionId)) b.classList.add("off");
     b.title = `${mediaName(c.mediaId)} — ${(c.outSeconds - c.inSeconds).toFixed(2)}s`;
+
+    // A picture on the block, not just a colour. Colour says which shot groups
+    // with which; only the frame says what is actually there. Set as a
+    // background so the block keeps its colour underneath while the still loads
+    // and if it never does.
+    const tp = thumbForClip(state.plan, c, state.libraryShots);
+    if (tp) {
+      readImageDataUri(tp, state.settings.jobsToken).then((uri) => {
+        if (!uri) return;
+        b.style.backgroundImage = `url("${uri}")`;
+        b.style.backgroundSize = "cover";
+        b.style.backgroundPosition = "center";
+      }).catch(() => { /* the colour alone still reads */ });
+    }
     b.addEventListener("click", () => {
       state.selectedSlot = state.selectedSlot === c.atFrame ? null : c.atFrame;
       renderStrip();
