@@ -249,6 +249,40 @@ for building the proxy* changes. The old 608x1080 files were happily reused. The
 transcode recipe is now part of the key. Any cache of derived artefacts needs the
 deriving code's identity in its key, or a fix silently fails to apply.
 
+## 5g. Premiere 26 only looks for plugins system-wide
+
+The panel disappeared from Window > UXP Plugins with no error, no entry in the
+menu, and every file still present and byte-identical to source. Nothing in the
+UXP log mentioned the plugin at all, which was the clue: Premiere was not
+rejecting it, it was never finding it.
+
+`upic 2.6.0` logs exactly where it looks, and both places are SYSTEM paths:
+
+    upic::Failed to read plugin info file:
+        /Library/Application Support/Adobe/UXP/PluginsInfo/v1/premierepro.json
+    upic::Loading plugins from system fallback plugins folder:
+        /Library/Application Support/Adobe/UXP/Plugins/External
+    upic::Number of plugins added from system's fallback: 0
+
+Note the absence of `~`. Earlier versions read the per-user folder, which is
+where `install.sh` had always installed, and it worked for months. When Premiere
+updated, everything kept working right up until it silently did not.
+
+`/Library/Application Support/Adobe/UXP` is `root:wheel`, so installing there
+needs sudo -- which is exactly why the per-user path was chosen originally. It is
+not a good enough reason for a plugin nobody can find.
+
+`panel/install.sh` now installs to the system folder, asking for sudo when it
+needs to, and mirrors into the per-user folder as well so an older Premiere still
+finds it.
+
+**The diagnostic worth remembering:** when a plugin vanishes, check whether the
+host is *rejecting* it or *not seeing* it. A rejection leaves an error; not
+seeing it leaves silence, and silence sends you looking at your own code. The
+`upic::` lines say which, and where it looked.
+
+    grep 'upic::' ~/Library/Logs/Adobe/Adobe*Premiere*/UXPLogs_*.log | tail -8
+
 ## 6. Several APIs are synchronous despite the async house style
 
 `getTrackItems()`, `getComponentCount()`, `getComponentAtIndex()` return values
