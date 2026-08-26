@@ -352,36 +352,55 @@ function renderStrip() {
   // it has no frames to choose between, and it was the slot that wiped the
   // sequence when a swap keyed on frame 0 reached it as well as the picture.
   for (const c of live.timeline.filter(isPictureSlot)) {
-    const b = document.createElement("button");
+    const colour = colourFor(groupKeyOf(c));
+    const b = document.createElement("div");
     b.className = "blk";
     b.style.flexGrow = String(Math.max(c.durationFrames, 1));
-    b.style.background = colourFor(groupKeyOf(c));
-    if (c.swapped) b.classList.add("swapped");
+    b.style.background = colour;
     if (state.selectedSlot === slotKey(c)) b.classList.add("on");
     // Dimmed rather than removed: the editor should see that a section is
     // switched off without the edit appearing to change shape underneath them.
     if (c.sectionId && state.disabled.has(c.sectionId)) b.classList.add("off");
     b.title = `${mediaName(c.mediaId)} — ${(c.outSeconds - c.inSeconds).toFixed(2)}s`;
+    strip.appendChild(b);
 
-    // A picture on the block, not just a colour. Colour says which shot groups
-    // with which; only the frame says what is actually there. Set as a
-    // background so the block keeps its colour underneath while the still loads
-    // and if it never does.
+    // A picture on the block, not just a colour: colour says which shots group
+    // together, only the frame says what is actually there.
+    //
+    // A real <img>, appended and then given its src -- the sequence the
+    // alternates grid uses and the only one measured to work here. This block
+    // previously set a CSS background-image, which was the single use of that
+    // property in the panel and rendered as nothing.
     const tp = thumbForClip(state.plan, c, state.libraryShots);
     if (tp) {
       readImageDataUri(tp, state.settings.jobsToken).then((uri) => {
         if (!uri) return;
-        b.style.backgroundImage = `url("${uri}")`;
-        b.style.backgroundSize = "cover";
-        b.style.backgroundPosition = "center";
+        const img = document.createElement("img");
+        img.className = "blk-shot";
+        b.appendChild(img);
+        img.src = uri;
+        // The band goes in after the picture so it sits on top of it.
+        const band = document.createElement("div");
+        band.className = "blk-band";
+        band.style.background = colour;
+        b.appendChild(band);
+        if (c.swapped) {
+          const mark = document.createElement("div");
+          mark.className = "blk-mark";
+          b.appendChild(mark);
+        }
       }).catch(() => { /* the colour alone still reads */ });
+    } else if (c.swapped) {
+      const mark = document.createElement("div");
+      mark.className = "blk-mark";
+      b.appendChild(mark);
     }
+
     b.addEventListener("click", () => {
       const key = slotKey(c);
       state.selectedSlot = state.selectedSlot === key ? null : key;
       renderStrip();
     });
-    strip.appendChild(b);
   }
 
   renderSlotDetail();
