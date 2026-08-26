@@ -200,6 +200,8 @@ async function applyPlan(plan, options) {
   const sequence = await createSequence(project, plan);
   report.sequenceName = plan.sequence.name;
   report.stages.push("sequence");
+  const rateNote = await checkSequenceRate(sequence, plan);
+  if (rateNote) report.warnings.push(rateNote);
 
   // --- clips ---------------------------------------------------------------
   progress("clips", `placing ${plan.timeline.length} clip(s)`);
@@ -460,6 +462,53 @@ async function createSequence(project, plan) {
     : await project.createSequence(name);
   if (!sequence) throw new ApplyError(`could not create sequence "${name}"`, "sequence");
   return sequence;
+}
+
+/**
+ * The frame rate the sequence actually ended up with, or null if it will not say.
+ *
+ * Worth asking rather than assuming. Without a preset, `createSequence` gives
+ * Premiere's default rate, which has nothing to do with the plan -- and every
+ * clip then lands on THAT grid. A one-second clip on a 29.97 grid is 29.97
+ * frames, which cannot exist, so it truncates to 29 and the clip is short. The
+ * positions still look right, because they are far enough apart that rounding
+ * absorbs the error, so the damage shows up only as durations.
+ * @param {any} sequence
+ */
+async function sequenceFps(sequence) {
+  try {
+    const settings = await sequence.getSettings();
+    const rate = settings && settings.getVideoFrameRate();
+    const fps = rate && rate.value;
+    return Number.isFinite(fps) && fps > 0 ? fps : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Warn when the sequence is not on the grid the plan was written for.
+ *
+ * Every position and duration in a plan is a frame count in the plan's timebase.
+ * If the sequence runs at another rate, those frame counts mean a different
+ * amount of time than the engine intended, and clip lengths quietly change. The
+ * engine writes a preset precisely so this cannot happen, so reaching this
+ * warning means a plan arrived without one.
+ * @param {any} sequence @param {any} plan
+ */
+async function checkSequenceRate(sequence, plan) {
+  const actual = await sequenceFps(sequence);
+  if (actual === null) return null;
+  const wanted = plan.timebase.fpsNum / plan.timebase.fpsDen;
+  if (Math.abs(actual - wanted) < 0.001) return null;
+  const fmt = (n) => n.toFixed(3).replace(/\.?0+$/, "");
+  return note(
+    "sequence.rateMismatch",
+    { actual: fmt(actual), wanted: fmt(wanted) },
+    `the sequence is ${fmt(actual)}fps but the plan was written for ${fmt(wanted)}fps, `
+    + `so clip lengths will not be what the plan asked for`
+    + (plan.sequence.presetPath ? "" : " -- this plan carries no sequence preset")
+  );
 }
 
 // --------------------------------------------------------------- clips

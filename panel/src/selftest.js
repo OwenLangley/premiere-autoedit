@@ -630,6 +630,19 @@ async function assemblyRoundTrip(project, mediaPath, strategy) {
   const sequence = sequences.find((s) => s.name === plan.sequence.name);
   if (!sequence) return { pass: false, detail: { error: "sequence was not created" }, sequence: null };
 
+  // Read the grid the sequence actually got. This plan carries no preset, so it
+  // is whatever Premiere defaults to -- and if that is not 25 then every clip
+  // length below is measured against the wrong ruler and the check's numbers
+  // mean nothing on their own.
+  let sequenceFps = null;
+  try {
+    const settings = await sequence.getSettings();
+    const rate = settings && settings.getVideoFrameRate();
+    sequenceFps = rate && rate.value;
+  } catch {
+    /* older builds may not expose it; the check still runs */
+  }
+
   const track = await sequence.getVideoTrack(0);
   const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false) || [];
 
@@ -648,6 +661,10 @@ async function assemblyRoundTrip(project, mediaPath, strategy) {
     actual.length === expected.length &&
     expected.every((e, i) => actual[i] && actual[i].atFrame === e.atFrame && actual[i].durationFrames === e.durationFrames);
 
+  const planFps = timebase.fpsNum / timebase.fpsDen;
+  const gridMismatch = Number.isFinite(sequenceFps)
+    && Math.abs(sequenceFps - planFps) > 0.001;
+
   return {
     pass,
     sequence,
@@ -655,9 +672,17 @@ async function assemblyRoundTrip(project, mediaPath, strategy) {
       expected,
       actual,
       strategy,
+      sequenceFps,
+      planFps,
       note: pass
         ? "clips landed exactly where the plan asked"
-        : "timeline does not match the plan -- durations differing while positions match usually means source in/out was not applied per clip",
+        : gridMismatch
+          ? `the sequence is ${sequenceFps}fps but this plan is ${planFps}fps. `
+            + "This plan carries no preset, so Premiere chose the rate. Clip "
+            + "lengths are being snapped to a grid the plan was not written "
+            + "for -- that is what the short durations are, and it is a "
+            + "property of this check, not of any plan the engine writes."
+          : "timeline does not match the plan -- durations differing while positions match usually means source in/out was not applied per clip",
     },
   };
 }

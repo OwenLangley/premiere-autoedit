@@ -246,6 +246,8 @@ const EN = {
     "{count} clip(s) are not an exact fit for the {chosen}fps sequence, so those cuts can be a frame out — check the joins on {files}",
   "warn.swap.candidatesTruncated":
     "{file} has {found} usable shots; only the best {kept} are offered as alternates, so one you remember may not be listed",
+  "warn.sequence.rateMismatch":
+    "the sequence is {actual}fps but the plan was written for {wanted}fps — clip lengths will not be what the plan asked for",
 };
 
 const JA = {
@@ -473,6 +475,8 @@ const JA = {
     "{count} 個のクリップが {chosen}fps のシーケンスにぴったり収まらないため、つなぎ目が 1 フレームずれることがあります。{files} の編集点を確認してください",
   "warn.swap.candidatesTruncated":
     "{file} には使用できるショットが {found} 個ありますが、上位 {kept} 個のみを差し替え候補として表示します。記憶にあるショットが一覧にない場合があります",
+  "warn.sequence.rateMismatch":
+    "シーケンスは {actual}fps ですが、この編集案は {wanted}fps 用に作られています。クリップの長さが指定どおりになりません",
 };
 
 const CATALOGUES = { en: EN, ja: JA };
