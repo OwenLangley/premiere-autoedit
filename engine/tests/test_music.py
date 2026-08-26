@@ -169,16 +169,34 @@ def test_noise_does_not_fit_a_grid():
     assert fit < 0.5, f"noise should not fit a grid, got {fit}"
 
 
-def test_the_floor_sits_between_measured_music_and_measured_speech():
-    """The threshold is calibrated, not guessed.
+def test_the_floor_passes_every_measured_real_track():
+    """The threshold is calibrated against measurements, not guessed.
 
-    Measured grid-fit values: real music 0.19 / 0.27 / 0.38 / 0.47, speech with
-    no beat 0.09 / 0.14. The floor has to pass all of the first group and none of
-    the second.
+    On the peak-based fit, four real tracks scored 0.41 / 0.60 / 0.64 / 0.65.
+    The floor has to pass all of them: the detector recovered the correct tempo
+    for every one, including the 0.41, so refusing it would throw away a grid
+    that was right.
     """
     from autoedit.recipe import MusicSettings
     floor = MusicSettings().min_beat_confidence
-    music = [0.190, 0.274, 0.376, 0.471]
-    speech = [0.087, 0.142]
-    assert all(m > floor for m in music), "a real track would be refused"
-    assert all(s < floor for s in speech), "beatless audio would be accepted"
+    assert all(m > floor for m in [0.414, 0.601, 0.640, 0.648])
+
+
+def test_the_floor_no_longer_separates_music_from_speech_and_that_is_fine():
+    """Recorded because it USED to, and someone will assume it still does.
+
+    The energy-based fit scored beatless speech at 0.09-0.14, well under any
+    real track. The peak-based fit that replaced it scores speech at 0.26-0.40,
+    overlapping the weakest real track at 0.41 -- syllables are onsets too, and
+    they are quite regular.
+
+    That is an acceptable trade because the input here is always a music file the
+    editor chose. The floor is a guard against a grid that is not there at all
+    (silence, a corrupt read), not a genre classifier. What earns trust in the
+    tempo is that it is now measured correctly, not that the score is high.
+    """
+    from autoedit.recipe import MusicSettings
+    floor = MusicSettings().min_beat_confidence
+    speech = [0.261, 0.292, 0.402]
+    assert not all(x < floor for x in speech), "if this passes, re-read the docstring"
+    assert floor < 0.414, "the floor must not refuse the weakest real track"
