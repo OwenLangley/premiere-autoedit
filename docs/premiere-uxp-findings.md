@@ -365,6 +365,50 @@ function parseSeconds(text) {
 `dataset` is also unreliable on UXP elements -- keep per-field flags in your own
 state object rather than on the DOM node.
 
+## 10b. An `<img>` must be in the document, and visible, before `src` is set
+
+A thumbnail grid showed empty boxes through four wrong diagnoses. Every layer
+was measured working on the same machine: the JPEGs were good pictures, the
+storage API read them out of the work directory, a 27KB data URI came back
+intact, `replaceWith` and every other DOM method probed was present, and the
+self-test's own probe rendered a 33KB data URI at `naturalWidth: 320`.
+
+The difference between the probe that worked and the panel that did not was
+statement order.
+
+```js
+// selftest.js renderProbe -- works
+document.body.appendChild(img);
+img.src = src;
+
+// the panel -- silently blank
+img.style.display = "none";
+card.appendChild(img);
+// ...later
+img.src = uri;
+img.style.display = "block";
+```
+
+An `<img>` that is not laid out when `src` is assigned never decodes, and
+unhiding it afterwards does not start it. An earlier version failed the same way
+for the mirror reason: it set `src` before the element was in the tree at all.
+
+There is **no error** in either case. No exception, no `error` event, no console
+line. The element simply stays blank, which is indistinguishable from a missing
+file, a permissions refusal or a bad encoding -- and those were the first three
+diagnoses.
+
+**Append first, then assign `src`.** If a placeholder is wanted, keep it as a
+separate element and hide it from the image's own `load` handler.
+
+**The general lesson, and it is the same one as 5d:** every layer passing in
+isolation is not evidence that the composition works. Four fixes went out against
+layers that were already fine, because each was tested the way it was reasoned
+about -- alone. The bug lived in the order two working things were combined in,
+which no single-layer test can see. What broke the deadlock was writing the
+panel's actual runtime state to a file and reading it, rather than reasoning
+about what it must contain.
+
 ## 11. `SourceMonitor` is the way to play audio, because UXP cannot
 
 There is no `<audio>` element and no Web Audio API, so a panel cannot play a

@@ -508,21 +508,6 @@ function renderAlternates(slot) {
     // A thumbnail if the engine made one. An <img> whose src will not decode
     // never fires load, so it swaps itself for a labelled placeholder rather
     // than leaving a broken box -- the card still works either way.
-    // Both the picture and its placeholder go in up front and one of them is
-    // hidden, rather than swapping nodes once the bytes arrive.
-    //
-    // The previous version called shot.replaceWith(img), which was the only use
-    // of replaceWith in the whole panel -- everything else here has always used
-    // appendChild and innerHTML. UXP implements a subset of the DOM, and a
-    // method it does not have throws, and the throw went into a .catch that
-    // ignored it. The result was a placeholder that never changed and no sign
-    // of why. Toggling `style.display` touches nothing that is not already
-    // proven to work in this panel.
-    const img = document.createElement("img");
-    img.className = "thumb";
-    img.style.display = "none";
-    card.appendChild(img);
-
     const shot = document.createElement("div");
     shot.className = "noshot";
     shot.textContent = state.t("swap.noThumb");
@@ -534,11 +519,27 @@ function renderAlternates(slot) {
           reportThumbFailure(lastImageError());
           return;
         }
+        // ORDER MATTERS, and it is the whole bug.
+        //
+        // The element goes into the document FIRST and is visible when `src` is
+        // assigned. Both earlier versions broke that: one set src before the
+        // <img> was ever in the tree, the other set it while the element was
+        // display:none and unhid it afterwards. Neither ever decoded, and
+        // neither reported anything, because there is no error -- an image that
+        // was not laid out when its src arrived simply stays blank.
+        //
+        // This is the exact sequence selftest.js uses in renderProbe, which is
+        // the one image path measured to work on this machine: append, then src.
+        const img = document.createElement("img");
+        img.className = "thumb";
+        card.appendChild(img);
+        img.addEventListener("load", () => { shot.style.display = "none"; });
+        img.addEventListener("error", () => {
+          reportThumbFailure(`${c.thumbPath}: the <img> refused the data URI`);
+        });
         img.src = uri;
-        img.style.display = "block";
-        shot.style.display = "none";
       }).catch((err) => {
-        // Never silent again. This catch is what hid the last bug.
+        // Never silent again. This catch is what hid an earlier bug.
         reportThumbFailure(String((err && err.message) || err));
       });
     }

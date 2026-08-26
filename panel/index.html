@@ -103,14 +103,18 @@
       .alt { border: 1px solid var(--line); border-radius: 3px; overflow: hidden;
              background: #202020; display: flex; flex-direction: column; }
       .alt:hover { border-color: var(--dim); }
-      /* 16/9 box, but object-fit: contain -- vertical rushes are the norm here
-         and cropping them to a landscape box hides most of the frame, which is
-         the one thing a thumbnail exists to show. */
-      .alt .thumb { width: 100%; aspect-ratio: 16 / 9; display: block;
+      /* An explicit height rather than aspect-ratio: UXP's CSS is a subset and
+         aspect-ratio is a recent addition, so a fixed box is one less thing
+         standing between the bytes and the screen. Tall, because these rushes
+         are vertical -- and object-fit: contain, because cropping a vertical
+         frame into a landscape box hides most of the shot, which is the one
+         thing a thumbnail exists to show. */
+      .alt .thumb { width: 100%; height: 150px; display: block;
                     background: #111; object-fit: contain; }
-      .alt .noshot { width: 100%; aspect-ratio: 16 / 9; background: #111;
+      .alt .noshot { width: 100%; height: 150px; background: #111;
                      display: flex; align-items: center; justify-content: center;
-                     color: var(--dim); font-size: 10px; text-align: center; padding: 4px; }
+                     color: var(--dim); font-size: 10px; text-align: center; padding: 4px;
+                     box-sizing: border-box; }
       .alt .txt { padding: 5px 6px; font-size: 11px; min-width: 0; }
       .alt .txt > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .alt .txt .sub { color: var(--dim); }
