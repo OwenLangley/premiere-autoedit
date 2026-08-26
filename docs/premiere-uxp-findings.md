@@ -409,6 +409,36 @@ which no single-layer test can see. What broke the deadlock was writing the
 panel's actual runtime state to a file and reading it, rather than reasoning
 about what it must contain.
 
+## 10c. `atFrame` is not a slot: a music bed starts at frame 0 too
+
+Swapping one shot replaced the entire timeline with a twelve-second clip.
+
+Shot swaps were held in a `Map` keyed on the timeline entry's `atFrame`. That is
+unique **on a track**, which is what the comment justifying it said -- and the
+map was global. A music bed sits at frame 0 on the audio track, and the first
+picture sits at frame 0 on V1, so one swap matched both.
+
+The bed was 719 frames (11.995s). Handed a video source and clamped so the range
+would fit inside it -- `min(66.9257, 78.08 - 11.995)` -- it became 66.085 to
+78.080, the tail of the file, and overwriting that at frame 0 buried all 25
+clips behind it.
+
+Every number in the failure was reachable from the receipt, which is the only
+reason it was found: the placed item's name encoded a range appearing in neither
+the plan nor the library, `78.08 - 11.995 = 66.085` matched the clamp exactly,
+and the plan held exactly one 719-frame entry -- the bed.
+
+Two fixes, both needed. Slots are keyed by frame **and** track. And the strip
+lists picture slots only: a music bed has no frames to choose between, and
+"swap this shot" can never mean it.
+
+**The general lesson:** an identifier that is unique *within* a scope is not an
+identifier. I wrote "unique on a track" in the comment defending the choice, and
+then used it across all tracks -- the reasoning was correct and the code did not
+follow it. The verifier could not catch it either, because it checked position
+and duration and never which footage landed where; that is now checked too, and
+it is what named the culprit.
+
 ## 11. `SourceMonitor` is the way to play audio, because UXP cannot
 
 There is no `<audio>` element and no Web Audio API, so a panel cannot play a

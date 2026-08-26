@@ -11,6 +11,7 @@ const { applyPlan, ApplyError } = require("./apply");
 const {
   validatePlan, summarize, sections, withoutSections,
   withSwaps, candidatesFor, groupKeyOf, colourFor, thumbForClip,
+  slotKey, isPictureSlot,
 } = require("./plan");
 const {
   LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
@@ -315,9 +316,9 @@ function renderSections() {
 // --------------------------------------------------------------- shot review
 
 /** The slot as it stands now, with any swap already applied. */
-function slotAt(atFrame) {
+function slotAt(key) {
   const live = withSwaps(state.plan, state.swaps);
-  return (live.timeline || []).find((c) => c.atFrame === atFrame) || null;
+  return (live.timeline || []).find((c) => slotKey(c) === key) || null;
 }
 
 function mediaName(mediaId) {
@@ -347,13 +348,16 @@ function renderStrip() {
   block.classList.remove("hidden");
 
   const live = withSwaps(state.plan, state.swaps);
-  for (const c of live.timeline) {
+  // Pictures only. The music bed is a timeline entry too, and it is not a shot:
+  // it has no frames to choose between, and it was the slot that wiped the
+  // sequence when a swap keyed on frame 0 reached it as well as the picture.
+  for (const c of live.timeline.filter(isPictureSlot)) {
     const b = document.createElement("button");
     b.className = "blk";
     b.style.flexGrow = String(Math.max(c.durationFrames, 1));
     b.style.background = colourFor(groupKeyOf(c));
     if (c.swapped) b.classList.add("swapped");
-    if (state.selectedSlot === c.atFrame) b.classList.add("on");
+    if (state.selectedSlot === slotKey(c)) b.classList.add("on");
     // Dimmed rather than removed: the editor should see that a section is
     // switched off without the edit appearing to change shape underneath them.
     if (c.sectionId && state.disabled.has(c.sectionId)) b.classList.add("off");
@@ -373,7 +377,8 @@ function renderStrip() {
       }).catch(() => { /* the colour alone still reads */ });
     }
     b.addEventListener("click", () => {
-      state.selectedSlot = state.selectedSlot === c.atFrame ? null : c.atFrame;
+      const key = slotKey(c);
+      state.selectedSlot = state.selectedSlot === key ? null : key;
       renderStrip();
     });
     strip.appendChild(b);
@@ -431,7 +436,7 @@ function renderSlotDetail() {
     undo.textContent = state.t("swap.revert");
     undo.style.marginTop = "6px";
     undo.addEventListener("click", () => {
-      state.swaps.delete(slot.atFrame);
+      state.swaps.delete(slotKey(slot));
       renderStrip();
     });
     detail.appendChild(undo);
@@ -648,7 +653,7 @@ function renderAlternates(slot) {
       use.addEventListener("click", () => {
         // A library shot is identified by path -- the plan has no id for it yet,
         // and withSwaps mints one along with the media entry the build needs.
-        state.swaps.set(slot.atFrame, c.fromLibrary
+        state.swaps.set(slotKey(slot), c.fromLibrary
           ? { relPath: c.relPath, inSeconds: c.inSeconds,
               durationSeconds: c.durationSeconds, reason: c.reason }
           : { mediaId: c.mediaId, inSeconds: c.inSeconds, reason: c.reason });
@@ -720,8 +725,8 @@ async function onApply() {
         excludedSections: [...state.disabled],
         // What the editor changed by hand. The receipt is the only record of it
         // anywhere, since swaps are never written back to the plan.
-        swaps: [...state.swaps.entries()].map(([atFrame, pick]) => ({
-          atFrame, mediaId: pick.mediaId, inSeconds: pick.inSeconds,
+        swaps: [...state.swaps.entries()].map(([slot, pick]) => ({
+          slot, mediaId: pick.mediaId, relPath: pick.relPath, inSeconds: pick.inSeconds,
         })),
       });
     }

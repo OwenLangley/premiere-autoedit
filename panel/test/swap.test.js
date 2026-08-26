@@ -12,7 +12,11 @@ const test = require("node:test");
 const assert = require("node:assert");
 const {
   withSwaps, candidatesFor, groupKeyOf, colourFor, withoutSections, validatePlan,
+  slotKey, isPictureSlot,
 } = require("../src/plan");
+
+/** Slots are keyed by frame AND track; every clip fixture here is V0/A0. */
+const K = (atFrame, v = 0, a = 0) => `${atFrame}:${v}:${a}`;
 
 const TB = { fpsNum: 25, fpsDen: 1 };
 
@@ -53,7 +57,7 @@ function plan(over = {}) {
 test("swapping every clip leaves every position and duration identical", () => {
   const before = plan();
   const swaps = new Map(before.timeline.map((c) => [
-    c.atFrame, { mediaId: "A001", inSeconds: 30 },
+    slotKey(c), { mediaId: "A001", inSeconds: 30 },
   ]));
   const after = withSwaps(before, swaps);
 
@@ -67,7 +71,7 @@ test("swapping every clip leaves every position and duration identical", () => {
 });
 
 test("the swapped clip reads from the new source at the new in point", () => {
-  const after = withSwaps(plan(), new Map([[50, { mediaId: "B002", inSeconds: 33 }]]));
+  const after = withSwaps(plan(), new Map([[K(50), { mediaId: "B002", inSeconds: 33 }]]));
   const slot = after.timeline.find((c) => c.atFrame === 50);
   assert.strictEqual(slot.mediaId, "B002");
   assert.strictEqual(slot.inSeconds, 33);
@@ -78,14 +82,14 @@ test("the swapped clip reads from the new source at the new in point", () => {
 test("out point follows the slot's frames, not the candidate's own span", () => {
   // The candidate is 6s long; the slot is 2s. Taking the candidate's out point
   // would stretch the slot and shift everything after it.
-  const after = withSwaps(plan(), new Map([[0, { mediaId: "A001", inSeconds: 30 }]]));
+  const after = withSwaps(plan(), new Map([[K(0), { mediaId: "A001", inSeconds: 30 }]]));
   assert.strictEqual(after.timeline[0].outSeconds - after.timeline[0].inSeconds, 2);
 });
 
 test("swapping does not mutate the plan it was given", () => {
   const before = plan();
   const snapshot = JSON.stringify(before);
-  withSwaps(before, new Map([[0, { mediaId: "B002", inSeconds: 30 }]]));
+  withSwaps(before, new Map([[K(0), { mediaId: "B002", inSeconds: 30 }]]));
   assert.strictEqual(JSON.stringify(before), snapshot);
 });
 
@@ -97,8 +101,8 @@ test("no swaps returns the plan untouched", () => {
 
 test("swapping the same slot twice keeps the last choice, not both", () => {
   const swaps = new Map();
-  swaps.set(0, { mediaId: "A001", inSeconds: 30 });
-  swaps.set(0, { mediaId: "B002", inSeconds: 50 });
+  swaps.set(K(0), { mediaId: "A001", inSeconds: 30 });
+  swaps.set(K(0), { mediaId: "B002", inSeconds: 50 });
   const after = withSwaps(plan(), swaps);
   assert.strictEqual(after.timeline.filter((c) => c.atFrame === 0).length, 1);
   assert.strictEqual(after.timeline[0].mediaId, "B002");
@@ -107,7 +111,7 @@ test("swapping the same slot twice keeps the last choice, not both", () => {
 test("a swap never reads past the end of its new source", () => {
   // The slot wants 2s and the source has 60s, so an in point at 59 would read
   // a second past the end -- which Premiere renders as a held final frame.
-  const after = withSwaps(plan(), new Map([[0, { mediaId: "B002", inSeconds: 59 }]]));
+  const after = withSwaps(plan(), new Map([[K(0), { mediaId: "B002", inSeconds: 59 }]]));
   const slot = after.timeline[0];
   assert.strictEqual(slot.outSeconds, 60, "should have been pulled back to the tail");
   assert.strictEqual(slot.inSeconds, 58);
@@ -116,7 +120,7 @@ test("a swap never reads past the end of its new source", () => {
 
 test("a source shorter than the slot clamps at zero rather than going negative", () => {
   const p = plan({ media: [{ id: "T", relPath: "t.mov", durationSeconds: 1 }] });
-  const after = withSwaps(p, new Map([[0, { mediaId: "T", inSeconds: 0.5 }]]));
+  const after = withSwaps(p, new Map([[K(0), { mediaId: "T", inSeconds: 0.5 }]]));
   assert.ok(after.timeline[0].inSeconds >= 0);
 });
 
@@ -169,6 +173,50 @@ test("story sections take over the grouping when present", () => {
   assert.strictEqual(groupKeyOf({ mediaId: "A001" }), "A001");
 });
 
+// --------------------------------------------- the slot key, and the music bed
+
+test("a swap does not reach the music bed sharing its frame", () => {
+  // The bug this exists for. A music bed starts at frame 0 on the audio track
+  // and so does the first picture on V1. Keyed on the frame number alone, one
+  // swap hit both -- and the twelve-second music slot, handed video and clamped
+  // back from the end of the file to fit its length, was overwritten at frame 0
+  // on top of the entire sequence.
+  const p = plan({
+    media: [
+      { id: "A001", relPath: "a/A001.mov", durationSeconds: 60 },
+      { id: "B002", relPath: "b/B002.mov", durationSeconds: 60 },
+      { id: "MUSIC", relPath: "m/bed.wav", durationSeconds: 78, hasVideo: false },
+    ],
+    timeline: [
+      clip({ atFrame: 0, mediaId: "A001", inSeconds: 0, outSeconds: 2 }),
+      clip({
+        atFrame: 0, mediaId: "MUSIC", inSeconds: 0, outSeconds: 12,
+        durationFrames: 300, videoTrack: -1, audioTrack: 3,
+      }),
+    ],
+  });
+  const picture = p.timeline[0];
+  const after = withSwaps(p, new Map([[slotKey(picture), { mediaId: "B002", inSeconds: 30 }]]));
+
+  const bed = after.timeline.find((c) => c.videoTrack === -1);
+  assert.strictEqual(bed.mediaId, "MUSIC", "the music bed was swapped for footage");
+  assert.strictEqual(bed.durationFrames, 300);
+  assert.strictEqual(after.timeline[0].mediaId, "B002", "the picture should have swapped");
+});
+
+test("two clips at the same frame on different tracks get different keys", () => {
+  assert.notStrictEqual(
+    slotKey({ atFrame: 0, videoTrack: 0, audioTrack: 0 }),
+    slotKey({ atFrame: 0, videoTrack: -1, audioTrack: 3 })
+  );
+});
+
+test("the music bed is not a picture slot", () => {
+  assert.strictEqual(isPictureSlot({ videoTrack: -1 }), false);
+  assert.strictEqual(isPictureSlot({ videoTrack: 0 }), true);
+  assert.strictEqual(isPictureSlot({}), true, "a missing videoTrack means V1");
+});
+
 // ----------------------------------------------------------------- library
 
 const LIBRARY = {
@@ -217,7 +265,7 @@ test("a library span of footage the plan holds swaps without minting a media ent
   const known = offered.find((c) => c.relPath === "a/A001.mov");
   assert.strictEqual(known.fromLibrary, false, "the plan already carries this file");
   assert.strictEqual(known.mediaId, "A001", "it should resolve to the existing id");
-  const after = withSwaps(p, new Map([[0, {
+  const after = withSwaps(p, new Map([[K(0), {
     relPath: known.relPath, inSeconds: known.inSeconds, durationSeconds: 60,
   }]]));
   assert.strictEqual(after.media.length, p.media.length, "media should not have grown");
@@ -234,7 +282,7 @@ test("the plan's own shots sort ahead of the library", () => {
 
 test("swapping in a library shot adds the media entry the build needs", () => {
   const p = plan();
-  const after = withSwaps(p, new Map([[0, {
+  const after = withSwaps(p, new Map([[K(0), {
     relPath: "lib/L100.mov", inSeconds: 3, durationSeconds: 30,
   }]]));
   const added = after.media.find((m) => m.relPath === "lib/L100.mov");
@@ -246,7 +294,7 @@ test("swapping in a library shot adds the media entry the build needs", () => {
 
 test("a library swap is still clamped inside its own source", () => {
   const p = plan();
-  const after = withSwaps(p, new Map([[0, {
+  const after = withSwaps(p, new Map([[K(0), {
     relPath: "lib/L100.mov", inSeconds: 29.5, durationSeconds: 30,
   }]]));
   assert.strictEqual(after.timeline[0].outSeconds, 30);
@@ -255,7 +303,7 @@ test("a library swap is still clamped inside its own source", () => {
 
 test("a library file whose name collides with a plan id gets its own", () => {
   const p = plan();
-  const after = withSwaps(p, new Map([[0, {
+  const after = withSwaps(p, new Map([[K(0), {
     relPath: "other/A001.mov", inSeconds: 0, durationSeconds: 30,
   }]]));
   const ids = after.media.map((m) => m.id);
@@ -285,7 +333,7 @@ test("swapping then dropping a section matches dropping it outright", () => {
   });
   // Swap a clip inside the section that is about to be dropped: the result must
   // not depend on a choice the editor made about material they then removed.
-  const swapped = withSwaps(p, new Map([[50, { mediaId: "B002", inSeconds: 50 }]]));
+  const swapped = withSwaps(p, new Map([[K(50), { mediaId: "B002", inSeconds: 50 }]]));
   const viaSwap = withoutSections(swapped, ["bin"]);
   const direct = withoutSections(p, ["bin"]);
   assert.deepStrictEqual(
@@ -302,7 +350,7 @@ test("a swap outside the dropped section survives the ripple", () => {
     ],
   });
   const out = withoutSections(
-    withSwaps(p, new Map([[50, { mediaId: "B002", inSeconds: 50 }]])), ["bin"]
+    withSwaps(p, new Map([[K(50), { mediaId: "B002", inSeconds: 50 }]])), ["bin"]
   );
   assert.strictEqual(out.timeline.length, 1);
   assert.strictEqual(out.timeline[0].mediaId, "B002");

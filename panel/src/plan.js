@@ -249,6 +249,38 @@ function candidatesFor(plan, slot, library) {
 }
 
 /**
+ * A key that identifies one slot, and only one.
+ *
+ * `atFrame` alone is not it, and choosing it cost a wiped timeline. A music bed
+ * starts at frame 0 on the audio track and so does the first picture on V1, so
+ * a swap keyed on the frame number hit both: the shot got its new footage, and
+ * the twelve-second music slot was handed the same video, clamped back from the
+ * end of the file to fit its length, and overwritten at frame 0 -- on top of
+ * everything else in the sequence.
+ *
+ * The track is what separates them, and a plan may not place two clips at the
+ * same frame on the same track: validatePlan rejects that outright.
+ * @param {{atFrame:number, videoTrack?:number, audioTrack?:number}} clip
+ */
+function slotKey(clip) {
+  const v = clip.videoTrack === undefined ? 0 : clip.videoTrack;
+  const a = clip.audioTrack === undefined ? 0 : clip.audioTrack;
+  return `${clip.atFrame}:${v}:${a}`;
+}
+
+/**
+ * Is this slot a picture an editor could swap?
+ *
+ * A music bed is a timeline entry like any other and is nothing like a shot: it
+ * has no frames to choose between, and replacing it with footage is never what
+ * "swap this shot" means. `videoTrack < 0` is how the plan marks audio-only.
+ * @param {{videoTrack?:number}} clip
+ */
+function isPictureSlot(clip) {
+  return (clip.videoTrack === undefined ? 0 : clip.videoTrack) >= 0;
+}
+
+/**
  * The still that best represents what a timeline slot is showing.
  *
  * Timeline entries carry no thumbPath of their own -- they were written before
@@ -325,7 +357,9 @@ function libraryMediaId(plan, relPath) {
  * relPath and durationSeconds (a shot from the wider library, which the plan has
  * never referenced and needs a media entry minted for).
  *
- * @param {Map<number, {mediaId?:string, relPath?:string, durationSeconds?:number, inSeconds:number, reason?:string}> | null} swaps
+ * Keyed by `slotKey(clip)` -- frame AND track. Not by frame alone; see slotKey.
+ *
+ * @param {Map<string, {mediaId?:string, relPath?:string, durationSeconds?:number, inSeconds:number, reason?:string}> | null} swaps
  */
 function withSwaps(plan, swaps) {
   if (!swaps || swaps.size === 0) return plan;
@@ -353,7 +387,7 @@ function withSwaps(plan, swaps) {
   }
 
   const timeline = (plan.timeline || []).map((c) => {
-    const raw = swaps.get(c.atFrame);
+    const raw = swaps.get(slotKey(c));
     if (!raw) return c;
     // A library pick carries a path; a pick from the plan's own pool carries an
     // id. Resolve to an id here so everything below is uniform.
@@ -595,6 +629,8 @@ module.exports = {
   colourFor,
   candidatesFor,
   thumbForClip,
+  slotKey,
+  isPictureSlot,
   withSwaps,
   libraryMediaId,
   clipTimes,
