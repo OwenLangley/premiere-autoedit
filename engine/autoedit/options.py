@@ -301,7 +301,7 @@ def _spread_across_sources(
     plans: "list[tuple[str, CutPlan]]", seconds: float, min_clip_length: float,
     max_shot: float | None = None, quantum: float | None = None,
     exact_shot: bool = False,
-) -> "tuple[set[int], dict[int, float]]":
+) -> "tuple[set[int], dict[int, list[tuple[float, float]]]]":
     """Give every source a share of the target, so all of them appear.
 
     The tail strategy walked the flattened keeps and stopped when the budget ran
@@ -310,17 +310,97 @@ def _spread_across_sources(
     the first two" -- and the sparse result was the same complaint from the other
     side: fewer sources means fewer, longer shots.
 
-    Each source gets an equal share and, if its first surviving span is longer
-    than that share, the span is TRIMMED rather than skipped -- otherwise a file
-    whose first sentence runs long contributes nothing at all. Whatever is left
-    over is then handed round again, in order, so a short source does not waste
-    the budget it could not use.
+    Returns the surviving spans plus, for any span that is not used whole, the
+    list of (start, end) slices taken from it. A span can yield SEVERAL slices:
+    at a fast cut rate there is not enough material otherwise. Cutting "every
+    beat" at 180 BPM wants a third of a second per shot, and 29 usable spans
+    would give a ten-second edit -- so a long span is sampled at intervals across
+    its length instead. The gaps between slices are what make each join a visible
+    cut rather than an invisible one in continuous footage.
     """
     ordered = [(mid, list(plan.keeps)) for mid, plan in plans if plan.keeps]
     surviving: set[int] = set()
-    trimmed: dict[int, float] = {}
+    slices: dict[int, list[tuple[float, float]]] = {}
     if not ordered:
-        return surviving, trimmed
+        return surviving, slices
+
+    share = seconds / len(ordered)
+    if max_shot and max_shot > 0 and exact_shot:
+        # The editor named a rate. Use it as written and let the remainder of a
+        # share become a shorter final shot -- a pickup, which is musically
+        # ordinary. Dividing evenly instead turned "every bar" into 2.3-beat
+        # shots, so the control did not do what its label said.
+        max_shot = max_shot + (BEAT_SLACK if quantum else 0.0)
+    elif max_shot and max_shot > 0:
+        per_source_shots = max(1, math.ceil(share / max_shot - 1e-9))
+        max_shot = share / per_source_shots
+        if quantum and quantum > 0:
+            # Whole beats, plus a couple of frames. An even division of the share
+            # lands on fractions -- 1.77 beats, say -- and the beat quantiser
+            # downstream can only place whole ones, so with nothing to round UP
+            # into every shot rounded down and a 15s target came out at 7.6s.
+            max_shot = max(quantum, round(max_shot / quantum) * quantum) + BEAT_SLACK
+
+    def take_from(k, budget: float) -> float:
+        """Take as much of `k` as `budget` and the shot cap allow. Returns time used."""
+        if budget < min_clip_length:
+            return 0.0
+        if not max_shot or k.duration <= max_shot:
+            used = min(k.duration, budget)
+            surviving.add(id(k))
+            if used < k.duration - 1e-9:
+                slices[id(k)] = [(k.start, k.start + used)]
+            else:
+                slices.pop(id(k), None)
+                surviving.add(id(k))
+            return used
+        # Several slices, spaced across the span so each one is a different moment.
+        wanted = int(min(budget // max_shot, k.duration // max_shot))
+        if wanted < 1:
+            return 0.0
+        lengths = [max_shot] * wanted
+        # Whatever the floor division leaves over becomes one shorter shot, so a
+        # share is spent rather than rounded away. Four sources each leaving 0.9s
+        # of a 4s share unused is three and a half seconds off the target.
+        pickup = min(budget - wanted * max_shot, k.duration - wanted * max_shot)
+        if pickup >= min_clip_length:
+            lengths.append(pickup)
+        # Space the STARTS evenly and let the last slice finish at the span's end,
+        # so the whole span is sampled rather than only its opening.
+        room = k.duration - lengths[-1]
+        step = room / (len(lengths) - 1) if len(lengths) > 1 else 0.0
+        cuts = [(k.start + i * step, k.start + i * step + d)
+                for i, d in enumerate(lengths)]
+        surviving.add(id(k))
+        slices[id(k)] = cuts
+        return sum(b - a for a, b in cuts)
+
+    used = 0.0
+    for _, keeps in ordered:
+        taken = 0.0
+        for k in keeps:
+            if share - taken < min_clip_length:
+                break
+            taken += take_from(k, share - taken)
+        used += taken
+
+    # Hand back what the short sources could not use.
+    remaining = seconds - used
+    progressed = True
+    while remaining >= min_clip_length and progressed:
+        progressed = False
+        for _, keeps in ordered:
+            if remaining < min_clip_length:
+                break
+            for k in keeps:
+                if id(k) in surviving:
+                    continue
+                got = take_from(k, remaining)
+                if got > 0:
+                    remaining -= got
+                    progressed = True
+                break   # only ever the next span in order, never a later one
+    return surviving, slices
 
     share = seconds / len(ordered)
     # Spend the share on even shots rather than max-length ones plus a stub.
@@ -465,9 +545,16 @@ def fit_duration_across(
     # Fill the remaining budget with a trimmed clip rather than leaving it unused.
     # Dropping only whole clips turned "up to 3s" into 1.6s, which is not what
     # anyone means by that.
-    running = sum(
-        trimmed_ids.get(id(k), k.duration) for _, k in flat if id(k) in surviving
-    )
+    def _taken(k) -> float:
+        """How much of a span survived: a plain trim, a set of slices, or all of it."""
+        v = trimmed_ids.get(id(k))
+        if v is None:
+            return k.duration
+        if isinstance(v, list):
+            return sum(b - a for a, b in v)
+        return float(v)
+
+    running = sum(_taken(k) for _, k in flat if id(k) in surviving)
     headroom = seconds - running
     if headroom >= min_clip_length:
         for _, keep in flat:
@@ -486,10 +573,15 @@ def fit_duration_across(
             if id(k) not in surviving:
                 continue
             limit = trimmed_ids.get(id(k))
-            kept.append(
-                Keep(k.start, k.start + limit, k.reason, k.confidence, k.word_count)
-                if limit else k
-            )
+            if isinstance(limit, list):
+                # One span can become several shots, taken from different moments
+                # across it -- see _spread_across_sources.
+                for a, b in limit:
+                    kept.append(Keep(a, b, k.reason, k.confidence, k.word_count))
+            elif limit:
+                kept.append(Keep(k.start, k.start + limit, k.reason, k.confidence, k.word_count))
+            else:
+                kept.append(k)
         out.append((media_id, CutPlan(kept, plan.drops, list(plan.warnings))))
 
     running = sum(k.duration for _, p in out for k in p.keeps)

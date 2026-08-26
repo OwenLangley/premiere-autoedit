@@ -191,6 +191,8 @@ const EN = {
     "nothing fits inside {seconds}s — the shortest available clip is longer than the target",
   "warn.reframe.cropRisk":
     "{count} clip(s) flagged: detail sits outside the centre crop, so check those before delivering",
+  "warn.music.cappedToTrack":
+    "the edit is capped at {seconds}s, the length of the music — set a length if you want it to run on past the track",
   "warn.music.startPastEnd":
     "start {start}s is past the end of the {duration}s track; starting from the beginning instead",
   "warn.music.snappedToBeat": "start moved {moved}s to the nearest beat, at {start}s",
@@ -393,6 +395,8 @@ const JA = {
     "{seconds} 秒に収まるものがありません。いちばん短いクリップでも目標より長くなっています",
   "warn.reframe.cropRisk":
     "{count} 件のクリップに印を付けました。中央のクロップから外れた位置に被写体がある可能性があるため、書き出す前に確認してください",
+  "warn.music.cappedToTrack":
+    "音楽の長さに合わせて編集を {seconds} 秒で止めました。音楽より長くする場合は尺を指定してください",
   "warn.music.startPastEnd":
     "開始位置 {start} 秒は {duration} 秒の曲の終わりを超えています。先頭から再生します",
   "warn.music.snappedToBeat": "開始位置を {moved} 秒ずらし、最も近いビートの {start} 秒に合わせました",

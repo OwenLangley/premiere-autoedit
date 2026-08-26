@@ -333,19 +333,31 @@ def test_the_cap_does_not_starve_the_target():
     assert total > 15.0, f"delivered only {total:.1f}s of a 16s target"
 
 
-def test_a_source_with_one_long_span_contributes_one_shot_and_no_more():
-    """A deliberate limit, recorded so it is not mistaken for a bug.
+def test_a_long_span_is_sampled_at_intervals_not_sliced_consecutively():
+    """What makes a fast cut rate possible at all.
 
-    Filling a share from a single span would mean slicing it into consecutive
-    pieces -- and consecutive pieces of the same span are laid end to end, so the
-    join between them shows nothing. That would inflate the cut count with
-    invisible cuts, which is worse than coming up short and saying so. The
-    shortfall is reported instead (see the delivered-length check in cli.py).
+    Cutting "every beat" at 180 BPM wants a third of a second per shot. With one
+    shot per span and 29 usable spans, the edit came out at ten seconds. Taking
+    several slices SPACED ACROSS a long span fills the time -- and the gaps
+    between them are what make each join a visible cut, where consecutive slices
+    would be laid end to end and show nothing.
     """
     plans = [(f"C{i}", _plan((0.0, 20.0))) for i in range(4)]
     out = fit_duration_across(plans, "upTo", 16.0, min_clip_length=0.35,
                               strategy="spread", max_shot=1.0, quantum=0.5)
-    assert all(len(plan.keeps) == 1 for _, plan in out)
+    for _, plan in out:
+        assert len(plan.keeps) > 1, "a 20s span should yield more than one shot"
+        gaps = [b.start - a.end for a, b in zip(plan.keeps, plan.keeps[1:])]
+        assert all(g > 0.05 for g in gaps), \
+            f"slices are consecutive, so the joins would be invisible: {gaps}"
+
+
+def test_slicing_still_respects_the_target():
+    plans = [(f"C{i}", _plan((0.0, 20.0))) for i in range(4)]
+    out = fit_duration_across(plans, "upTo", 16.0, min_clip_length=0.35,
+                              strategy="spread", max_shot=1.0, quantum=0.5)
+    total = sum(k.duration for _, plan in out for k in plan.keeps)
+    assert 14.0 < total <= 16.5, f"delivered {total:.1f}s of a 16s target"
 
 
 # --- the editor's cut-rate dial ---------------------------------------------

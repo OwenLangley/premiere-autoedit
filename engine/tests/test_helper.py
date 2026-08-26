@@ -614,3 +614,50 @@ def test_no_rotation_information_means_none():
     from autoedit.probe import _rotation_of
     assert _rotation_of({}) == 0
     assert _rotation_of({"side_data_list": [{"side_data_type": "Other"}]}) == 0
+
+
+# --- an edit cut to music should not outlive the music -----------------------
+#
+# The reported job came out 134s of picture against 60s of track, so 55% of it
+# had no beat to cut to. The cuts under the music were landing within a tenth of
+# a beat; there simply was not any music for the second half.
+
+
+def _music_job(tmp_path, job, recipe, extra=()):
+    import json as _json
+    from autoedit.cli import main as engine_main
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    media = fixtures / "sample_25fps_1080p.mp4"
+    music = fixtures / "sample_music.wav"
+    if not media.exists() or not music.exists():
+        pytest.skip("fixtures not generated")
+    out = tmp_path / f"{job}.editplan.json"
+    code = engine_main([
+        "plan", "--job", job, "--recipe", recipe,
+        "--media", str(media), "--media-root", str(fixtures),
+        "--transcript", str(fixtures / "sample_25fps_1080p.transcript.json"),
+        "--music", str(music),
+        "--work-dir", str(tmp_path / "cache"), "--out", str(out), *extra,
+    ])
+    assert code == 0
+    return _json.loads(out.read_text())
+
+
+def test_a_music_led_edit_is_capped_at_the_track(tmp_path):
+    plan = _music_job(tmp_path, "CAP", "social-short")
+    keys = [w.get("messageKey") for w in plan["warnings"]]
+    assert "music.cappedToTrack" in keys, "the cap has to be said out loud"
+
+
+def test_an_explicit_length_still_wins(tmp_path):
+    plan = _music_job(tmp_path, "LEN", "social-short", ("--duration", "3", "--duration-mode", "upTo"))
+    keys = [w.get("messageKey") for w in plan["warnings"]]
+    assert "music.cappedToTrack" not in keys, "the editor's own length must not be overridden"
+
+
+def test_a_speech_led_recipe_is_not_capped(tmp_path):
+    # podcast-2cam prioritises speech; a bed the editor added by hand must not
+    # start deciding how long their interview is.
+    plan = _music_job(tmp_path, "TALK", "podcast-2cam")
+    keys = [w.get("messageKey") for w in plan["warnings"]]
+    assert "music.cappedToTrack" not in keys

@@ -81,6 +81,9 @@ CATALOGUE: dict[str, str] = {
         "before delivering",
 
     # --- music -------------------------------------------------------------
+    "music.cappedToTrack":
+        "the edit is capped at {seconds:.0f}s, the length of the music -- set a length "
+        "if you want it to run on past the track",
     "music.startPastEnd":
         "start {start:.2f}s is past the end of the {duration:.1f}s track; starting from "
         "the beginning instead",

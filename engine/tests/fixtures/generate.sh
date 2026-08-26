@@ -23,3 +23,18 @@ ffmpeg -y -loglevel error \
   -c:a aac -ac 1 sample_audio_only.m4a
 
 echo "fixtures regenerated in $(pwd)"
+
+# A 4-second click track at exactly 120 BPM. Beat detection needs a fixture with
+# a KNOWN answer -- everything else in a beat test is self-referential.
+python3 - <<'PYEOF'
+import wave, struct, math
+sr, bpm, dur = 44100, 120.0, 4.0
+n, step = int(sr*dur), int(sr*60/120.0)
+s = [0.0]*n
+for i in range(0, n, step):
+    for k in range(min(1200, n-i)):
+        s[i+k] += math.sin(2*math.pi*1000*k/sr) * math.exp(-k/400.0)
+with wave.open('sample_music.wav','w') as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
+    w.writeframes(b''.join(struct.pack('<h', int(max(-1,min(1,x))*20000)) for x in s))
+PYEOF

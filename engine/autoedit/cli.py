@@ -12,7 +12,7 @@ import argparse
 import hashlib
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -376,6 +376,7 @@ def cmd_plan(args) -> int:
             )
 
     beats = None
+    music_available = 0.0        # how much track there is to cut against
     if music_path:
         try:
             music_info = probe(music_path)
@@ -403,6 +404,11 @@ def cmd_plan(args) -> int:
                     "use fixed-length takes instead of the beat grid",
                     file=sys.stderr,
                 )
+            # The most bed this job could possibly have: an explicit chunk
+            # length, or whatever is left of the track after the start point.
+            requested = float(args.music_length) if getattr(args, "music_length", None) else None
+            from_start = max(0.0, music_info.duration - float(args.music_start or 0.0))
+            music_available = min(requested, from_start) if requested else from_start
         except (MusicError, ProbeError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
@@ -558,6 +564,17 @@ def cmd_plan(args) -> int:
         collected.append((mid, cuts, v_track, a_track))
         builder.add_transcript(transcript)
 
+    # When the music leads and no length was asked for, the edit runs as long as
+    # the speech does -- and the reported job came out 134s against 60s of track,
+    # so 55% of it had no beat to cut to at all. An edit that is cut to music
+    # should not outlive the music. Said out loud, and overridden the moment the
+    # editor sets a length of their own.
+    capped_to_music = False
+    if (recipe.music.music_wins and options.duration_mode == "none"
+            and music_available > 0):
+        options = replace(options, duration_mode="upTo", duration_seconds=music_available)
+        capped_to_music = True
+
     # Length applies to the finished sequence, so it is fitted across every source
     # at once. Interchangeable b-roll drops its weakest shots; a speech edit drops
     # from the end, because the opening of a narrative is not negotiable.
@@ -688,6 +705,9 @@ def cmd_plan(args) -> int:
             key = ("length.shortOfAbout" if options.duration_mode == "about"
                    else "length.shortOfTarget")
             builder.add_warning("length", note(key, total=delivered, seconds=target))
+
+    if capped_to_music:
+        builder.add_warning("music", note("music.cappedToTrack", seconds=music_available))
 
     if proxied:
         builder.add_warning("media", note("media.proxyAttached", count=len(proxied)))
