@@ -93,8 +93,37 @@ fi
 [ -x "$ROOT/.venv/bin/autoedit" ] && ok "engine venv" || miss "engine venv not built"
 PANEL="/Library/Application Support/Adobe/UXP/Plugins/External/com.company.autoedit_0.1.0"
 [ -d "$PANEL" ] && ok "panel installed system-wide" || miss "panel not installed where Premiere 26 looks"
-launchctl list 2>/dev/null | grep -q com.company.autoedit.helper \
-  && ok "helper running" || miss "helper not running (Create Edit will do nothing)"
+# `launchctl list` prints the label for a job that is merely REGISTERED, with a
+# "-" where the pid goes. Grepping for the label therefore reports a helper that
+# has never run as healthy -- which is the exact failure this check exists to
+# catch. Insist on a real pid.
+if launchctl list 2>/dev/null \
+   | awk -v l=com.company.autoedit.helper '$3==l && $1!="-"{f=1} END{exit !f}'; then
+  ok "helper running"
+  # It runs, but launchd hands out a bare PATH with no Homebrew in it. Without
+  # ffmpeg the helper starts, watches, accepts jobs and fails every one of them.
+  #
+  # Read the plist, not `launchctl print` -- that prints PATH twice, once for the
+  # default environment and once for the job's own, and picking the wrong line
+  # means this check reports a broken PATH on a machine that is fine.
+  HELPER_PATH=$(python3 - "$PLIST" <<'EOF' 2>/dev/null || true
+import plistlib, sys
+try:
+    print(plistlib.load(open(sys.argv[1], "rb"))["EnvironmentVariables"]["PATH"])
+except Exception:
+    pass
+EOF
+)
+  # No PATH in the plist means the job inherits launchd's bare one, which is the
+  # broken case -- so an empty answer must fail the check, not skip it.
+  if ! PATH="${HELPER_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" command -v ffmpeg >/dev/null 2>&1; then
+    HELPER_PATH="${HELPER_PATH:-launchd default, no Homebrew}"
+    miss "the helper cannot see ffmpeg (its PATH: $HELPER_PATH)"
+    note "re-run setup to rewrite it; every job would fail with nothing in the panel"
+  fi
+else
+  miss "helper not running (Create Edit will do nothing)"
+fi
 
 if $CHECK_ONLY; then
   echo

@@ -24,6 +24,21 @@ if [ -n "$MUSIC" ]; then
   MUSIC_ARGS="    <string>--music</string><string>$MUSIC</string>"
 fi
 
+# launchd does NOT give a job your shell's PATH. It hands out a bare
+# /usr/bin:/bin:/usr/sbin:/sbin, which contains no Homebrew, which means no
+# ffmpeg and no ffprobe -- and every probe, audio extract and proxy then fails
+# inside a background process nobody is watching. Started from a terminal this
+# never shows up, because there the helper inherits a working PATH.
+#
+# Pin the directory ffmpeg is actually in at install time rather than guessing a
+# prefix: /opt/homebrew on Apple Silicon, /usr/local on Intel and on hand-rolled
+# installs, and neither if someone put it somewhere else.
+FFMPEG_DIR=""
+if command -v ffmpeg >/dev/null; then
+  FFMPEG_DIR="$(cd "$(dirname "$(command -v ffmpeg)")" && pwd):"
+fi
+HELPER_PATH="${FFMPEG_DIR}/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
 PLIST="$HOME/Library/LaunchAgents/com.company.autoedit.helper.plist"
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PLIST" <<PLIST_EOF
@@ -40,6 +55,10 @@ cat > "$PLIST" <<PLIST_EOF
     <string>--media</string><string>$MEDIA</string>
 $MUSIC_ARGS
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$HELPER_PATH</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>/tmp/autoedit-helper.log</string>
@@ -48,9 +67,25 @@ $MUSIC_ARGS
 </plist>
 PLIST_EOF
 
-launchctl unload "$PLIST" 2>/dev/null || true
-launchctl load "$PLIST"
-echo "helper installed and running"
+# `launchctl load` is the legacy call and, run from a shell that is not the
+# login session, it registers the job without ever starting it -- RunAtLoad and
+# all. The job then sits there with no PID, and `launchctl list` still prints
+# its label, so it looks installed. bootstrap + kickstart is the modern pair and
+# actually starts it.
+UID_NOW="$(id -u)"
+launchctl bootout "gui/$UID_NOW/com.company.autoedit.helper" 2>/dev/null || true
+launchctl bootstrap "gui/$UID_NOW" "$PLIST" 2>/dev/null \
+  || { launchctl unload "$PLIST" 2>/dev/null || true; launchctl load "$PLIST"; }
+launchctl kickstart "gui/$UID_NOW/com.company.autoedit.helper" 2>/dev/null || true
+
+# Trust nothing: confirm it has a real pid before claiming it is running.
+sleep 1
+if launchctl list | awk -v l=com.company.autoedit.helper '$3==l && $1!="-"{f=1} END{exit !f}'; then
+  echo "helper installed and running"
+else
+  echo "helper installed but NOT running -- check /tmp/autoedit-helper.log" >&2
+  exit 1
+fi
 echo "  jobs : $JOBS"
 echo "  media: $MEDIA"
 [ -n "$MUSIC" ] && echo "  music: $MUSIC"
