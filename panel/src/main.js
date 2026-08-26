@@ -61,6 +61,7 @@ const state = {
   libraryShots: null,
   thumbFailureLogged: false,
   thumbDiagnosed: false,
+  thumbMeasured: false,
   watching: null,          // interval id while a job is being worked on
 };
 
@@ -425,6 +426,44 @@ function renderSlotDetail() {
   renderAlternates(slot);
 }
 
+/**
+ * Record what the first real thumbnail element actually did.
+ *
+ * Not a simulation of the shot list -- this is the element in the grid, in the
+ * card, on screen. Whichever of load / error / timeout arrives first wins; the
+ * later ones are ignored.
+ */
+function measureThumb(img, card, event, path) {
+  if (state.thumbMeasured) return;
+  state.thumbMeasured = true;
+  const box = (el) => {
+    try {
+      const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+      return r ? { w: Math.round(r.width), h: Math.round(r.height) } : null;
+    } catch { return null; }
+  };
+  const styleOf = (el) => {
+    try {
+      const cs = window.getComputedStyle ? window.getComputedStyle(el) : null;
+      return cs ? { display: cs.display, width: cs.width, height: cs.height } : null;
+    } catch { return null; }
+  };
+  writeDiagnostic("thumb-render.json", {
+    at: new Date().toISOString(),
+    event,
+    path,
+    naturalWidth: img.naturalWidth,
+    naturalHeight: img.naturalHeight,
+    srcLength: (img.src || "").length,
+    imgBox: box(img),
+    cardBox: box(card),
+    altsBox: box($("alts")),
+    imgStyle: styleOf(img),
+    altsStyle: styleOf($("alts")),
+    cardStyle: styleOf(card),
+  });
+}
+
 /** Report the first thumbnail failure and then stay quiet about it. */
 function reportThumbFailure(why) {
   if (!why || state.thumbFailureLogged) return;
@@ -533,11 +572,21 @@ function renderAlternates(slot) {
         const img = document.createElement("img");
         img.className = "thumb";
         card.appendChild(img);
-        img.addEventListener("load", () => { shot.style.display = "none"; });
+        img.addEventListener("load", () => {
+          shot.style.display = "none";
+          measureThumb(img, card, "load", c.thumbPath);
+        });
         img.addEventListener("error", () => {
           reportThumbFailure(`${c.thumbPath}: the <img> refused the data URI`);
+          measureThumb(img, card, "error", c.thumbPath);
         });
         img.src = uri;
+        // Measured regardless of whether either event fires. Five diagnoses have
+        // been wrong because a layer looked fine in isolation; naturalWidth on
+        // the element that is actually on screen splits the two remaining
+        // possibilities -- never decoded, versus decoded and not visible -- and
+        // no amount of reasoning has managed to.
+        setTimeout(() => measureThumb(img, card, "timeout", c.thumbPath), 2500);
       }).catch((err) => {
         // Never silent again. This catch is what hid an earlier bug.
         reportThumbFailure(String((err && err.message) || err));

@@ -92,16 +92,20 @@
       #slot-detail .who b { font-weight: 600; }
       #slot-detail .why { color: var(--dim); font-size: 11px; margin-top: 2px; }
       .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
-      /* A grid, not a list. Choosing a shot is a visual comparison, so several
-         have to be on screen at once and each has to be big enough to
-         recognise. 140px minimum fits two across a docked panel and more when
-         it is floated wider. */
+      /* Several shots on screen at once, because choosing one is a visual
+         comparison -- but built from wrapping flexbox, not CSS grid.
+         `display: grid` appeared exactly once in this panel and it was mine;
+         the other eleven layout rules here are flex. UXP implements a subset of
+         CSS, and a rule it does not implement is ignored silently, so a layout
+         feature nothing else in the file relies on is a liability rather than a
+         convenience. */
       #alts { max-height: 420px; overflow-y: auto; margin-top: 6px;
-              display: grid; gap: 8px;
-              grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
-      #alts .head { grid-column: 1 / -1; }
+              display: flex; flex-wrap: wrap; gap: 8px; }
+      #alts .head { width: 100%; flex: 0 0 100%; }
       .alt { border: 1px solid var(--line); border-radius: 3px; overflow: hidden;
-             background: #202020; display: flex; flex-direction: column; }
+             background: #202020; display: flex; flex-direction: column;
+             /* Two across a docked panel, more when it is floated wider. */
+             flex: 1 1 140px; min-width: 140px; max-width: 220px; }
       .alt:hover { border-color: var(--dim); }
       /* An explicit height rather than aspect-ratio: UXP's CSS is a subset and
          aspect-ratio is a recent addition, so a fixed box is one less thing
