@@ -54,10 +54,12 @@
       label.field { display: block; margin-bottom: 8px; }
       label.field > span { display: block; color: var(--dim); font-size: 11px;
                           margin-bottom: 3px; }
-      input[type="text"], input[type="number"] {
+      input[type="text"], input[type="number"], textarea {
         background: #383838; color: var(--text); border: 1px solid var(--line);
         border-radius: 3px; padding: 5px; font-size: 12px; width: 100%;
+        font-family: inherit; box-sizing: border-box;
       }
+      textarea { resize: vertical; line-height: 1.45; }
       .split { display: flex; gap: 6px; }
       .split > * { flex: 1; min-width: 0; }
       /* The clip picker, as cards. A filename is not a shot, and an editor who
@@ -236,6 +238,17 @@
         <input type="text" id="job-name" placeholder="EP001" />
       </label>
       <div class="msg bad hidden" id="job-name-notice"></div>
+
+      <label class="field">
+        <span data-i18n="edit.describe">Describe it (optional)</span>
+        <textarea id="opt-story" rows="3"
+                  data-i18n-placeholder="edit.describePlaceholder"
+                  placeholder="opens with the storefront, then the chef cooking, then a happy customer"></textarea>
+      </label>
+      <div class="hint" style="margin:-4px 0 10px" data-i18n="edit.describeHint">
+        Each shot you describe becomes a section of the edit, in the order you write
+        them. Anything the footage cannot serve is left out and said so.
+      </div>
 
       <div class="sec-label" data-i18n="edit.whatMaking">What are you making?</div>
       <div id="formats"></div>

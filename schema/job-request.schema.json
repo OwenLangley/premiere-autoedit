@@ -134,6 +134,12 @@
           "default": false,
           "description": "Cut from the pictures even when the footage has usable audio."
         },
+        "story": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "The video described in plain text. Its beats become the running order, matched against what is actually in the footage. Implies visual cutting: beats are matched against pictures, so there is nothing to match without them. A beat nothing matches is left out and named in a warning rather than filled with the nearest thing."
+        },
         "model": {
           "type": "string",
           "description": "Transcription model override, e.g. small or large-v3."

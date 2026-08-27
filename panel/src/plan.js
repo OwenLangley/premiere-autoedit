@@ -125,7 +125,10 @@ function sections(plan) {
   const out = new Map();
   const touch = (id) => {
     if (!out.has(id)) {
-      out.set(id, { id, label: id === "" ? "Rough cut" : id, clips: 0, graphics: 0, effects: 0, frames: 0 });
+      out.set(id, {
+        id, label: id === "" ? "Rough cut" : sectionLabel(id),
+        clips: 0, graphics: 0, effects: 0, frames: 0,
+      });
     }
     return out.get(id);
   };
@@ -246,6 +249,24 @@ function candidatesFor(plan, slot, library) {
       if (a.fromLibrary !== b.fromLibrary) return a.fromLibrary ? 1 : -1;
       return (b.score || 0) - (a.score || 0);
     });
+}
+
+/**
+ * A section id as an editor should read it.
+ *
+ * Story sections arrive as `b1-empty-indoor-sports-hall` -- numbered so two
+ * beats describing the same thing stay apart, slugged so they are safe to put
+ * in a plan. Neither is any use on screen, so the number becomes a position and
+ * the slug becomes words again.
+ *
+ * Anything that is not a story id is returned untouched: a recipe's own section
+ * names are already written for people.
+ * @param {string} id
+ */
+function sectionLabel(id) {
+  const m = /^b(\d+)-(.+)$/.exec(String(id || ""));
+  if (!m) return id || "";
+  return `${m[1]}. ${m[2].replace(/-/g, " ")}`;
 }
 
 /**
@@ -652,6 +673,7 @@ module.exports = {
   candidatesFor,
   thumbForClip,
   thumbForSource,
+  sectionLabel,
   slotKey,
   isPictureSlot,
   withSwaps,

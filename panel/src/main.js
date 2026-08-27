@@ -11,7 +11,7 @@ const { applyPlan, ApplyError } = require("./apply");
 const {
   validatePlan, summarize, sections, withoutSections,
   withSwaps, candidatesFor, groupKeyOf, colourFor, thumbForClip,
-  slotKey, isPictureSlot, toSeconds, thumbForSource,
+  slotKey, isPictureSlot, toSeconds, thumbForSource, sectionLabel,
 } = require("./plan");
 const {
   LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
@@ -481,7 +481,8 @@ function renderStrip() {
     // Dimmed rather than removed: the editor should see that a section is
     // switched off without the edit appearing to change shape underneath them.
     if (c.sectionId && state.disabled.has(c.sectionId)) b.classList.add("off");
-    b.title = `${mediaName(c.mediaId)} — ${(c.outSeconds - c.inSeconds).toFixed(2)}s`;
+    b.title = (c.sectionId ? `${sectionLabel(c.sectionId)}\n` : "")
+      + `${mediaName(c.mediaId)} — ${(c.outSeconds - c.inSeconds).toFixed(2)}s`;
     strip.appendChild(b);
 
     // A picture on the block, not just a colour: colour says which shots group
@@ -569,6 +570,15 @@ function renderSlotDetail() {
   who.append(left, time);
   detail.appendChild(who);
 
+  if (slot.sectionId) {
+    // Which described shot this slot is serving. Without it the strip is
+    // colour-coded by something the editor cannot name.
+    const sect = document.createElement("div");
+    sect.className = "why";
+    sect.style.color = "var(--text)";
+    sect.textContent = sectionLabel(slot.sectionId);
+    detail.appendChild(sect);
+  }
   if (slot.reason) {
     const why = document.createElement("div");
     why.className = "why";
@@ -1180,6 +1190,7 @@ function currentForm() {
     cutRate: $("opt-cut-rate").value,
     look: $("opt-look").value || null,
     visual: $("opt-visual").checked,
+    story: $("opt-story").value,
     durationMode: $("opt-duration-mode").value,
     durationSeconds: Number.isFinite(seconds) ? seconds : null,
     language: $("opt-language").value || "auto",
@@ -1335,7 +1346,7 @@ $("media-none").addEventListener("click", () => {
   loadMediaList();
 });
 $("opt-visual").addEventListener("change", renderSummary_);
-for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut-rate",
+for (const id of ["job-name", "opt-story", "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut-rate",
                   "opt-look", "opt-duration-mode", "opt-duration-seconds",
                   "opt-music", "opt-music-start", "opt-music-length"]) {
   $(id).addEventListener("change", renderSummary_);

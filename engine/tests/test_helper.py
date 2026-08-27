@@ -661,3 +661,41 @@ def test_a_speech_led_recipe_is_not_capped(tmp_path):
     plan = _music_job(tmp_path, "TALK", "podcast-2cam")
     keys = [w.get("messageKey") for w in plan["warnings"]]
     assert "music.cappedToTrack" not in keys
+
+
+# --- describing the video ---------------------------------------------------
+
+def test_a_story_reaches_the_engine_and_turns_on_visual():
+    """A description is matched against pictures, so it implies visual cutting.
+
+    Requiring the editor to tick a box as well would be a trap: the prompt is
+    accepted, silently ignored, and the edit comes back cut to speech with
+    nothing explaining why.
+    """
+    req = {
+        "schemaVersion": "1.0", "jobId": "S", "recipe": "social-short",
+        "media": ["a.mp4"],
+        "options": {"story": "opens with the storefront, then the chef"},
+    }
+    argv = request_to_argv(req, Path("/tmp/j"), Path("/tmp/m"), Path("/tmp/w"))
+    assert "--visual" in argv
+    assert argv[argv.index("--story") + 1] == "opens with the storefront, then the chef"
+
+
+def test_visual_is_not_turned_on_by_an_empty_story():
+    req = {
+        "schemaVersion": "1.0", "jobId": "S", "recipe": "social-short",
+        "media": ["a.mp4"], "options": {"story": "   "},
+    }
+    argv = request_to_argv(req, Path("/tmp/j"), Path("/tmp/m"), Path("/tmp/w"))
+    assert "--story" not in argv
+    assert "--visual" not in argv
+
+
+def test_a_request_without_a_story_is_unchanged():
+    req = {
+        "schemaVersion": "1.0", "jobId": "S", "recipe": "social-short",
+        "media": ["a.mp4"], "options": {"aspect": "vertical"},
+    }
+    argv = request_to_argv(req, Path("/tmp/j"), Path("/tmp/m"), Path("/tmp/w"))
+    assert "--story" not in argv and "--visual" not in argv

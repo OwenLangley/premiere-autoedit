@@ -647,8 +647,33 @@ function probeDomSurface(report) {
   ]) {
     surface[m] = typeof (/** @type {any} */ (el))[m] === "function";
   }
+  // Elements, not just methods. A tag UXP does not implement renders as
+  // nothing, which looks exactly like a styling mistake -- and every UI defect
+  // this month has been a platform feature that only this panel used.
+  const elements = {};
+  for (const tag of ["input", "textarea", "select", "button", "img", "label"]) {
+    try {
+      const node = document.createElement(tag);
+      node.style.cssText = "position:absolute;left:-9999px;width:80px;height:40px";
+      document.body.appendChild(node);
+      const box = node.getBoundingClientRect();
+      // A control also has to hold a value, not merely exist.
+      let holdsValue = null;
+      if (tag === "input" || tag === "textarea") {
+        const control = /** @type {any} */ (node);
+        control.value = "probe";
+        holdsValue = control.value === "probe";
+      }
+      elements[tag] = { rendered: box.width > 0 && box.height > 0, holdsValue };
+      node.parentNode.removeChild(node);
+    } catch (err) {
+      elements[tag] = { error: String((err && err.message) || err) };
+    }
+  }
+
   const missing = Object.keys(surface).filter((m) => !surface[m]);
   report.add("dom/api-surface", true, {
+    elements,
     present: Object.keys(surface).filter((m) => surface[m]),
     missing,
     note: missing.length

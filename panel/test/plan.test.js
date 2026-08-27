@@ -265,3 +265,38 @@ test("basenameOf handles both separators and bare names", () => {
   assert.strictEqual(basenameOf("C:\\rushes\\C1367.MP4"), "C1367.MP4");
   assert.strictEqual(basenameOf("C1367.MP4"), "C1367.MP4");
 });
+
+// --- story sections, as an editor should read them --------------------------
+
+const { sectionLabel } = require("../src/plan");
+
+test("a story section id becomes a position and words", () => {
+  assert.strictEqual(sectionLabel("b1-empty-indoor-sports-hall"),
+    "1. empty indoor sports hall");
+  assert.strictEqual(sectionLabel("b12-happy-customer-face"),
+    "12. happy customer face");
+});
+
+test("a section name that is already readable is left alone", () => {
+  // Recipes may define their own sections, and those are written for people.
+  assert.strictEqual(sectionLabel("intro"), "intro");
+  assert.strictEqual(sectionLabel(""), "");
+  assert.strictEqual(sectionLabel(undefined), "");
+});
+
+test("the Include list shows the readable label, not the id", () => {
+  const p = {
+    schemaVersion: "1.0", jobId: "j", recipe: "r",
+    timebase: { fpsNum: 25, fpsDen: 1 },
+    media: [{ id: "A", relPath: "a.mov", durationSeconds: 60 }],
+    sequence: { name: "S", videoTracks: 1, audioTracks: 1 },
+    timeline: [
+      { mediaId: "A", inSeconds: 0, outSeconds: 1, atFrame: 0, durationFrames: 25,
+        videoTrack: 0, audioTrack: 0, sectionId: "b1-front-of-store" },
+      { mediaId: "A", inSeconds: 2, outSeconds: 3, atFrame: 25, durationFrames: 25,
+        videoTrack: 0, audioTrack: 0, sectionId: "b2-chef-cooking" },
+    ],
+  };
+  assert.deepStrictEqual(sections(p).map((s) => s.label),
+    ["1. front of store", "2. chef cooking"]);
+});

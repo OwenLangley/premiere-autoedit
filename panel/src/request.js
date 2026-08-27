@@ -193,6 +193,7 @@ function jobIdWasChanged(raw) {
  *   durationMode?: string, durationSeconds?: number|null,
  *   music?: string, visual?: boolean,
  *   musicStart?: number, musicLength?: number, musicSnap?: boolean, language?: string,
+ *   story?: string,
  * }} form
  */
 function buildRequest(form) {
@@ -215,6 +216,11 @@ function buildRequest(form) {
   }
   if (form.look) options.look = form.look;
   if (form.visual) options.visual = true;
+  // Sent raw. The engine owns the parsing, so there is one grammar rather than
+  // two that drift -- and the beats it found come back on the plan, where the
+  // editor reviews them against real shots instead of against a guess.
+  const story = String(form.story || "").trim();
+  if (story) options.story = story;
   // Only when stated. Omitting it leaves the recipe on `auto`, which asks
   // Whisper to identify the language from the audio.
   if (form.language && form.language !== "auto") options.language = form.language;

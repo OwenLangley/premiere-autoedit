@@ -463,8 +463,15 @@ def request_to_argv(
         argv += ["--cut-rate", _num(options["cutRate"])]
     if options.get("look"):
         argv += ["--look", options["look"]]
-    if options.get("visual"):
+    # A description is matched against pictures, so it implies visual cutting.
+    # Requiring the editor to tick a box as well would be a trap: the prompt
+    # would be accepted, silently ignored, and the edit would come back cut to
+    # speech with no explanation.
+    story = (options.get("story") or "").strip()
+    if options.get("visual") or story:
         argv += ["--visual"]
+    if story:
+        argv += ["--story", story]
     if options.get("model"):
         argv += ["--model", options["model"]]
     if options.get("language"):
