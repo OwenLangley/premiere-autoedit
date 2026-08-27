@@ -104,9 +104,61 @@ class Recipe:
     auto_music: bool = False
     brand: dict[str, Any] = field(default_factory=dict)
     roles: dict[str, Any] = field(default_factory=dict)
+    # How this recipe is offered to an editor: the deliverable it makes, rather
+    # than the thresholds it uses to make it. Optional -- a recipe without one
+    # still works, it just has no card in the panel.
+    format: dict[str, Any] = field(default_factory=dict)
 
     def sequence_name(self, job: str) -> str:
         return self.sequence.name_template.format(job=job, recipe=self.name)
+
+
+# Aspect names the engine accepts. Imported lazily inside the validator to keep
+# recipe.py free of an options.py import at module scope.
+_FORMAT_KEYS = {"label", "aspect", "duration", "duration_mode", "cut_rate", "order"}
+_DURATION_MODES = {"none", "upTo", "exactly", "about"}
+
+
+def _coerce_format(raw: Any, where: str) -> dict[str, Any]:
+    """Validate a recipe's `format:` block.
+
+    Checked here rather than trusted, because a typo would otherwise surface as
+    a card in the panel that quietly builds the wrong shape -- and an aspect or
+    a duration mode the engine does not accept fails much later, after the
+    editor has chosen it.
+    """
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise RecipeError(f"{where}: `format` must be a mapping")
+    unknown = set(raw) - _FORMAT_KEYS
+    if unknown:
+        raise RecipeError(f"{where}: unknown format key(s): {', '.join(sorted(unknown))}")
+    if not raw.get("label"):
+        raise RecipeError(f"{where}: a format needs a label -- it is what the editor picks")
+
+    from .options import ASPECT_LABELS
+    aspect = raw.get("aspect", "source")
+    if aspect not in ASPECT_LABELS:
+        raise RecipeError(
+            f"{where}: unknown aspect {aspect!r}; choose from {', '.join(ASPECT_LABELS)}"
+        )
+    mode = raw.get("duration_mode", "none")
+    if mode not in _DURATION_MODES:
+        raise RecipeError(f"{where}: unknown duration_mode {mode!r}")
+    seconds = raw.get("duration")
+    if mode != "none" and not seconds:
+        raise RecipeError(f"{where}: duration_mode {mode!r} needs a duration")
+    if seconds is not None and (not isinstance(seconds, (int, float)) or seconds <= 0):
+        raise RecipeError(f"{where}: duration must be a positive number of seconds")
+
+    out = {"label": str(raw["label"]), "aspect": aspect, "duration_mode": mode,
+           "order": int(raw.get("order", 99))}
+    if seconds is not None:
+        out["duration"] = float(seconds)
+    if raw.get("cut_rate") is not None:
+        out["cut_rate"] = float(raw["cut_rate"])
+    return out
 
 
 def _coerce_timebase(value: Any) -> Timebase:
@@ -136,7 +188,7 @@ def load_recipe(name_or_path: str | Path) -> Recipe:
 
     unknown = set(raw) - {"name", "description", "sequence", "detection",
                           "visual", "music", "transcription", "brand", "roles",
-                          "auto_music"}
+                          "auto_music", "format"}
     if unknown:
         raise RecipeError(f"{path.name}: unknown top-level key(s): {', '.join(sorted(unknown))}")
 
@@ -213,6 +265,7 @@ def load_recipe(name_or_path: str | Path) -> Recipe:
         transcription=raw.get("transcription") or {},
         brand=raw.get("brand") or {},
         roles=raw.get("roles") or {},
+        format=_coerce_format(raw.get("format"), path.name),
     )
 
 

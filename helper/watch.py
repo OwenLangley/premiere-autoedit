@@ -78,6 +78,7 @@ def write_capabilities(jobs: Path) -> None:
             pass
 
     recipes = []
+    formats = []
     for name in list_recipes():
         try:
             r = load_recipe(name)
@@ -86,13 +87,20 @@ def write_capabilities(jobs: Path) -> None:
                 "description": (r.description or "").strip().split("\n")[0],
                 "visual": r.auto_music,
             })
+            # The deliverable a recipe makes, for the panel's first question.
+            # A recipe without a format block simply has no card; it is still
+            # reachable through the full form.
+            if r.format:
+                formats.append({"recipe": name, **r.format})
         except Exception:
             recipes.append({"name": name, "description": "", "visual": False})
+    formats.sort(key=lambda f: (f.get("order", 99), f["label"]))
 
     (jobs / "capabilities.json").write_text(json.dumps({
         "schemaVersion": "1.0",
         "updatedAt": _now(),
         "recipes": recipes,
+        "formats": formats,
         "aspects": [{"value": k, "label": v} for k, v in ASPECT_LABELS.items()],
         "pacing": [{"value": k, "label": v.label} for k, v in PACING.items()],
         "cutRates": [{"value": _num(n), "label": lbl} for n, lbl in CUT_RATES],

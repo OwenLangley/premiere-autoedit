@@ -5,6 +5,14 @@ description: >
   the brand look, then leaves rhythm to the editor. Cutting to the transcript
   would fight the track.
 
+format:
+  label: Client promo
+  aspect: landscape
+  duration: 60
+  duration_mode: about
+  cut_rate: 2
+  order: 3
+
 sequence:
   timebase: "25"
   video_tracks: 4          # V1 interview, V2 b-roll, V3 graphics, V4 logo

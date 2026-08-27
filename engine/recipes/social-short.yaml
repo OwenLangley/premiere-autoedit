@@ -4,6 +4,18 @@ description: >
   filler removal is correct: the format punishes any dead air, and viewers
   expect the clipped cadence rather than being jarred by it.
 
+# What an editor is actually making. The recipe is the engineering answer --
+# thresholds, tracks, timing -- and nobody picks an edit by its filler mode.
+# This is the same settings under the name of the deliverable, so the panel can
+# ask one question instead of twelve.
+format:
+  label: Reel / Short
+  aspect: vertical
+  duration: 15
+  duration_mode: exactly
+  cut_rate: 1
+  order: 1
+
 sequence:
   timebase: "30"
   video_tracks: 3          # V1 speaker, V2 b-roll, V3 captions/graphics

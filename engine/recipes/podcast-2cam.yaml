@@ -5,6 +5,14 @@ description: >
   before they can say why. Under-cutting costs the editor a few minutes;
   over-cutting costs the episode its voice.
 
+format:
+  label: Podcast cut
+  aspect: source
+  # No length: an episode runs as long as the conversation does, and a podcast
+  # trimmed to a target is a podcast with the end cut off.
+  duration_mode: none
+  order: 4
+
 sequence:
   timebase: "25"
   video_tracks: 3          # V1 cam-a, V2 cam-b, V3 graphics

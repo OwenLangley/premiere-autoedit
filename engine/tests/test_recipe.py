@@ -73,3 +73,80 @@ def test_missing_recipe_lists_what_is_available():
 
 def test_sequence_name_templating():
     assert load_recipe("podcast-2cam").sequence_name("EP042") == "EP042_rough_v1"
+
+
+# --- the format block, which is what an editor actually picks ---------------
+
+def test_every_shipped_recipe_offers_a_format():
+    # The panel's first question is "what are you making". A recipe with no
+    # format has no card, which is allowed -- but all four shipped ones should
+    # have one, or the front door is half empty.
+    for name in list_recipes():
+        fmt = load_recipe(name).format
+        assert fmt, f"{name} has no format block"
+        assert fmt["label"], f"{name} format has no label"
+
+
+def test_format_orders_are_unique():
+    orders = [load_recipe(n).format.get("order") for n in list_recipes()]
+    assert len(set(orders)) == len(orders), f"duplicate format order: {orders}"
+
+
+def test_a_format_needs_a_label(tmp_path):
+    p = tmp_path / "r.yaml"
+    p.write_text("name: r\nformat:\n  aspect: vertical\n")
+    with pytest.raises(RecipeError, match="needs a label"):
+        load_recipe(p)
+
+
+def test_format_rejects_an_aspect_the_engine_cannot_build(tmp_path):
+    p = tmp_path / "r.yaml"
+    p.write_text("name: r\nformat:\n  label: X\n  aspect: cinemascope\n")
+    with pytest.raises(RecipeError, match="unknown aspect"):
+        load_recipe(p)
+
+
+def test_a_length_mode_without_a_length_is_refused(tmp_path):
+    # The exact defect this guards: a format promising "exactly 15s" that
+    # carries no seconds would produce an edit of whatever length it liked.
+    p = tmp_path / "r.yaml"
+    p.write_text("name: r\nformat:\n  label: X\n  duration_mode: exactly\n")
+    with pytest.raises(RecipeError, match="needs a duration"):
+        load_recipe(p)
+
+
+def test_format_rejects_an_unknown_key(tmp_path):
+    p = tmp_path / "r.yaml"
+    p.write_text("name: r\nformat:\n  label: X\n  colour: red\n")
+    with pytest.raises(RecipeError, match="unknown format key"):
+        load_recipe(p)
+
+
+def test_every_format_builds_options_the_engine_accepts():
+    """A card in the panel must produce a job the engine will run.
+
+    This is the seam where a typo becomes an editor's problem: they pick
+    "Reel / Short", the request is assembled from these values, and any one of
+    them being unacceptable fails somewhere far from the choice they made.
+    """
+    from autoedit.options import JobOptions
+
+    for name in list_recipes():
+        fmt = load_recipe(name).format
+        if not fmt:
+            continue
+        JobOptions(
+            aspect=fmt["aspect"],
+            duration_mode=fmt["duration_mode"],
+            duration_seconds=fmt.get("duration"),
+            cut_rate=fmt.get("cut_rate"),
+        )
+
+
+def test_a_format_promising_a_length_carries_one():
+    # "exactly 15s" with no seconds would run to whatever length it liked, which
+    # is the defect that produced a 40s edit against a 15s intention.
+    for name in list_recipes():
+        fmt = load_recipe(name).format
+        if fmt and fmt["duration_mode"] != "none":
+            assert fmt.get("duration"), f"{name}: {fmt['duration_mode']} with no duration"

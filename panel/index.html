@@ -70,6 +70,39 @@
       .disclosure { display: flex; align-items: center; gap: 6px; cursor: pointer;
                     color: var(--dim); font-size: 11px; user-select: none; }
 
+      /* --- what are you making ---------------------------------------------
+         Four cards instead of twelve controls. The nine settings a format
+         decides are not nine decisions -- they are the same on every Reel --
+         so they move behind Adjust and the deliverable comes to the front. */
+      .sec-label { color: var(--dim); font-size: 11px; margin-bottom: 5px; }
+      #formats { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+      .fmt { display: flex; align-items: center; gap: 10px; padding: 7px 9px;
+             border: 1px solid var(--line); border-radius: 4px; background: #202024; }
+      .fmt:hover { border-color: var(--dim); }
+      .fmt.on { border-color: var(--accent); background: #1d2733; }
+      .fmt .fname { font-weight: 600; }
+      .fmt .fmeta { color: var(--dim); font-size: 11px; }
+      /* Drawn to the real output ratio: the shape IS the information, so an
+         editor sees what they are about to make rather than reading it. */
+      .shape { flex: none; border: 1.5px solid var(--dim); border-radius: 2px; }
+      .fmt.on .shape { border-color: var(--accent); }
+      .shape.vertical   { width: 15px; height: 26px; }
+      .shape.square     { width: 22px; height: 22px; }
+      .shape.landscape  { width: 30px; height: 17px; }
+      .shape.portrait45 { width: 19px; height: 24px; }
+      .shape.source     { width: 26px; height: 20px; border-style: dashed; }
+      #adjust-row { margin: 2px 0 8px; }
+
+      /* --- what the engine did --------------------------------------------- */
+      .kv { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0;
+            border-bottom: 1px solid #2a2a30; font-size: 11.5px; }
+      .kv:last-child { border-bottom: none; }
+      .kv b { font-weight: 500; color: var(--dim); }
+      .kv .num { font-variant-numeric: tabular-nums; text-align: right;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .logline { font-family: monospace; font-size: 10.5px; color: var(--dim);
+                 padding: 2px 0; }
+
       /* --- the shot strip ---------------------------------------------------
          400px docked means ~30px a clip on a ten-clip edit. That is too narrow
          to label, so the strip carries STRUCTURE -- proportion and colour -- and
@@ -181,6 +214,9 @@
       </label>
       <div class="msg bad hidden" id="job-name-notice"></div>
 
+      <div class="sec-label" data-i18n="edit.whatMaking">What are you making?</div>
+      <div id="formats"></div>
+
       <label class="field">
         <span><span data-i18n="edit.clips">Clips</span> <span id="media-count"></span></span>
       </label>
@@ -191,6 +227,12 @@
         <button id="media-reload" data-i18n="edit.reload">Reload</button>
       </div>
 
+      <div class="row" id="adjust-row">
+        <div class="grow hint" id="format-summary" style="margin:0"></div>
+        <button id="adjust-toggle" data-i18n="edit.adjust">Adjust</button>
+      </div>
+
+      <div id="adjust-block" class="hidden">
       <div class="split" style="margin-top:10px">
         <label class="field"><span data-i18n="edit.recipe">Recipe</span><select id="opt-recipe"></select></label>
         <label class="field"><span data-i18n="edit.shape">Shape</span><select id="opt-aspect"></select></label>
@@ -250,6 +292,8 @@
         For promos and b-roll. Leave off to cut to what is said.
       </div>
 
+      </div><!-- /adjust-block -->
+
       <div class="summary-line" id="request-summary"></div>
       <div id="request-errors"></div>
 
@@ -267,17 +311,14 @@
         <select id="plan-list"><option data-i18n="plan.none">No jobs folder set</option></select>
         <button id="refresh" data-i18n="plan.refresh">Refresh</button>
       </div>
-      <div id="plan-summary" class="hidden"></div>
       <div id="plan-messages"></div>
     </section>
 
-    <div id="sections-block" class="hidden">
-      <h2 data-i18n="sections.title">Include</h2>
-      <section id="sections"></section>
-    </div>
-
+    <!-- The cut comes before anything about the cut. Everything an editor does
+         at this point concerns a sequence that already exists, so it gets the
+         top of the section and the settings that produced it fall to a line
+         underneath. -->
     <div id="swap-block" class="hidden">
-      <h2 data-i18n="swap.title">Shots</h2>
       <section>
         <div id="strip"></div>
         <div class="hint" id="strip-hint" data-i18n="swap.hint">
@@ -301,6 +342,20 @@
         Always builds a new sequence. Each stage is one undo step.
       </div>
     </section>
+
+    <div id="detail-block" class="hidden">
+      <div class="row" style="margin:14px 0 6px">
+        <button id="console-toggle" class="grow" data-i18n="console.show">What the engine did</button>
+      </div>
+      <div id="console-block" class="hidden">
+        <section id="console-body"></section>
+      </div>
+      <div id="plan-summary" class="hidden"></div>
+      <div id="sections-block" class="hidden">
+        <h2 data-i18n="sections.title">Include</h2>
+        <section id="sections"></section>
+      </div>
+    </div>
 
     <h2 data-i18n="diag.title">Diagnostics</h2>
     <section>

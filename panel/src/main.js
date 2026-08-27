@@ -11,7 +11,7 @@ const { applyPlan, ApplyError } = require("./apply");
 const {
   validatePlan, summarize, sections, withoutSections,
   withSwaps, candidatesFor, groupKeyOf, colourFor, thumbForClip,
-  slotKey, isPictureSlot,
+  slotKey, isPictureSlot, toSeconds,
 } = require("./plan");
 const {
   LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
@@ -59,6 +59,8 @@ const state = {
   selectedSlot: null,      // atFrame of the block whose alternates are showing
   // Every shot the helper has found across the media library, not just the
   // clips in this job. Null until it has written the index once.
+  format: null,          // the deliverable card the editor picked
+  lastReceipt: null,     // the previous build of this plan, if there was one
   libraryShots: null,
   thumbFailureLogged: false,
   thumbDiagnosed: false,
@@ -148,6 +150,7 @@ function applyCapabilityLabels(caps) {
   // Filling the dropdown can change which mode is selected, so the Seconds box
   // has to be re-checked here and not only on an editor's own change.
   syncDurationField();
+  renderFormats(caps);
 }
 
 async function refreshSetup() {
@@ -195,6 +198,8 @@ function clearPlan() {
   $("plan-summary").classList.add("hidden");
   $("sections-block").classList.add("hidden");
   $("swap-block").classList.add("hidden");
+  $("detail-block").classList.add("hidden");
+  state.lastReceipt = null;
   $("plan-messages").innerHTML = "";
   $("apply").disabled = true;
 }
@@ -252,7 +257,15 @@ async function selectPlan(ref) {
   } catch {
     state.libraryShots = null;   // the strip still works from the plan alone
   }
+  try {
+    state.lastReceipt = state.transport
+      ? await state.transport.readReceipt(ref.name) : null;
+  } catch {
+    state.lastReceipt = null;
+  }
   renderStrip();
+  $("detail-block").classList.remove("hidden");
+  if (!$("console-block").classList.contains("hidden")) renderConsole();
   $("apply").disabled = false;
   log(`Loaded ${ref.name}`);
 }
@@ -324,6 +337,91 @@ function renderSections() {
     meta.textContent = bits.join(" · ");
     row.append(cb, label, meta);
     box.appendChild(row);
+  }
+}
+
+// ------------------------------------------------------------------ console
+
+/**
+ * Every value the job will use, and every check the build ran.
+ *
+ * Behind a toggle rather than always open, because a colleague opening this on
+ * day one should meet a tool and not a diagnostic readout. But it exists at all
+ * because the panel has spent this month failing quietly: a length that was
+ * never set looked exactly like a length that was, and a clip reading from the
+ * wrong footage passed a verifier that only checked position and duration.
+ * Stated values cannot fail quietly.
+ */
+function renderConsole() {
+  const body = $("console-body");
+  body.innerHTML = "";
+  if (!state.plan) return;
+  const p = state.plan;
+
+  const group = (titleKey) => {
+    const h = document.createElement("div");
+    h.className = "sec-label";
+    h.style.marginTop = "10px";
+    h.textContent = state.t(titleKey);
+    body.appendChild(h);
+  };
+  const row = (label, value, tone) => {
+    const r = document.createElement("div");
+    r.className = "kv";
+    const k = document.createElement("b");
+    k.textContent = label;
+    const v = document.createElement("span");
+    v.className = "num";
+    v.textContent = value;
+    if (tone) v.style.color = `var(--${tone})`;
+    r.append(k, v);
+    body.appendChild(r);
+  };
+
+  const tb = p.timebase;
+  const frames = (p.timeline || []).reduce(
+    (m, c) => Math.max(m, c.atFrame + c.durationFrames), 0);
+
+  group("console.settings");
+  row(state.t("edit.recipe"), p.recipe);
+  row(state.t("plan.sequence"), p.sequence.name);
+  row(state.t("console.timebase"), `${(tb.fpsNum / tb.fpsDen).toFixed(3)} fps`);
+  row(state.t("console.length"), `${toSeconds(tb, frames).toFixed(2)}s`);
+  row(state.t("console.clips"), String((p.timeline || []).length));
+  if (p.sequence.frameWidth) {
+    row(state.t("edit.shape"), `${p.sequence.frameWidth}\u00d7${p.sequence.frameHeight}`);
+  }
+
+  // Warnings are the engine's own account of what it had to compromise on.
+  group("console.checks");
+  const warnings = p.warnings || [];
+  if (!warnings.length) {
+    row(state.t("console.warnings"), state.t("console.none"), "good");
+  } else {
+    for (const w of warnings) {
+      const line = document.createElement("div");
+      line.className = "logline";
+      line.textContent = state.t.warning(w);
+      body.appendChild(line);
+    }
+  }
+
+  if (state.lastReceipt) {
+    group("console.lastBuild");
+    const r = state.lastReceipt;
+    row(state.t("console.builtAt"), (r.appliedAt || "").replace("T", " ").slice(0, 19));
+    row(state.t("console.stages"), (r.stages || []).join(", "));
+    const bad = (r.warnings || []).filter((w) => /wrong|gap|does not match/i.test(String(w)));
+    row(state.t("console.problems"),
+      bad.length ? String(bad.length) : state.t("console.none"),
+      bad.length ? "bad" : "good");
+    for (const w of bad) {
+      const line = document.createElement("div");
+      line.className = "logline";
+      line.style.color = "var(--bad)";
+      line.textContent = String(w);
+      body.appendChild(line);
+    }
   }
 }
 
@@ -998,6 +1096,117 @@ function syncDurationField() {
   $("duration-seconds-field").style.opacity = off ? "0.45" : "";
 }
 
+/**
+ * The four formats, ahead of the twelve controls that serve them.
+ *
+ * A format is a recipe plus a length and an aspect -- all three of which the
+ * engine already takes -- so picking one writes into the existing controls and
+ * fires their change events. Nothing downstream knows this screen exists, which
+ * is why it can be added without disturbing anything that already works.
+ */
+function renderFormats(caps) {
+  const box = $("formats");
+  box.innerHTML = "";
+  const formats = (caps && caps.formats) || [];
+  if (!formats.length) {
+    // No format blocks in the recipes: fall back to the full form rather than
+    // showing an empty question.
+    box.classList.add("hidden");
+    $("adjust-row").classList.add("hidden");
+    $("adjust-block").classList.remove("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+
+  for (const f of formats) {
+    const row = document.createElement("div");
+    row.className = "fmt";
+    if (state.format === f.recipe) row.classList.add("on");
+
+    const shape = document.createElement("div");
+    shape.className = `shape ${f.aspect || "source"}`;
+
+    const txt = document.createElement("div");
+    txt.className = "grow";
+    const name = document.createElement("div");
+    name.className = "fname";
+    name.textContent = f.label;
+    const meta = document.createElement("div");
+    meta.className = "fmeta";
+    meta.textContent = describeFormat(f);
+    txt.append(name, meta);
+
+    row.append(shape, txt);
+    row.addEventListener("click", () => applyFormat(f));
+    box.appendChild(row);
+  }
+  renderFormatSummary();
+}
+
+/** "15s · 1080×1920" — the two things that differ between formats. */
+function describeFormat(f) {
+  const bits = [];
+  if (f.duration_mode === "none") bits.push(state.t("format.fullLength"));
+  else bits.push(`${Math.round(f.duration)}s`);
+  const dims = {
+    vertical: "1080\u00d71920", square: "1080\u00d71080",
+    landscape: "1920\u00d71080", portrait45: "1080\u00d71350",
+  }[f.aspect];
+  bits.push(dims || state.t("format.matchSource"));
+  return bits.join(" \u00b7 ");
+}
+
+/**
+ * Write a format into the controls that already exist.
+ *
+ * Each assignment dispatches `change`, because the summary line, the request
+ * validator and the music-chunk logic all listen for it. Setting `.value`
+ * alone would leave them showing the previous format's job.
+ */
+function applyFormat(f) {
+  state.format = f.recipe;
+  const set = (id, value) => {
+    const el = $(id);
+    if (!el || value === undefined || value === null) return;
+    el.value = String(value);
+    el.dispatchEvent(new Event("change"));
+  };
+  set("opt-recipe", f.recipe);
+  set("opt-aspect", f.aspect);
+  set("opt-duration-mode", f.duration_mode);
+  if (f.duration) set("opt-duration-seconds", Math.round(f.duration));
+  if (f.cut_rate) set("opt-cut-rate", String(f.cut_rate));
+  syncDurationField();
+  renderFormats(state.capabilities);
+}
+
+/**
+ * Read the settings back in plain English, so they can be checked in one line.
+ *
+ * This is the whole point of moving them behind Adjust: hidden is only
+ * acceptable if what they say is still visible. A job once ran to forty seconds
+ * against a fifteen-second intention because twelve dropdowns cannot be
+ * proofread at a glance.
+ */
+function renderFormatSummary() {
+  const el = $("format-summary");
+  if (!el) return;
+  const label = (id) => {
+    const sel = $(id);
+    const opt = sel && sel.options[sel.selectedIndex];
+    return opt ? opt.textContent : "";
+  };
+  const bits = [];
+  const mode = $("opt-duration-mode").value;
+  bits.push(mode === "none"
+    ? state.t("format.noLimit")
+    : `${label("opt-duration-mode")} ${$("opt-duration-seconds").value}s`);
+  bits.push(label("opt-aspect"));
+  bits.push(label("opt-cut-rate"));
+  if ($("opt-look").value) bits.push(label("opt-look"));
+  el.textContent = bits.filter(Boolean).join(" \u00b7 ");
+}
+
 function currentForm() {
   const seconds = Number($("opt-duration-seconds").value);
   return {
@@ -1169,6 +1378,8 @@ for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut
                   "opt-music", "opt-music-start", "opt-music-length"]) {
   $(id).addEventListener("change", renderSummary_);
   $(id).addEventListener("input", renderSummary_);
+  $(id).addEventListener("change", renderFormatSummary);
+  $(id).addEventListener("input", renderFormatSummary);
   if (id === "opt-duration-mode") {
     $(id).addEventListener("change", syncDurationField);
   }
@@ -1177,6 +1388,21 @@ for (const id of ["job-name", "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut
   $(id).addEventListener("wheel", (e) => e.preventDefault());
 }
 $("apply").addEventListener("click", onApply);
+
+$("console-toggle").addEventListener("click", () => {
+  const block = $("console-block");
+  const open = block.classList.contains("hidden");
+  block.classList.toggle("hidden", !open);
+  $("console-toggle").textContent = state.t(open ? "console.hide" : "console.show");
+  if (open) renderConsole();
+});
+
+$("adjust-toggle").addEventListener("click", () => {
+  const block = $("adjust-block");
+  const open = block.classList.contains("hidden");
+  block.classList.toggle("hidden", !open);
+  $("adjust-toggle").textContent = state.t(open ? "edit.adjustDone" : "edit.adjust");
+});
 
 $("swap-reset").addEventListener("click", () => {
   state.swaps.clear();

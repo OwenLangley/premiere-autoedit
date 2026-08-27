@@ -302,6 +302,24 @@ class LocalFolderTransport {
     const file = await folder.createFile(name, { overwrite: true });
     await file.write(JSON.stringify(receipt, null, 2));
   }
+
+  /**
+   * The last build of a plan, or null if it has never been built.
+   *
+   * The receipt is where the verifier's account of the build lives -- which
+   * clips landed wrong, which gaps opened -- and until now nothing read it
+   * back. It was written and never looked at.
+   */
+  async readReceipt(planName) {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return null;
+    try {
+      const name = planName.replace(/\.editplan\.json$/i, ".receipt.json");
+      return JSON.parse(await (await folder.getEntry(name)).read());
+    } catch {
+      return null;   // never built is the ordinary case, not a failure
+    }
+  }
 }
 
 /** Seam for the NAS-era shared service. Same three methods. */

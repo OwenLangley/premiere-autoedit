@@ -5,6 +5,14 @@ description: >
   quality scoring throws away the black, frozen, soft and shaky ones, and when a
   music bed is supplied the cuts land on the beat.
 
+format:
+  label: Square post
+  aspect: square
+  duration: 30
+  duration_mode: about
+  cut_rate: 1
+  order: 2
+
 sequence:
   timebase: "25"
   video_tracks: 3          # V1 selects, V2 b-roll/overlay, V3 graphics
