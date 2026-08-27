@@ -66,7 +66,7 @@ const state = {
   format: null,          // the deliverable card the editor picked
   // What the description last set, so a later keystroke only pushes what
   // actually changed and a hand-made adjustment is not overwritten.
-  promptApplied: { seconds: null, aspect: null, cutRate: null, visual: null },
+  promptApplied: { seconds: null, aspect: null, cutRate: null, visual: null, recipe: null },
   lastReceipt: null,     // the previous build of this plan, if there was one
   libraryShots: null,
   thumbFailureLogged: false,
@@ -155,7 +155,6 @@ function applyCapabilityLabels(caps) {
   // Filling the dropdown can change which mode is selected, so the Seconds box
   // has to be re-checked here and not only on an editor's own change.
   syncDurationField();
-  renderFormats(caps);
   // A description typed before the capabilities landed still gets read.
   applyPromptSettings();
 }
@@ -1075,99 +1074,6 @@ function syncDurationField() {
 }
 
 /**
- * The four formats, ahead of the twelve controls that serve them.
- *
- * A format is a recipe plus a length and an aspect -- all three of which the
- * engine already takes -- so picking one writes into the existing controls and
- * fires their change events. Nothing downstream knows this screen exists, which
- * is why it can be added without disturbing anything that already works.
- */
-function renderFormats(caps) {
-  const box = $("formats");
-  box.innerHTML = "";
-  const formats = (caps && caps.formats) || [];
-  if (!formats.length) {
-    // No format blocks in the recipes: fall back to the full form rather than
-    // showing an empty question.
-    box.classList.add("hidden");
-    $("adjust-row").classList.add("hidden");
-    $("adjust-block").classList.remove("hidden");
-    return;
-  }
-  box.classList.remove("hidden");
-
-  for (const f of formats) {
-    const row = document.createElement("div");
-    row.className = "fmt";
-    if (state.format === f.recipe) row.classList.add("on");
-
-    const shape = document.createElement("div");
-    shape.className = `shape ${f.aspect || "source"}`;
-
-    const txt = document.createElement("div");
-    txt.className = "grow";
-    const name = document.createElement("div");
-    name.className = "fname";
-    name.textContent = f.label;
-    const meta = document.createElement("div");
-    meta.className = "fmeta";
-    meta.textContent = describeFormat(f);
-    txt.append(name, meta);
-
-    row.append(shape, txt);
-    row.addEventListener("click", () => applyFormat(f));
-    box.appendChild(row);
-  }
-  renderFormatSummary();
-}
-
-/** "15s · 1080×1920" — the two things that differ between formats. */
-function describeFormat(f) {
-  const bits = [];
-  if (f.duration_mode === "none") bits.push(state.t("format.fullLength"));
-  else bits.push(`${Math.round(f.duration)}s`);
-  const dims = {
-    vertical: "1080\u00d71920", square: "1080\u00d71080",
-    landscape: "1920\u00d71080", portrait45: "1080\u00d71350",
-  }[f.aspect];
-  bits.push(dims || state.t("format.matchSource"));
-  return bits.join(" \u00b7 ");
-}
-
-/**
- * Write a format into the controls that already exist.
- *
- * Each assignment dispatches `change`, because the summary line, the request
- * validator and the music-chunk logic all listen for it. Setting `.value`
- * alone would leave them showing the previous format's job.
- */
-function applyFormat(f) {
-  state.format = f.recipe;
-  const set = (id, value) => {
-    const el = $(id);
-    if (!el || value === undefined || value === null) return;
-    el.value = String(value);
-    el.dispatchEvent(new Event("change"));
-  };
-  set("opt-recipe", f.recipe);
-  set("opt-aspect", f.aspect);
-  set("opt-duration-mode", f.duration_mode);
-  if (f.duration) set("opt-duration-seconds", Math.round(f.duration));
-  // Cutting from pictures, and the rate that goes with it. These travel
-  // together: a cut rate on a speech-led edit is a setting the engine accepts
-  // and never acts on, which is how a card offering "every beat" produced six
-  // clips of two and a half seconds each.
-  const visual = $("opt-visual");
-  if (visual) {
-    visual.checked = !!f.visual;
-    visual.dispatchEvent(new Event("change"));
-  }
-  if (f.cut_rate) set("opt-cut-rate", String(f.cut_rate));
-  syncDurationField();
-  renderFormats(state.capabilities);
-}
-
-/**
  * Read the settings back in plain English, so they can be checked in one line.
  *
  * This is the whole point of moving them behind Adjust: hidden is only
@@ -1212,7 +1118,8 @@ function renderFormatSummary() {
 function applyPromptSettings() {
   const words = state.capabilities && state.capabilities.promptWords;
   if (!words) return;                     // capabilities not written yet
-  const got = readPromptSettings($("opt-story").value, words);
+  const formats = (state.capabilities && state.capabilities.formats) || [];
+  const got = readPromptSettings($("opt-story").value, words, formats);
   const last = state.promptApplied;
   const from = [];
 
@@ -1222,6 +1129,32 @@ function applyPromptSettings() {
     el.value = String(value);
     el.dispatchEvent(new Event("change"));
   };
+
+  // The recipe first: it decides thresholds, tracks and filler handling, and
+  // anything the description states explicitly below should outrank the
+  // defaults that come with it.
+  if (got.recipe !== last.recipe && got.recipe) {
+    push("opt-recipe", got.recipe);
+    const fmt = formats.find((f) => f.recipe === got.recipe);
+    if (fmt) {
+      from.push(fmt.label);
+      // The recipe's own defaults fill in whatever the sentence did not say.
+      if (got.seconds === null && fmt.duration) {
+        push("opt-duration-mode", fmt.duration_mode || "about");
+        push("opt-duration-seconds", Math.round(fmt.duration));
+        syncDurationField();
+      }
+      if (got.aspect === null && fmt.aspect) push("opt-aspect", fmt.aspect);
+      const box = $("opt-visual");
+      if (box && fmt.visual && !box.checked) {
+        box.checked = true;
+        box.dispatchEvent(new Event("change"));
+      }
+      if (got.cutRate === null && fmt.cut_rate && $("opt-visual").checked) {
+        push("opt-cut-rate", String(fmt.cut_rate));
+      }
+    }
+  }
 
   if (got.seconds !== last.seconds && got.seconds !== null) {
     push("opt-duration-mode", "exactly");
@@ -1245,7 +1178,11 @@ function applyPromptSettings() {
   // speech edit is a setting the engine accepts and never acts on.
   if (got.cutRate !== last.cutRate && got.cutRate !== null && $("opt-visual").checked) {
     push("opt-cut-rate", String(got.cutRate));
-    from.push(state.t("prompt.cutRate"));
+    // Name the rate, not the fact that there is one. "cut rate" tells an editor
+    // nothing they could check against what they typed.
+    const sel = $("opt-cut-rate");
+    const opt = sel && sel.options[sel.selectedIndex];
+    from.push(opt ? opt.textContent.toLowerCase() : String(got.cutRate));
   }
 
   state.promptApplied = got;
@@ -1456,7 +1393,7 @@ $("adjust-toggle").addEventListener("click", () => {
   const block = $("adjust-block");
   const open = block.classList.contains("hidden");
   block.classList.toggle("hidden", !open);
-  $("adjust-toggle").textContent = state.t(open ? "edit.adjustDone" : "edit.adjust");
+  $("adjust-toggle").textContent = state.t(open ? "edit.adjustHide" : "edit.adjustShow");
 });
 
 $("swap-reset").addEventListener("click", () => {

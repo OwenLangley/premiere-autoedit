@@ -91,27 +91,8 @@
       .disclosure { display: flex; align-items: center; gap: 6px; cursor: pointer;
                     color: var(--dim); font-size: 11px; user-select: none; }
 
-      /* --- what are you making ---------------------------------------------
-         Four cards instead of twelve controls. The nine settings a format
-         decides are not nine decisions -- they are the same on every Reel --
-         so they move behind Adjust and the deliverable comes to the front. */
-      .sec-label { color: var(--dim); font-size: 11px; margin-bottom: 5px; }
-      #formats { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
-      .fmt { display: flex; align-items: center; gap: 10px; padding: 7px 9px;
-             border: 1px solid var(--line); border-radius: 4px; background: #202024; }
-      .fmt:hover { border-color: var(--dim); }
-      .fmt.on { border-color: var(--accent); background: #1d2733; }
-      .fmt .fname { font-weight: 600; }
-      .fmt .fmeta { color: var(--dim); font-size: 11px; }
-      /* Drawn to the real output ratio: the shape IS the information, so an
-         editor sees what they are about to make rather than reading it. */
-      .shape { flex: none; border: 1.5px solid var(--dim); border-radius: 2px; }
-      .fmt.on .shape { border-color: var(--accent); }
-      .shape.vertical   { width: 15px; height: 26px; }
-      .shape.square     { width: 22px; height: 22px; }
-      .shape.landscape  { width: 30px; height: 17px; }
-      .shape.portrait45 { width: 19px; height: 24px; }
-      .shape.source     { width: 26px; height: 20px; border-style: dashed; }
+      /* The format cards lived here. The description does that job now, and
+         two ways to choose the same thing was the confusing part. */
       #adjust-row { margin: 2px 0 8px; }
 
       /* --- what the engine did --------------------------------------------- */
@@ -251,9 +232,6 @@
         them. Anything the footage cannot serve is left out and said so.
       </div>
 
-      <div class="sec-label" data-i18n="edit.whatMaking">What are you making?</div>
-      <div id="formats"></div>
-
       <label class="field">
         <span><span data-i18n="edit.clips">Clips</span> <span id="media-count"></span></span>
       </label>
@@ -266,10 +244,10 @@
 
       <div class="row" id="adjust-row">
         <div class="grow hint" id="format-summary" style="margin:0"></div>
-        <button id="adjust-toggle" data-i18n="edit.adjust">Adjust</button>
+        <button id="adjust-toggle" data-i18n="edit.adjustHide">Hide settings</button>
       </div>
 
-      <div id="adjust-block" class="hidden">
+      <div id="adjust-block">
       <div class="split" style="margin-top:10px">
         <label class="field"><span data-i18n="edit.recipe">Recipe</span><select id="opt-recipe"></select></label>
         <label class="field"><span data-i18n="edit.shape">Shape</span><select id="opt-aspect"></select></label>

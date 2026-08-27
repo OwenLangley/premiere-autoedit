@@ -53,10 +53,14 @@ function readDuration(text) {
  *
  * @param {string} text
  * @param {{platforms?: Record<string,string>, pace?: Record<string,number>, montage?: string[]}} words
- * @returns {{seconds: number|null, aspect: string|null, cutRate: number|null, visual: boolean}}
+ * @param {any[]} [formats] recipe formats, each with a `recipe` and `keywords`
+ * @returns {{seconds: number|null, aspect: string|null, cutRate: number|null,
+ *            visual: boolean, recipe: string|null}}
  */
-function readPromptSettings(text, words) {
-  const empty = { seconds: null, aspect: null, cutRate: null, visual: false };
+function readPromptSettings(text, words, formats) {
+  const empty = {
+    seconds: null, aspect: null, cutRate: null, visual: false, recipe: null,
+  };
   const source = String(text || "").trim();
   if (!source || !words) return empty;
 
@@ -78,11 +82,25 @@ function readPromptSettings(text, words) {
   // otherwise, and the engine would accept it and quietly not use it.
   const montage = (words.montage || []).some((w) => hasWord(source, w));
 
+  // Which KIND of edit. Longest keyword wins, so "case study" is not decided by
+  // a shorter word in another format's list.
+  let recipe = null;
+  let longest = 0;
+  for (const fmt of formats || []) {
+    for (const word of fmt.keywords || []) {
+      if (word.length > longest && hasWord(source, word)) {
+        longest = word.length;
+        recipe = fmt.recipe;
+      }
+    }
+  }
+
   return {
     seconds: readDuration(source),
     aspect,
     cutRate,
     visual: montage || cutRate !== null,
+    recipe,
   };
 }
 

@@ -11,6 +11,14 @@ format:
   # No length: an episode runs as long as the conversation does, and a podcast
   # trimmed to a target is a podcast with the end cut off.
   duration_mode: none
+  # What someone types when they want this kind of edit.
+  keywords:
+    - podcast
+    - interview
+    - episode
+    - two camera
+    - 2 camera
+    - conversation
   order: 4
 
 sequence:

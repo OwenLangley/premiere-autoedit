@@ -16,6 +16,20 @@ format:
   duration_mode: exactly
   cut_rate: 1
   visual: true
+  # What someone types when they want this kind of edit.
+  keywords:
+    - promo
+    - montage
+    - trailer
+    - teaser
+    - sizzle
+    - advert
+    - commercial
+    - b-roll
+    - broll
+    - highlight
+    - highlights
+    - music video
   order: 2
 
 sequence:

@@ -11,6 +11,13 @@ format:
   duration: 60
   duration_mode: about
   # Speech-led, like social-short: the cut follows the interview.
+  # What someone types when they want this kind of edit.
+  keywords:
+    - client
+    - testimonial
+    - case study
+    - corporate
+    - brand film
   order: 3
 
 sequence:

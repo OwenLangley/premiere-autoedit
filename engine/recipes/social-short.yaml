@@ -15,6 +15,19 @@ format:
   duration_mode: exactly
   # No cut_rate: this one follows the words. For a montage that cuts to the
   # music, the deliverable is "Promo -- cuts to music".
+  # What someone types when they want this kind of edit.
+  # Deliberately no platform words here. "tiktok" and "vertical" say what SHAPE
+  # the video is, which PLATFORM_ASPECTS already reads; as recipe keywords they
+  # also outrank real ones on length, so "a tiktok video ... dramatic promo"
+  # chose this over the montage recipe on the strength of the wrong half of the
+  # sentence.
+  keywords:
+    - short
+    - reel
+    - talking
+    - to camera
+    - vlog
+    - piece to camera
   order: 1
 
 sequence:

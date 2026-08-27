@@ -116,7 +116,7 @@ class Recipe:
 # Aspect names the engine accepts. Imported lazily inside the validator to keep
 # recipe.py free of an options.py import at module scope.
 _FORMAT_KEYS = {"label", "aspect", "duration", "duration_mode", "cut_rate",
-                "visual", "order"}
+                "visual", "keywords", "order"}
 _DURATION_MODES = {"none", "upTo", "exactly", "about"}
 
 
@@ -164,6 +164,11 @@ def _coerce_format(raw: Any, where: str) -> dict[str, Any]:
     # cutting only happens on the visual path.
     if raw.get("visual"):
         out["visual"] = True
+    words = raw.get("keywords") or []
+    if not isinstance(words, list) or any(not isinstance(w, str) for w in words):
+        raise RecipeError(f"{where}: format keywords must be a list of strings")
+    if words:
+        out["keywords"] = [w.strip().lower() for w in words if w.strip()]
     if out.get("cut_rate") and not out.get("visual"):
         raise RecipeError(
             f"{where}: format sets cut_rate but not visual. Cutting to a rate "

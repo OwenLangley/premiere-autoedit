@@ -252,6 +252,26 @@ def _is_description(fragment: str) -> bool:
     return not _says_something(rest)
 
 
+def find_recipe(text: str, formats: list[dict]) -> str | None:
+    """Which kind of edit the description asks for, if it says.
+
+    Longest keyword first, so "case study" is not decided by "study" appearing
+    in another format's list, and so a two-word phrase beats a one-word one.
+
+    Returns None when nothing matches, which leaves whatever recipe is already
+    chosen alone. Guessing a recipe from silence would change the thresholds,
+    the tracks and the filler handling of an edit on no evidence at all.
+    """
+    low = (text or "").lower()
+    best: tuple[int, str] | None = None
+    for fmt in formats or []:
+        for word in fmt.get("keywords") or []:
+            if len(word) > (best[0] if best else 0) and re.search(
+                    rf"\b{re.escape(word)}\b", low):
+                best = (len(word), fmt["recipe"])
+    return best[1] if best else None
+
+
 def find_pace(text: str) -> float | None:
     """How fast to cut, if the prompt says.
 
