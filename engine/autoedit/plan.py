@@ -397,16 +397,39 @@ class EditPlanBuilder:
         natural_end = playhead + frames
 
         if music.music_wins:
-            # The last cut point at or before what the material allows. Going
-            # past it would need frames that do not exist, and Premiere pads a
-            # short clip by holding its last frame.
+            # The last cut point at or before what the material allows.
             i = bisect_right(candidates, natural_end) - 1
             while i >= 0 and candidates[i] <= playhead:
                 i -= 1
-            if i < 0:
-                return 0
-            self._beats_snapped += 1
-            return int(candidates[i] - playhead)
+            if i >= 0:
+                self._beats_snapped += 1
+                return int(candidates[i] - playhead)
+
+            # Nothing landed inside the window, so reach FORWARD to the next
+            # beat instead of giving up.
+            #
+            # A tracked grid follows real onsets and its spacing wobbles: at 180
+            # BPM the cut points came out at 0, 20, 43, 64 -- gaps of 20, 23,
+            # 21. A shot cut to one beat asks for 20 frames, so the second clip
+            # wanted frames 20 to 40 and no beat lies in there. Looking only
+            # backwards dropped it, the playhead never advanced, and every
+            # remaining clip failed the same way: thirty clips became one.
+            #
+            # Overshooting is safe because the caller floors the out point
+            # against the media end and recomputes the length from it, so a
+            # source too short to reach the beat yields a shorter clip rather
+            # than a gap.
+            j = bisect_right(candidates, natural_end)
+            while j < len(candidates) and candidates[j] <= playhead:
+                j += 1
+            # Bounded at double the requested length. Past that the grid has a
+            # hole in it, and stretching a shot across it is worse than losing
+            # the shot.
+            limit = natural_end + frames
+            if j < len(candidates) and candidates[j] <= limit:
+                self._beats_snapped += 1
+                return int(candidates[j] - playhead)
+            return 0
 
         # Speech has priority: move the cut only if it is already close to a beat
         # and the surrounding silence can absorb the move.

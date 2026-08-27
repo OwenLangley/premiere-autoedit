@@ -210,3 +210,56 @@ def test_per_file_warnings_still_repeat_per_file():
     b.add_warning("probe", note("language.uncertain", file="b.mov",
                                 confidence=0.5, language="en"), "B")
     assert len(b.build().get("warnings", [])) == 2
+
+
+def test_a_cut_reaches_the_next_beat_when_none_lands_inside():
+    """Thirty clips became one, and this is why.
+
+    A tracked grid follows real onsets, so its spacing wobbles: at 180 BPM the
+    cut points came out at 0, 20, 43, 64 -- gaps of 20, 23, 21. A shot cut to
+    one beat asks for 20 frames, so the second clip wanted frames 20 to 40 and
+    no beat lies in there. Looking only backwards dropped it, the playhead never
+    advanced, and every clip after it failed identically.
+    """
+    from autoedit.music import BeatGrid
+    from autoedit.recipe import MusicSettings
+
+    tb = Timebase(60000, 1001)
+    b = builder(tb)
+    b.add_media(MediaEntry(id="A", rel_path="a.mov", duration=60.0, timebase=tb))
+
+    # A grid with exactly that wobble.
+    frames_to_seconds = lambda f: f / tb.fps
+    grid = BeatGrid(bpm=180.0, confidence=0.9,
+                    beats=[frames_to_seconds(f) for f in
+                           (0, 20, 43, 64, 84, 105, 125, 146, 166, 187)])
+    keeps = [Keep(i * 0.334, i * 0.334 + 0.334, "shot", 0.9, 0) for i in range(6)]
+    b.append_cuts("A", CutPlan(keeps=keeps, drops=[], warnings=[]),
+                  beats=grid, music=MusicSettings(beat_priority="music"),
+                  min_clip_seconds=0.35, every=1.0)
+
+    plan = b.build()
+    assert len(plan["timeline"]) >= 5, (
+        f"only {len(plan['timeline'])} of 6 clips survived the beat grid")
+
+    # And they must still sit end to end.
+    clips = sorted(plan["timeline"], key=lambda c: c["atFrame"])
+    for a, nxt in zip(clips, clips[1:]):
+        assert nxt["atFrame"] == a["atFrame"] + a["durationFrames"], "gap opened"
+
+
+def test_a_real_hole_in_the_grid_still_drops_the_clip():
+    # Reaching forward is bounded at double the requested length. Past that the
+    # grid has a hole, and stretching a shot across it is worse than losing it.
+    from autoedit.music import BeatGrid
+    from autoedit.recipe import MusicSettings
+
+    tb = Timebase(60000, 1001)
+    b = builder(tb)
+    b.add_media(MediaEntry(id="A", rel_path="a.mov", duration=60.0, timebase=tb))
+    grid = BeatGrid(bpm=180.0, confidence=0.9, beats=[0.0, 5.0])   # a five-second hole
+    b.append_cuts("A", CutPlan(keeps=[Keep(0.0, 0.334, "shot", 0.9, 0)],
+                               drops=[], warnings=[]),
+                  beats=grid, music=MusicSettings(beat_priority="music"),
+                  min_clip_seconds=0.35, every=1.0)
+    assert b.build()["timeline"] == []
