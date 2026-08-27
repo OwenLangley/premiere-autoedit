@@ -66,6 +66,7 @@ const EN = {
   "format.fullLength": "Full length",
   "format.matchSource": "Match source",
   "format.noLimit": "No length limit",
+  "format.cutsToSpeech": "Cuts to the words",
   "edit.title": "New edit",
   "edit.name": "Name",
   "edit.clips": "Clips",
@@ -270,6 +271,11 @@ const EN = {
     "beat confidence {confidence} is below {threshold}, so the cuts follow the speech instead of the music — cutting to a wrong grid is worse than not cutting to one",
   "warn.timebase.followedFootage":
     "sequence set to {chosen}fps to match the footage; the recipe asks for {recipe}fps, which no whole number of source frames lands on exactly",
+  "warn.cut.rateNeedsPictures":
+    "a cut rate only applies when cutting from pictures; this edit follows the words, so the rate was not used — pick a montage format or turn on “Cut from pictures”",
+  "warn.story.settingsApplied": "taken from your description: {settings}",
+  "warn.story.noRunningOrder":
+    "your description does not list shots in order, so it was used for the settings only — write “opens with X, then Y” to set a running order",
   "warn.story.beatUnfilled":
     "nothing in the footage matched “{beat}”, so that shot is not in the edit and its time went to the others",
   "warn.story.assembled":
@@ -335,6 +341,7 @@ const JA = {
   "format.fullLength": "全長",
   "format.matchSource": "元の比率のまま",
   "format.noLimit": "長さの指定なし",
+  "format.cutsToSpeech": "話に合わせてカット",
   "edit.title": "新規編集",
   "edit.name": "名前",
   "edit.clips": "クリップ",
@@ -537,6 +544,11 @@ const JA = {
     "ビート検出の信頼度が {confidence} で基準の {threshold} を下回るため、音楽ではなく話し方に合わせてカットしました（誤ったビートに合わせるより、合わせない方が安全です）",
   "warn.timebase.followedFootage":
     "素材に合わせてシーケンスを {chosen}fps に設定しました（レシピの指定は {recipe}fps ですが、素材のフレームがちょうど収まりません）",
+  "warn.cut.rateNeedsPictures":
+    "カット間隔は映像からカットする場合にのみ適用されます。この編集は話に合わせているため、指定は使用されませんでした。モンタージュ形式を選ぶか「映像からカット」を有効にしてください",
+  "warn.story.settingsApplied": "説明文から適用した設定: {settings}",
+  "warn.story.noRunningOrder":
+    "説明文にショットの順序が書かれていないため、設定のみに使用しました。順序を指定するには「〜から始まり、次に〜」のように書いてください",
   "warn.story.beatUnfilled":
     "「{beat}」に合う映像が見つからなかったため、そのショットは編集に含まれていません。その分の尺は他のショットに配分しました",
   "warn.story.assembled":

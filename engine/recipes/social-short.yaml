@@ -13,7 +13,8 @@ format:
   aspect: vertical
   duration: 15
   duration_mode: exactly
-  cut_rate: 1
+  # No cut_rate: this one follows the words. For a montage that cuts to the
+  # music, the deliverable is "Promo -- cuts to music".
   order: 1
 
 sequence:

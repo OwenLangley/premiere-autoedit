@@ -1147,6 +1147,15 @@ function applyFormat(f) {
   set("opt-aspect", f.aspect);
   set("opt-duration-mode", f.duration_mode);
   if (f.duration) set("opt-duration-seconds", Math.round(f.duration));
+  // Cutting from pictures, and the rate that goes with it. These travel
+  // together: a cut rate on a speech-led edit is a setting the engine accepts
+  // and never acts on, which is how a card offering "every beat" produced six
+  // clips of two and a half seconds each.
+  const visual = $("opt-visual");
+  if (visual) {
+    visual.checked = !!f.visual;
+    visual.dispatchEvent(new Event("change"));
+  }
   if (f.cut_rate) set("opt-cut-rate", String(f.cut_rate));
   syncDurationField();
   renderFormats(state.capabilities);
@@ -1174,7 +1183,9 @@ function renderFormatSummary() {
     ? state.t("format.noLimit")
     : `${label("opt-duration-mode")} ${$("opt-duration-seconds").value}s`);
   bits.push(label("opt-aspect"));
-  bits.push(label("opt-cut-rate"));
+  bits.push($("opt-visual").checked
+    ? label("opt-cut-rate")
+    : state.t("format.cutsToSpeech"));
   if ($("opt-look").value) bits.push(label("opt-look"));
   el.textContent = bits.filter(Boolean).join(" \u00b7 ");
 }

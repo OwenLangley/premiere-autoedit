@@ -6,11 +6,16 @@ description: >
   music bed is supplied the cuts land on the beat.
 
 format:
-  label: Square post
-  aspect: square
-  duration: 30
-  duration_mode: about
+  # The montage deliverable. Vertical because that is what a promo is posted as,
+  # and `visual: true` because cutting to a beat means cutting to pictures --
+  # a card offering "every beat" while the engine cuts to speech is a promise
+  # the request cannot keep.
+  label: Promo — cuts to music
+  aspect: vertical
+  duration: 15
+  duration_mode: exactly
   cut_rate: 1
+  visual: true
   order: 2
 
 sequence:

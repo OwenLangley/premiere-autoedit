@@ -347,6 +347,7 @@ def cmd_plan(args) -> int:
     # Pacing scales the recipe rather than replacing it, so these are what the
     # rest of the run uses -- never recipe.detection / recipe.visual directly.
     detection, visual = apply_pacing(recipe.detection, recipe.visual, options.pacing)
+
     if options.pacing != "standard":
         print(
             f"  pacing: {options.pacing} "
@@ -416,9 +417,47 @@ def cmd_plan(args) -> int:
     # units keep their own name everywhere: sections.
     story = parse_prompt(args.story) if getattr(args, "story", None) else None
     story_spans: list[tuple[str, float, float, float, Path]] = []
-    if story and not story.beats:
-        print("  story: nothing in that prompt reads as a shot", file=sys.stderr)
-        story = None
+    if story:
+        # What the sentence said about the film itself. The editor typed this in
+        # the same breath as everything else, so it wins over the form: a prompt
+        # asking for twelve seconds and getting fifteen is the form contradicting
+        # the person using it.
+        applied = []
+        if story.seconds and options.duration_seconds != story.seconds:
+            options = replace(options, duration_mode="exactly",
+                              duration_seconds=story.seconds)
+            applied.append(f"{story.seconds:.0f}s")
+        if story.aspect and options.aspect != story.aspect:
+            options = replace(options, aspect=story.aspect)
+            applied.append(story.aspect)
+        if story.visual and not args.visual:
+            args.visual = True
+            applied.append("from pictures")
+        if story.cut_rate and options.cut_rate != story.cut_rate:
+            options = replace(options, cut_rate=story.cut_rate)
+            applied.append(f"cut every {story.cut_rate:g}")
+        if applied:
+            print(f"  story: applied {', '.join(applied)}", file=sys.stderr)
+            builder.add_warning("story", note(
+                "story.settingsApplied", settings=", ".join(applied)))
+
+        if not story.beats:
+            # A description rather than a running order. Its settings have been
+            # taken; there is no order to impose, so the ordinary assembly runs.
+            print("  story: read as a description, not a shot list", file=sys.stderr)
+            builder.add_warning("story", note("story.noRunningOrder"))
+            story = None
+
+    # The cut rate reaches the PICTURE path here, after both the form and the
+    # prompt have had their say -- doing it earlier read a rate the prompt had
+    # not set yet.
+    #
+    # It only ever set the cut grid in append_cuts and never touched
+    # beats_per_shot, so a montage kept cutting one shot per bar however fast the
+    # editor asked: "every beat" produced 1.735s shots at 139 BPM, which is
+    # exactly four beats. The recipe's value is the default; the editor overrules.
+    if options.cut_rate:
+        visual = replace(visual, beats_per_shot=float(options.cut_rate))
     collected: list[tuple[str, Any, int, int]] = []
     risky: list[tuple[str, float, float, float]] = []
     builder_warnings: list[str] = []
@@ -473,8 +512,8 @@ def cmd_plan(args) -> int:
                 print(
                     f"  music: half/double tempo is ambiguous here -- if the cut "
                     f"feels twice or half as fast as the track, set beats_per_shot "
-                    f"to {max(1, visual.beats_per_shot // 2)} or "
-                    f"{visual.beats_per_shot * 2} in the recipe",
+                    f"to {max(1, visual.beats_per_shot / 2):g} or "
+                    f"{visual.beats_per_shot * 2:g} in the recipe",
                     file=sys.stderr,
                 )
                 builder_warnings.append(
@@ -709,6 +748,13 @@ def cmd_plan(args) -> int:
     # so 55% of it had no beat to cut to at all. An edit that is cut to music
     # should not outlive the music. Said out loud, and overridden the moment the
     # editor sets a length of their own.
+    # A cut rate only reaches the cutting on the picture path. Asked for on a
+    # speech edit it is accepted, ignored, and the editor is left wondering why
+    # "every beat" produced six clips of two and a half seconds -- which is
+    # exactly what happened. Say so.
+    if options.cut_rate is not None and not visual_used:
+        builder.add_warning("cut", note("cut.rateNeedsPictures"))
+
     capped_to_music = False
     if (recipe.music.music_wins and options.duration_mode == "none"
             and music_available > 0):

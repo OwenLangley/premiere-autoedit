@@ -121,8 +121,18 @@ def test_trailing_punctuation_does_not_become_a_beat():
     assert all(len(b) >= MIN_BEAT_CHARS for b in split_beats("the sign, , the kitchen"))
 
 
-def test_one_beat_is_a_story():
-    assert split_beats("just the storefront") == ["just the storefront"]
+def test_a_lone_fragment_is_a_description_not_a_shot():
+    # A running order needs an opener or a connective. Without either, the
+    # editor described the film rather than storyboarding it -- and treating the
+    # sentence as a shot sends the matcher looking for footage of it.
+    assert split_beats("just the storefront") == []
+    assert split_beats(
+        "a 12 second tiktok with a fast beat that acts as a dramatic promo") == []
+
+
+def test_one_shot_is_a_running_order_when_it_is_written_as_one():
+    # The cost of the rule above, and the way out of it.
+    assert split_beats("opens with the storefront") == ["the storefront"]
 
 
 # --- nothing to do ----------------------------------------------------------
@@ -145,11 +155,23 @@ def test_parsing_never_raises_on_odd_input():
         parse_prompt(text)   # no assertion: not raising is the whole claim
 
 
-def test_japanese_text_survives_intact():
-    # Not split on -- the connectives are English -- but it must not be mangled
-    # or dropped, because a Japanese editor typing one beat should get one beat.
-    p = parse_prompt("店の外観")
-    assert [b.text for b in p.beats] == ["店の外観"]
+def test_a_japanese_prompt_forms_a_running_order():
+    # The connectives were all English, so a Japanese prompt could never contain
+    # one and was always read as a description -- which made the feature
+    # unusable in half the languages this panel ships in.
+    p = parse_prompt("店の外観から始まり、シェフが調理する様子、次にお客様の笑顔")
+    assert [b.text for b in p.beats] == [
+        "シェフが調理する様子", "お客様の笑顔",
+    ]
+
+
+def test_a_japanese_ideographic_comma_separates_shots():
+    assert split_beats("店の外観、料理、お客様") == ["店の外観", "料理", "お客様"]
+
+
+def test_japanese_text_is_not_mangled():
+    p = parse_prompt("店の外観、料理")
+    assert all("\ufffd" not in b.text for b in p.beats)
 
 
 # --- assignment -------------------------------------------------------------
@@ -305,3 +327,73 @@ def test_no_matches_at_all_produces_no_plans():
     plans, unmatched = build_story_plans([_match(beats[0], [])], SPANS, 10.0)
     assert plans == []
     assert len(unmatched) == 1
+
+
+# --- prompts that describe rather than storyboard ---------------------------
+
+from autoedit.story import MONTAGE_WORDS, PACE_WORDS, find_pace, wants_montage
+
+ABSTRACT = ("make a 12 second tiktok video for with a fast beat that acts as a "
+            "dramatic promo for this football club")
+
+
+def test_an_abstract_prompt_yields_settings_and_no_shots():
+    p = parse_prompt(ABSTRACT)
+    assert p.seconds == 12
+    assert p.aspect == "vertical"
+    assert p.cut_rate == 1.0            # "fast"
+    assert p.visual is True             # "promo", and a rate implies pictures
+    assert p.beats == []
+    assert not p.has_running_order
+
+
+def test_pace_words_map_to_cut_rates():
+    assert find_pace("a fast promo") == 1.0
+    assert find_pace("slow and cinematic") == 4.0
+    assert find_pace("frantic") == 0.5
+    assert find_pace("a video") is None
+
+
+def test_a_longer_pace_phrase_wins_over_a_shorter_one():
+    assert find_pace("high energy promo") == PACE_WORDS["high energy"]
+
+
+def test_montage_words_mean_pictures_not_speech():
+    assert wants_montage("a promo for the club")
+    assert wants_montage("b-roll montage")
+    assert not wants_montage("an interview with the chef")
+
+
+def test_naming_a_pace_implies_cutting_from_pictures():
+    # A cut rate has nothing to act on otherwise: the engine would accept it and
+    # quietly not use it, which is the bug this pairing exists to prevent.
+    assert parse_prompt("a fast 15s video").visual is True
+
+
+def test_a_running_order_still_wins_when_one_is_given():
+    p = parse_prompt(
+        "a fast 15 sec promo which opens with the storefront, then the chef")
+    assert p.has_running_order
+    assert [b.text for b in p.beats] == ["the storefront", "the chef"]
+    assert p.cut_rate == 1.0 and p.visual is True
+
+
+def test_montage_words_alone_do_not_invent_a_cut_rate():
+    p = parse_prompt("a promo for the club")
+    assert p.visual is True
+    assert p.cut_rate is None
+
+
+def test_a_two_character_japanese_word_is_a_beat():
+    # 料理 is "cooking". A minimum designed for Latin punctuation debris cut it,
+    # and the beat vanished with nothing said.
+    from autoedit.story import _says_something
+    assert _says_something("料理")
+    assert split_beats("店の外観、料理、お客様") == ["店の外観", "料理", "お客様"]
+
+
+def test_latin_debris_is_still_debris():
+    from autoedit.story import _says_something
+    assert not _says_something(",")
+    assert not _says_something("a")
+    assert _says_something("sign")

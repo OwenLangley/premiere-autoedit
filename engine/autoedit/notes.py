@@ -127,7 +127,17 @@ CATALOGUE: dict[str, str] = {
         "{file} has {found} usable spans; only the best {kept} are offered as "
         "alternates, so a shot you remember may not be in the list",
 
+    "cut.rateNeedsPictures":
+        "a cut rate only applies when cutting from pictures; this edit follows "
+        "the words, so the rate was not used -- pick a montage format or turn on "
+        "\"Cut from pictures\"",
+
     # --- describing the video in words -------------------------------------
+    "story.settingsApplied":
+        "taken from your description: {settings}",
+    "story.noRunningOrder":
+        "your description does not list shots in order, so it was used for the "
+        "settings only -- write \"opens with X, then Y\" to set a running order",
     "story.beatUnfilled":
         "nothing in the footage matched \"{beat}\", so that shot is not in the "
         "edit and its time went to the others",

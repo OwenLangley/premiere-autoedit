@@ -60,7 +60,10 @@ _CLOCK = re.compile(r"\b(?P<m>\d{1,2}):(?P<s>\d{2})\b")
 # the FIRST of these matters -- everything after it is shots.
 _OPENERS = re.compile(
     r"\b(?:which\s+)?(?:opens?|starts?|begins?)\s+(?:with|on)\b|"
-    r"\bopening\s+(?:with|on)\b",
+    r"\bopening\s+(?:with|on)\b|"
+    # Japanese: "...から始まり" / "...で始まる" -- the opener trails its clause
+    # rather than leading it, so what precedes it is the preamble either way.
+    r"から始ま[りるっ]て?|で始ま[りるっ]て?",
     re.I,
 )
 
@@ -71,7 +74,11 @@ _SPLIT = re.compile(
     r"and\s+then\s+cuts?\s+to|then\s+cuts?\s+to|and\s+then|then\s+to|"
     r"followed\s+by|ending\s+(?:with|on)|finishing\s+(?:with|on)|"
     r"cuts?\s+to|then|next|after\s+that|"
-    r"[,;]|\.\s+|\band\s+finally\b|\bfinally\b"
+    r"[,;]|\.\s+|\band\s+finally\b|\bfinally\b|"
+    # Japanese. Without these a Japanese prompt has no connective at all and can
+    # never form a running order -- it would always be read as a description,
+    # which makes the feature unusable in half the languages this panel ships in.
+    r"、|。|その後|そのあと|次に|つぎに|そして|それから|最後に"
     r")\s*",
     re.I,
 )
@@ -89,8 +96,46 @@ _DESCRIPTION_WORDS = re.compile(
     re.I,
 )
 
-# A beat has to say something. One or two characters is punctuation debris.
+# A beat has to say something. In a Latin script one or two characters is
+# punctuation debris; in Japanese two characters is a whole word -- 料理 is
+# "cooking". A single count cannot serve both, so CJK is measured separately.
 MIN_BEAT_CHARS = 3
+MIN_BEAT_CJK = 1
+
+# CJK ideographs, hiragana and katakana. Enough to tell "is this dense script"
+# from "is this an alphabet"; not a full Unicode script table.
+_CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_LETTERS = re.compile(r"[0-9A-Za-z]")
+
+
+def _says_something(fragment: str) -> bool:
+    """Is there enough here to look for?
+
+    Measured per script, because a character means far more in Japanese than in
+    English. Getting this wrong silently drops beats: 料理 was cut for being two
+    characters long.
+    """
+    if len(_CJK.findall(fragment)) >= MIN_BEAT_CJK:
+        return True
+    return len(_LETTERS.findall(fragment)) >= MIN_BEAT_CHARS
+
+# How fast to cut, in words. These map onto the cut rates in options.py: 0.5 is
+# twice a beat, 1 every beat, 2 every other, 4 and 8 slower still.
+PACE_WORDS: dict[str, float] = {
+    "frantic": 0.5, "breakneck": 0.5, "hyper": 0.5, "rapid": 0.5,
+    "fast": 1.0, "quick": 1.0, "punchy": 1.0, "snappy": 1.0, "energetic": 1.0,
+    "upbeat": 1.0, "dynamic": 1.0, "high energy": 1.0,
+    "steady": 2.0, "measured": 2.0,
+    "slow": 4.0, "calm": 4.0, "relaxed": 4.0, "gentle": 4.0, "cinematic": 4.0,
+}
+
+# Words that say the video is carried by pictures and music rather than by
+# someone talking. A promo is a montage; an interview is not.
+MONTAGE_WORDS = (
+    "promo", "montage", "b-roll", "broll", "trailer", "teaser", "sizzle",
+    "highlight", "highlights", "advert", "commercial", "no talking",
+    "no dialogue", "music video",
+)
 
 
 @dataclass
@@ -107,22 +152,38 @@ class Beat:
 
 @dataclass
 class StoryPrompt:
-    """What a sentence asked for."""
+    """What a sentence asked for.
+
+    Two kinds of prompt arrive here and both are legitimate. One lists shots --
+    "opens with the storefront, then the chef" -- and produces a running order.
+    The other describes the video without naming a single shot -- "a 12 second
+    tiktok with a fast beat that acts as a dramatic promo" -- and produces
+    settings instead: how long, what shape, how fast, cut from pictures.
+
+    A prompt with no beats is not a failed parse. It is an editor who described
+    the film rather than storyboarding it, and the settings are the answer.
+    """
 
     prompt: str
     beats: list[Beat] = field(default_factory=list)
     seconds: float | None = None
     aspect: str | None = None
     platform: str | None = None
+    cut_rate: float | None = None
+    visual: bool = False
+
+    @property
+    def has_running_order(self) -> bool:
+        return bool(self.beats)
 
     def to_dict(self) -> dict:
         out: dict = {"prompt": self.prompt, "beats": [b.to_dict() for b in self.beats]}
-        if self.seconds is not None:
-            out["seconds"] = self.seconds
-        if self.aspect:
-            out["aspect"] = self.aspect
-        if self.platform:
-            out["platform"] = self.platform
+        for key, value in (("seconds", self.seconds), ("aspect", self.aspect),
+                           ("platform", self.platform), ("cutRate", self.cut_rate)):
+            if value is not None:
+                out[key] = value
+        if self.visual:
+            out["visual"] = True
         return out
 
 
@@ -188,23 +249,50 @@ def _is_description(fragment: str) -> bool:
     for word in PLATFORM_ASPECTS:
         rest = re.sub(rf"\b{re.escape(word)}\b", " ", rest, flags=re.I)
     rest = _DESCRIPTION_WORDS.sub(" ", rest)
-    return len(re.sub(r"[^0-9A-Za-z\u3000-\u9fff]+", "", rest)) < MIN_BEAT_CHARS
+    return not _says_something(rest)
+
+
+def find_pace(text: str) -> float | None:
+    """How fast to cut, if the prompt says.
+
+    Longest phrase first so "high energy" is not read as "energy".
+    """
+    low = text.lower()
+    for word in sorted(PACE_WORDS, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(word)}\b", low):
+            return PACE_WORDS[word]
+    return None
+
+
+def wants_montage(text: str) -> bool:
+    """Is this carried by pictures and music rather than by someone talking?"""
+    low = text.lower()
+    return any(re.search(rf"\b{re.escape(w)}\b", low) for w in MONTAGE_WORDS)
 
 
 def split_beats(text: str) -> list[str]:
-    """The running order, in order.
+    """The running order, in order -- or nothing, when there is not one.
 
-    Everything before the first opener is a description of the video rather than
-    a shot in it ("a 15 sec long tiktok video which..."), so it is dropped. With
-    no opener the whole sentence is treated as the running order, because
-    "storefront, chef cooking, happy customer" is a perfectly ordinary way to
-    ask for this and has no preamble at all.
+    Everything before the first opener describes the video rather than appearing
+    in it ("a 15 sec long tiktok video which..."), so it is dropped.
+
+    **A running order needs an opener or a connective.** Without either, the
+    editor has described the film rather than storyboarding it -- "a 12 second
+    tiktok with a fast beat that acts as a dramatic promo" is one fragment, and
+    treating it as a shot sends the matcher looking for footage of the sentence.
+    That case returns no beats, and the caller uses the settings instead.
+
+    The cost is that a genuine one-shot video has to be written with an opener:
+    "opens with the storefront" rather than "the storefront". That is a smaller
+    price than turning every description into a phantom shot.
     """
     opener = _OPENERS.search(text)
     body = text[opener.end():] if opener else text
+    if not opener and not _SPLIT.search(body):
+        return []
     return [
         c for c in (_clean(p) for p in _SPLIT.split(body))
-        if len(c) >= MIN_BEAT_CHARS and not _is_description(c)
+        if _says_something(c) and not _is_description(c)
     ]
 
 
@@ -246,12 +334,19 @@ def parse_prompt(text: str) -> StoryPrompt:
     platform, aspect = find_platform(text)
     beats = [Beat(id=_beat_id(i + 1, t), text=t)
              for i, t in enumerate(split_beats(text))]
+    pace = find_pace(text)
+    # Cutting to a rate means cutting from pictures. A montage word says so
+    # outright; naming a pace implies it, since a rate has nothing to act on
+    # otherwise -- the engine would accept it and quietly ignore it.
+    visual = wants_montage(text) or pace is not None
     return StoryPrompt(
         prompt=text,
         beats=beats,
         seconds=find_duration(text),
         aspect=aspect,
         platform=platform,
+        cut_rate=pace,
+        visual=visual,
     )
 
 

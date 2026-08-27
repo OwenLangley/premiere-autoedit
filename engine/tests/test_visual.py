@@ -260,3 +260,31 @@ def test_measurements_round_trip_through_the_cache():
     assert back.centre_ratio == pytest.approx(0.32)
     assert back.samples[0].centre_sharpness == pytest.approx(0.5)
     assert len(back.samples) == len(m.samples)
+
+
+# --- the editor's cut rate reaches the shot length --------------------------
+
+def test_a_shot_can_be_a_fraction_of_a_beat():
+    """beats_per_shot was an int, so 0.5 -- "twice per beat", a rate the cut
+    dial already offers -- silently became 1 or 0. It is a float now."""
+    from autoedit.music import BeatGrid
+    from autoedit.visual import (
+        Shot, ScoredShot, VisualAnalysis, VisualSettings, plan_visual_cuts,
+    )
+
+    grid = BeatGrid(bpm=120.0, beats=[i * 0.5 for i in range(40)], confidence=0.9)
+    shots = [ScoredShot(Shot(0.0, 20.0), motion=0.2, brightness=0.5,
+                        sharpness=2.0, score=0.8)]
+    analysis = VisualAnalysis(shots=shots, warnings=[])
+
+    lengths = {}
+    for rate in (0.5, 1.0, 4.0):
+        settings = VisualSettings(beats_per_shot=rate, snap_to_beats=True,
+                                  min_beat_confidence=0.1)
+        plan = plan_visual_cuts(analysis, 20.0, settings, grid)
+        lengths[rate] = plan.keeps[0].duration if plan.keeps else 0.0
+
+    # One beat is 0.5s at 120 BPM.
+    assert lengths[0.5] < lengths[1.0] < lengths[4.0], lengths
+    assert abs(lengths[1.0] - 0.5) < 0.06, lengths
+    assert abs(lengths[4.0] - 2.0) < 0.12, lengths

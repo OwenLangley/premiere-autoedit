@@ -103,7 +103,9 @@ class VisualSettings:
 
     # Beats
     snap_to_beats: bool = True
-    beats_per_shot: int = 4          # one bar at 4/4
+    # Beats per shot. A float, because the editor's cut rate offers 0.5 --
+    # twice per beat -- and an int silently rounded that to 1 or 0.
+    beats_per_shot: float = 4        # one bar at 4/4
     # Calibrated against measured values rather than guessed. On the grid-fit
     # metric (see detect_beats), four real tracks scored 0.19, 0.27, 0.38 and
     # 0.47, while speech recordings with no beat at all scored 0.09 and 0.14.
@@ -564,7 +566,7 @@ def plan_visual_cuts(
 
     take = settings.shot_duration
     if use_beats:
-        take = beats.beat_interval * max(1, settings.beats_per_shot)
+        take = beats.beat_interval * max(0.25, settings.beats_per_shot)
 
     total = 0.0
     for index, scored in enumerate(usable):

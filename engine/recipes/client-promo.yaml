@@ -10,7 +10,7 @@ format:
   aspect: landscape
   duration: 60
   duration_mode: about
-  cut_rate: 2
+  # Speech-led, like social-short: the cut follows the interview.
   order: 3
 
 sequence:

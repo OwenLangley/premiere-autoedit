@@ -115,7 +115,8 @@ class Recipe:
 
 # Aspect names the engine accepts. Imported lazily inside the validator to keep
 # recipe.py free of an options.py import at module scope.
-_FORMAT_KEYS = {"label", "aspect", "duration", "duration_mode", "cut_rate", "order"}
+_FORMAT_KEYS = {"label", "aspect", "duration", "duration_mode", "cut_rate",
+                "visual", "order"}
 _DURATION_MODES = {"none", "upTo", "exactly", "about"}
 
 
@@ -158,6 +159,16 @@ def _coerce_format(raw: Any, where: str) -> dict[str, Any]:
         out["duration"] = float(seconds)
     if raw.get("cut_rate") is not None:
         out["cut_rate"] = float(raw["cut_rate"])
+    # Whether this deliverable is cut from pictures. A cut rate without it is a
+    # setting the engine will accept and then not act on, because beat-rate
+    # cutting only happens on the visual path.
+    if raw.get("visual"):
+        out["visual"] = True
+    if out.get("cut_rate") and not out.get("visual"):
+        raise RecipeError(
+            f"{where}: format sets cut_rate but not visual. Cutting to a rate "
+            f"needs pictures to cut; without it the rate is silently ignored."
+        )
     return out
 
 
