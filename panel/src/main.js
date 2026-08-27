@@ -486,7 +486,7 @@ function renderStrip() {
     // Dimmed rather than removed: the editor should see that a section is
     // switched off without the edit appearing to change shape underneath them.
     if (c.sectionId && state.disabled.has(c.sectionId)) b.classList.add("off");
-    b.title = (c.sectionId ? `${sectionLabel(c.sectionId)}\n` : "")
+    b.title = (c.sectionId ? `${sectionLabel(c.sectionId, state.plan)}\n` : "")
       + `${mediaName(c.mediaId)} — ${(c.outSeconds - c.inSeconds).toFixed(2)}s`;
     strip.appendChild(b);
 
@@ -534,10 +534,58 @@ function renderStrip() {
     });
   }
 
+  renderLegend();
   renderSlotDetail();
   const n = state.swaps.size;
   $("swap-count").textContent = n ? state.t("swap.count", { count: n }) : state.t("swap.lost");
   $("swap-reset").disabled = n === 0;
+}
+
+/**
+ * What each colour in the strip means.
+ *
+ * The strip groups shots by colour and, until now, nothing said what a colour
+ * stood for -- an editor could see that four shots belonged together without
+ * being able to name the thing they belonged to. This lists the described shots
+ * in order, with the colour beside each.
+ *
+ * Sections the footage could not serve are listed too, greyed. They are what
+ * the editor asked for, and a legend showing only what worked would quietly
+ * drop the most useful line on it.
+ */
+function renderLegend() {
+  const box = $("legend");
+  if (!box) return;
+  box.innerHTML = "";
+  const sections = (state.plan && state.plan.sections) || [];
+  if (!sections.length) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+
+  sections.forEach((sect, i) => {
+    const row = document.createElement("div");
+    row.className = "leg";
+    if (!sect.matched) row.classList.add("off");
+
+    const swatch = document.createElement("div");
+    swatch.className = "swatch";
+    swatch.style.background = sect.matched ? colourFor(sect.id) : "transparent";
+    if (!sect.matched) swatch.style.border = "1px dashed var(--dim)";
+
+    const text = document.createElement("div");
+    text.className = "grow";
+    text.textContent = `${i + 1}. ${sect.text}`;
+
+    const count = document.createElement("div");
+    count.className = "tiny dim";
+    count.textContent = sect.matched
+      ? String(sect.matched) : state.t("swap.sectionEmpty");
+
+    row.append(swatch, text, count);
+    box.appendChild(row);
+  });
 }
 
 function renderSlotDetail() {
@@ -581,7 +629,7 @@ function renderSlotDetail() {
     const sect = document.createElement("div");
     sect.className = "why";
     sect.style.color = "var(--text)";
-    sect.textContent = sectionLabel(slot.sectionId);
+    sect.textContent = sectionLabel(slot.sectionId, state.plan);
     detail.appendChild(sect);
   }
   if (slot.reason) {

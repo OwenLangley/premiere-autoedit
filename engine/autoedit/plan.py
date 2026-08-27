@@ -125,6 +125,11 @@ class EditPlanBuilder:
     # perfectly good alternate somewhere else, and a different moment of it is
     # often the swap an editor actually wants.
     _candidates: list[dict] = field(default_factory=list)
+    # The running order the editor described. sectionId on a clip is a slug and
+    # loses words -- "a shot of the front of the store" becomes
+    # "b1-shot-front-store" -- so the sentence they actually wrote lives here or
+    # nowhere.
+    _sections: list[dict] = field(default_factory=list)
     _playhead: int = 0          # next free frame on the timeline
     _sequence_preset: str | None = None
     _frame_size: tuple[int, int] | None = None
@@ -177,6 +182,21 @@ class EditPlanBuilder:
         if thumb_path:
             entry["thumbPath"] = thumb_path
         self._candidates.append(entry)
+        return self
+
+    def add_section(
+        self, section_id: str, text: str, weight: float = 1.0, matched: int = 0
+    ) -> "EditPlanBuilder":
+        """Record a described shot, whether or not the footage could serve it.
+
+        An unmatched section is kept deliberately. It is what the editor asked
+        for, and a panel that lists only the sections that worked cannot show
+        them what is missing.
+        """
+        entry: dict[str, Any] = {"id": section_id, "text": text, "matched": matched}
+        if weight != 1.0:
+            entry["weight"] = weight
+        self._sections.append(entry)
         return self
 
     def add_warning(
@@ -544,6 +564,7 @@ class EditPlanBuilder:
         for key, value in (
             ("graphics", self._graphics), ("effects", self._effects),
             ("markers", self._markers), ("transcripts", self._transcripts),
+            ("sections", self._sections),
             ("candidates", self._candidates), ("warnings", self._warnings),
         ):
             if value:

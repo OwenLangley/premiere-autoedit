@@ -101,6 +101,13 @@
         "$ref": "#/definitions/clipEntry"
       }
     },
+    "sections": {
+      "type": "array",
+      "description": "The running order the editor described, in order. Optional; absent when no description was given.",
+      "items": {
+        "$ref": "#/definitions/sectionEntry"
+      }
+    },
     "candidates": {
       "type": "array",
       "description": "Alternates the editor can swap into a slot. Optional: a plan without it loads and builds exactly as before, and the panel simply offers no swaps.",
@@ -550,6 +557,35 @@
         "thumbPath": {
           "type": "string",
           "description": "Absolute path to a still from this span. Absolute, unlike relPath, because it is a cache artefact and not media the editor owns. Absent when thumbnails were not built."
+        }
+      }
+    },
+    "sectionEntry": {
+      "type": "object",
+      "description": "A named part of the edit, in running order. When the editor described the video, each described shot is one of these and `text` is what they actually wrote -- which is the only place that survives, since sectionId is a slug and loses words.",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "text"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Matches the sectionId on timeline entries."
+        },
+        "text": {
+          "type": "string",
+          "description": "What the editor wrote, verbatim."
+        },
+        "weight": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Share of the running time, relative to the other sections."
+        },
+        "matched": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many shots the footage supplied. Zero means the section is in the plan and not on the timeline."
         }
       }
     }

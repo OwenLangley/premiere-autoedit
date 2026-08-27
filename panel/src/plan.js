@@ -126,7 +126,7 @@ function sections(plan) {
   const touch = (id) => {
     if (!out.has(id)) {
       out.set(id, {
-        id, label: id === "" ? "Rough cut" : sectionLabel(id),
+        id, label: id === "" ? "Rough cut" : sectionLabel(id, plan),
         clips: 0, graphics: 0, effects: 0, frames: 0,
       });
     }
@@ -263,8 +263,15 @@ function candidatesFor(plan, slot, library) {
  * names are already written for people.
  * @param {string} id
  */
-function sectionLabel(id) {
+function sectionLabel(id, plan) {
+  const table = (plan && plan.sections) || [];
+  const found = table.find((s) => s.id === id);
+  // What the editor wrote, when the plan carries it. The slug below is a
+  // fallback: it is truncated to four words, so "a shot of the front of the
+  // store" survives as "shot front store" -- close enough to recognise and not
+  // what anyone typed.
   const m = /^b(\d+)-(.+)$/.exec(String(id || ""));
+  if (found) return m ? `${m[1]}. ${found.text}` : found.text;
   if (!m) return id || "";
   return `${m[1]}. ${m[2].replace(/-/g, " ")}`;
 }

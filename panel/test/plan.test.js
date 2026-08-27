@@ -300,3 +300,37 @@ test("the Include list shows the readable label, not the id", () => {
   assert.deepStrictEqual(sections(p).map((s) => s.label),
     ["1. front of store", "2. chef cooking"]);
 });
+
+test("a section shows what the editor actually wrote", () => {
+  // The id is a slug truncated to four words: "a shot of the front of the store"
+  // survives as "shot-front-store", which is recognisable and is not what
+  // anyone typed. The plan's section table carries the sentence.
+  const plan = {
+    sections: [{ id: "b1-shot-front-store", text: "a shot of the front of the store", matched: 2 }],
+  };
+  assert.strictEqual(sectionLabel("b1-shot-front-store", plan),
+    "1. a shot of the front of the store");
+});
+
+test("without a section table the slug is still readable", () => {
+  // Plans written before sections existed must not render blank.
+  assert.strictEqual(sectionLabel("b1-shot-front-store", {}),
+    "1. shot front store");
+  assert.strictEqual(sectionLabel("b1-shot-front-store", null),
+    "1. shot front store");
+});
+
+test("the Include list prefers the written text too", () => {
+  const p = {
+    schemaVersion: "1.0", jobId: "j", recipe: "r",
+    timebase: { fpsNum: 25, fpsDen: 1 },
+    media: [{ id: "A", relPath: "a.mov", durationSeconds: 60 }],
+    sequence: { name: "S", videoTracks: 1, audioTracks: 1 },
+    sections: [{ id: "b1-front-store", text: "the front of the store", matched: 1 }],
+    timeline: [
+      { mediaId: "A", inSeconds: 0, outSeconds: 1, atFrame: 0, durationFrames: 25,
+        videoTrack: 0, audioTrack: 0, sectionId: "b1-front-store" },
+    ],
+  };
+  assert.deepStrictEqual(sections(p).map((s) => s.label), ["1. the front of the store"]);
+});

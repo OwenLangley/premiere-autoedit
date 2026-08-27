@@ -132,6 +132,15 @@
          across the foot rather than anything needing room. */
       #strip .blk-mark { position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
                          background: var(--text); }
+
+      /* What each colour means. The strip groups by colour and said nothing
+         about what a colour stood for. */
+      #legend { margin-top: 8px; }
+      .leg { display: flex; align-items: center; gap: 7px; padding: 3px 0;
+             font-size: 11.5px; }
+      .leg.off { color: var(--dim); }
+      .leg .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+      .leg .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #slot-detail { margin-top: 8px; }
       #slot-detail .who { display: flex; justify-content: space-between; gap: 8px; }
       #slot-detail .who b { font-weight: 600; }
@@ -344,6 +353,7 @@
           Each block is a clip, sized by how long it runs. Click one to see other
           shots that could take its place.
         </div>
+        <div id="legend" class="hidden"></div>
         <div id="slot-detail"></div>
         <div id="alts"></div>
         <div class="row" id="swap-tools" style="margin-top:8px">

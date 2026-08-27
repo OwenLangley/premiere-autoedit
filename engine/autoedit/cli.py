@@ -274,6 +274,13 @@ def _assemble_story(story, story_spans, collected, builder, options, detection, 
         rebuilt.append((media_id, plan, v, a))
         sections[id(plan)] = beat_id
 
+    # Record every described shot, in order, including the ones nothing served.
+    # A panel that lists only what worked cannot show an editor what is missing.
+    shots_per_beat = {m.beat.id: len(m.shots) for m in matches}
+    for beat in story.beats:
+        builder.add_section(beat.id, beat.text, beat.weight,
+                            shots_per_beat.get(beat.id, 0))
+
     matched = len(story.beats) - len(unmatched)
     print(f"  story: {matched}/{len(story.beats)} beats matched, "
           f"{len(rebuilt)} clip group(s)", file=sys.stderr)
