@@ -271,6 +271,8 @@ const EN = {
     "beat confidence {confidence} is below {threshold}, so the cuts follow the speech instead of the music — cutting to a wrong grid is worse than not cutting to one",
   "warn.timebase.followedFootage":
     "sequence set to {chosen}fps to match the footage; the recipe asks for {recipe}fps, which no whole number of source frames lands on exactly",
+  "warn.visual.rateBelowMinimum":
+    "your cut rate asks for {take}s shots, shorter than this recipe's {minimum}s minimum — the rate was used, since a shot cut to the beat is not a fragment",
   "warn.cut.rateNeedsPictures":
     "a cut rate only applies when cutting from pictures; this edit follows the words, so the rate was not used — pick a montage format or turn on “Cut from pictures”",
   "warn.story.settingsApplied": "taken from your description: {settings}",
@@ -544,6 +546,8 @@ const JA = {
     "ビート検出の信頼度が {confidence} で基準の {threshold} を下回るため、音楽ではなく話し方に合わせてカットしました（誤ったビートに合わせるより、合わせない方が安全です）",
   "warn.timebase.followedFootage":
     "素材に合わせてシーケンスを {chosen}fps に設定しました（レシピの指定は {recipe}fps ですが、素材のフレームがちょうど収まりません）",
+  "warn.visual.rateBelowMinimum":
+    "指定のカット間隔は {take} 秒のショットになり、このレシピの最小値 {minimum} 秒より短くなります。ビートに合わせたショットは断片ではないため、指定を優先しました",
   "warn.cut.rateNeedsPictures":
     "カット間隔は映像からカットする場合にのみ適用されます。この編集は話に合わせているため、指定は使用されませんでした。モンタージュ形式を選ぶか「映像からカット」を有効にしてください",
   "warn.story.settingsApplied": "説明文から適用した設定: {settings}",

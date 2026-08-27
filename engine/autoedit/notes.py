@@ -127,6 +127,11 @@ CATALOGUE: dict[str, str] = {
         "{file} has {found} usable spans; only the best {kept} are offered as "
         "alternates, so a shot you remember may not be in the list",
 
+    "visual.rateBelowMinimum":
+        "your cut rate asks for {take:.2f}s shots, shorter than this recipe's "
+        "{minimum:.2f}s minimum -- the rate was used, since a shot cut to the "
+        "beat is not a fragment",
+
     "cut.rateNeedsPictures":
         "a cut rate only applies when cutting from pictures; this edit follows "
         "the words, so the rate was not used -- pick a montage format or turn on "

@@ -98,6 +98,11 @@ class MediaEntry:
         return d
 
 
+# Notes that are about the job, not about the file that happened to raise them.
+# Emitted once, with no media id, so identical copies collapse.
+JOB_LEVEL_NOTES = frozenset({"visual.rateBelowMinimum"})
+
+
 @dataclass
 class EditPlanBuilder:
     job_id: str
@@ -181,12 +186,19 @@ class EditPlanBuilder:
         translate it; a plain string is kept for callers that have not been
         converted, and renders as English."""
         if isinstance(message, Note):
-            self._warnings.append(message.to_dict(code, media_id))
+            entry = message.to_dict(code, media_id)
+            # An identical warning says nothing the first one did not. The cut
+            # rate notice fired once per source and filled the panel with six
+            # copies of the same sentence, which is how a real warning further
+            # down gets scrolled past.
+            if entry not in self._warnings:
+                self._warnings.append(entry)
             return self
         w: dict[str, Any] = {"code": code, "message": message}
         if media_id:
             w["mediaId"] = media_id
-        self._warnings.append(w)
+        if w not in self._warnings:
+            self._warnings.append(w)
         return self
 
     def add_transcript(self, transcript: Transcript) -> "EditPlanBuilder":
@@ -290,7 +302,13 @@ class EditPlanBuilder:
             self._playhead += frames
 
         for w in cut_plan.warnings:
-            self.add_warning("cut", w, media_id)
+            # Some of these describe the JOB rather than this file -- the cut
+            # rate being shorter than the recipe's minimum is true once, not
+            # once per source. Tagged with a media id they are six different
+            # warnings that say the same sentence, and a real one further down
+            # gets scrolled past.
+            job_level = isinstance(w, Note) and w.key in JOB_LEVEL_NOTES
+            self.add_warning("cut", w, None if job_level else media_id)
         return self
 
     def _report_beat_fitting(self) -> None:
@@ -312,7 +330,9 @@ class EditPlanBuilder:
             # an unrounded param showed "104 BPM" in English and "103.94 BPM" in
             # Japanese from the same warning.
             bpm=round(self._beat_bpm or 0.0),
-            held_clause=f"; {held} left where the words put them" if held else "",
+            # Neutral wording: a montage has no words, and this same sentence
+            # reports on both paths.
+            held_clause=f"; {held} left where they already sat" if held else "",
             dropped_clause=f"; {dropped} dropped as too short for a beat" if dropped else "",
         ))
 

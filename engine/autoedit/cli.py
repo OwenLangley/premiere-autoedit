@@ -412,6 +412,10 @@ def cmd_plan(args) -> int:
 
     silent: list[str] = []
     visual_used = False
+    # Shots that passed the quality gates, across every file. Distinguishes
+    # "the footage was rejected" from "the footage was fine and the cuts were
+    # not", which are opposite problems with opposite fixes.
+    usable_shots = 0
     # The editor's sentence, read once. `beats` here would collide with the
     # musical beat grid that is live throughout this function, so the story's
     # units keep their own name everywhere: sections.
@@ -632,6 +636,7 @@ def cmd_plan(args) -> int:
                 return 1
             cuts = plan_visual_cuts(analysis, info.duration, visual, beats)
             kept = len(analysis.usable)
+            usable_shots += kept
             print(
                 f"  {path.name}: {len(analysis.shots)} shots, {kept} usable, "
                 f"{cuts.summary(info.duration)}",
@@ -963,13 +968,26 @@ def cmd_plan(args) -> int:
     if not plan["timeline"]:
         print("\nerror: no clips were produced, so there is nothing to build.", file=sys.stderr)
         if visual_used:
-            print(
-                "  Every shot failed a quality gate. The thresholds in the recipe's\n"
-                "  `visual:` section are probably wrong for this footage -- start by\n"
-                "  lowering min_sharpness and min_brightness, and check the per-shot\n"
-                "  reasons above to see which gate is firing.",
-                file=sys.stderr,
-            )
+            # Which of the two very different failures this was. They were
+            # reported as one, and the wrong one: a job where every shot PASSED
+            # its quality gates and then produced no cuts was told to lower
+            # min_sharpness, which would have changed nothing.
+            if usable_shots:
+                print(
+                    f"  {usable_shots} shot(s) passed the quality gates and then produced\n"
+                    "  no cuts, so the problem is the cut length rather than the footage.\n"
+                    "  A cut rate shorter than the recipe's min_clip_length is the usual\n"
+                    "  cause; the per-shot reasons above say which gate dropped them.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    "  Every shot failed a quality gate. The thresholds in the recipe's\n"
+                    "  `visual:` section are probably wrong for this footage -- start by\n"
+                    "  lowering min_sharpness and min_brightness, and check the per-shot\n"
+                    "  reasons above to see which gate is firing.",
+                    file=sys.stderr,
+                )
         elif silent:
             print(
                 f"  {len(silent)} source(s) have no audio track: {', '.join(silent)}",

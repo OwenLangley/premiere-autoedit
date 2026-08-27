@@ -568,12 +568,30 @@ def plan_visual_cuts(
     if use_beats:
         take = beats.beat_interval * max(0.25, settings.beats_per_shot)
 
+    # The requested shot length is the floor, whatever the recipe's minimum says.
+    #
+    # Otherwise a rate the editor chose can be rejected wholesale by a threshold
+    # meant to catch fragments: at 153.8 BPM one beat is 0.390s, the recipes all
+    # set min_clip_length to 0.40, and every shot in a six-clip job was dropped
+    # as "too short" for being exactly the length that was asked for. The job
+    # then failed with "every shot failed a quality gate", which was not true --
+    # they had all passed.
+    #
+    # A shot cut to the beat is not a fragment. The minimum still guards
+    # everything it was written for, because nothing else shortens a take below
+    # it.
+    minimum = settings.min_clip_length
+    if use_beats and take < minimum:
+        warnings.append(note(
+            "visual.rateBelowMinimum", take=take, minimum=minimum))
+        minimum = take
+
     total = 0.0
     for index, scored in enumerate(usable):
         shot = scored.shot
         start = shot.start + settings.lead_trim
         limit = shot.end - settings.tail_trim
-        if limit - start < settings.min_clip_length:
+        if limit - start < minimum:
             # Trimming ate the shot; use it whole rather than lose it.
             start, limit = shot.start, shot.end
 
@@ -582,11 +600,11 @@ def plan_visual_cuts(
             # Forward to the next beat: the nearest one is often just before the
             # shot's own first usable frame, and a cut cannot start before that.
             nxt = beats.next_beat(start)
-            if nxt is not None and nxt < limit - settings.min_clip_length:
+            if nxt is not None and nxt < limit - minimum:
                 start, on_beat = nxt, True
 
         end = min(start + take, limit)
-        if end - start < settings.min_clip_length:
+        if end - start < minimum:
             drops.append(Drop(shot.start, shot.end, KIND_SILENCE, "shot too short after trimming"))
             continue
 

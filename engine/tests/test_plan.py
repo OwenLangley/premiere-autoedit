@@ -3,6 +3,7 @@ import json
 import pytest
 
 from autoedit.detect import CutPlan, Keep, DetectionSettings, plan_cuts
+from autoedit.notes import note
 from autoedit.plan import EditPlanBuilder, MediaEntry, PlanError, validate_plan
 from autoedit.timebase import Timebase
 
@@ -183,3 +184,29 @@ def test_out_point_floor_is_frame_aligned():
     out = b.build()["timeline"][0]["outSeconds"]
     assert abs(out / 0.04 - round(out / 0.04)) < 1e-6
     assert out <= 10.037
+
+
+def test_identical_warnings_collapse():
+    """Six copies of one sentence is how a real warning gets scrolled past."""
+    b = builder()
+    for _ in range(4):
+        b.add_warning("cut", note("visual.rateBelowMinimum", take=0.38, minimum=0.4))
+    assert len(b.build().get("warnings", [])) == 1
+
+
+def test_a_job_level_note_is_not_tagged_to_one_file():
+    # The cut rate being below the recipe's minimum is true once, not once per
+    # source -- and a media id would make six identical sentences six different
+    # warnings that no longer collapse.
+    from autoedit.plan import JOB_LEVEL_NOTES
+    assert "visual.rateBelowMinimum" in JOB_LEVEL_NOTES
+
+
+def test_per_file_warnings_still_repeat_per_file():
+    # Collapsing must not hide something that is genuinely about two files.
+    b = builder()
+    b.add_warning("probe", note("language.uncertain", file="a.mov",
+                                confidence=0.5, language="en"), "A")
+    b.add_warning("probe", note("language.uncertain", file="b.mov",
+                                confidence=0.5, language="en"), "B")
+    assert len(b.build().get("warnings", [])) == 2
