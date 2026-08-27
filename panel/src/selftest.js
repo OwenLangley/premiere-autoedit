@@ -20,6 +20,7 @@ const fs = require("uxp").storage.localFileSystem;
 const { applyPlan, verifyStrategy, indexProjectMedia, normalizePath, STRATEGY } = require("./apply");
 const { toSeconds } = require("./timebase");
 const { readImageDataUri, lastImageError } = require("./transport");
+const { discoverEffectParams } = require("./brandkit");
 
 const IO_DIR = "/tmp/autoedit-selftest";
 
@@ -195,6 +196,9 @@ async function runSelfTest(onProgress) {
 
   say("probing transcript schema");
   await probeTranscriptSchema(project, report);
+
+  say("enumerating Lumetri's parameters");
+  await probeLumetriParams(report, mediaPath);
 
   say("checking which DOM methods this build has");
   probeDomSurface(report);
@@ -652,6 +656,43 @@ function probeDomSurface(report) {
       : "every method probed is present",
     characterisation: true,
   });
+}
+
+/**
+ * What controls Lumetri actually exposes on this build.
+ *
+ * The brand kit maps a look name onto a .cube file, and the effects stage adds
+ * a bare Lumetri to the clips and stops there -- the LUT is never loaded,
+ * because nothing knows which parameter slot holds it. Premiere addresses
+ * effect parameters by zero-based index with no lookup by name, so this is not
+ * something to reason out; it has to be read off the build in front of you.
+ *
+ * Characterisation. It answers a question rather than asserting anything.
+ */
+async function probeLumetriParams(report, mediaPath) {
+  try {
+    const found = await discoverEffectParams("AE.ADBE Lumetri", mediaPath);
+    // Two ways in: a slot that NAMES a LUT, and a slot that HOLDS a string.
+    // Either is a candidate; a slot that is both is almost certainly the one.
+    const likely = found.order.filter((p) => /lut|look|creative|input/i.test(p.name));
+    const strings = found.order.filter((p) => p.type === "string");
+    report.add("effects/lumetri-params", true, {
+      paramCount: found.count,
+      names: found.order.map((p) => `${p.index}:${p.name}`),
+      likelyLutSlots: likely,
+      stringSlots: strings,
+      note: likely.length
+        ? "a LUT slot looks reachable; the brand kit can point a .cube at it"
+        : "no parameter here names a LUT -- Lumetri may only take LUTs already "
+          + "installed in Premiere's own folder, which would change the answer",
+      characterisation: true,
+    });
+  } catch (err) {
+    report.add("effects/lumetri-params", true, {
+      error: String((err && err.message) || err),
+      characterisation: true,
+    });
+  }
 }
 
 function check(missing, label, obj, methods) {
