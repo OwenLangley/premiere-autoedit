@@ -182,6 +182,78 @@ def embed_images(paths: list[Path], work_dir: Path) -> tuple[np.ndarray, list[in
     return _unit(np.array(rows)), kept
 
 
+# What a shot might be of, for putting a word to it in the panel.
+#
+# Ranked, not generated. A captioner was tried first -- vit-gpt2, the obvious
+# choice -- and on this footage it called futsal "tennis" in half its output:
+# "a man is on a tennis court with a racquet". A confidently wrong sentence is
+# worse than a filename, because an editor believes it. CLIP is not being asked
+# to write anything here, only to say which of these fits best, and ranking is
+# what it is good at.
+#
+# Deliberately general. An editor's own description, when they write one, is
+# always better than anything in this list -- these exist for the shots nobody
+# described.
+DESCRIPTORS: tuple[str, ...] = (
+    # people and what they are doing
+    "a person talking to camera", "a close-up of a person's face",
+    "a person smiling", "two people talking", "a group of people standing together",
+    "a crowd of people", "people walking", "people sitting at a table",
+    "a person working at a desk", "a handshake", "a person pointing at something",
+    "someone giving a thumbs up", "people laughing", "a child", "a family",
+    # sport
+    "children playing football", "a person kicking a ball", "a ball on the ground",
+    "a player running", "a goalkeeper", "a goal net", "people celebrating",
+    "a coach giving instructions", "a scoreboard", "a sports hall", "a pitch or court",
+    # food and hospitality
+    "a chef cooking", "food being prepared", "a plate of food", "a person eating",
+    "a drink being poured", "a restaurant interior", "a bar", "a kitchen",
+    "a waiter serving a table",
+    # places and objects
+    "the outside of a building", "a shop front", "a sign or banner",
+    "an empty room", "a corridor", "a street", "a car", "a car park",
+    "a landscape", "the sky", "trees or plants", "water",
+    "a computer screen", "a product on a surface", "machinery or equipment",
+    # how it was shot
+    "a wide establishing shot", "a close-up of an object", "a hand doing something",
+    "a moving camera shot", "a dark or low-light scene", "an empty scene with no people",
+)
+
+# Generic enough to win when nothing specific fits. A shot whose best descriptor
+# cannot beat these gets no label rather than a wrong one -- the same rule the
+# beat matcher uses, and for the same reason.
+DESCRIPTOR_FLOOR: tuple[str, ...] = (
+    "a photograph", "a video frame", "an indoor scene", "an outdoor scene",
+)
+
+
+def describe_shots(vectors, work_dir: Path) -> list[tuple[str | None, float]]:
+    """Put a word to each shot: (descriptor, confidence), or (None, 0) for none.
+
+    `vectors` are unit image embeddings from `embed_images` or
+    `embed_stills_cached`.
+
+    Softmax over the descriptors AND the floor phrases, so a shot that is not
+    really any of these says nothing. Guessing produces exactly the confident
+    wrongness a captioner already demonstrated.
+    """
+    import numpy as np
+    if vectors is None or len(vectors) == 0:
+        return []
+    words = embed_texts(list(DESCRIPTORS) + list(DESCRIPTOR_FLOOR), work_dir)
+    logits = (vectors @ words.T) * 100.0
+    logits -= logits.max(axis=1, keepdims=True)
+    prob = np.exp(logits)
+    prob /= prob.sum(axis=1, keepdims=True)
+
+    out: list[tuple[str | None, float]] = []
+    n = len(DESCRIPTORS)
+    for row in prob:
+        best = int(np.argmax(row))
+        out.append((None, 0.0) if best >= n else (DESCRIPTORS[best], round(float(row[best]), 3)))
+    return out
+
+
 def embed_stills_cached(paths: list[Path], work_dir: Path) -> tuple[np.ndarray, list[int]]:
     """Embeddings for stills, computed once and kept.
 

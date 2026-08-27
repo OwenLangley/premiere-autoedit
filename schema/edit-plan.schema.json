@@ -338,6 +338,10 @@
           "type": "integer",
           "minimum": 0,
           "default": 0
+        },
+        "caption": {
+          "type": "string",
+          "description": "What the shot appears to show, chosen from a fixed list by image similarity. A guess, not a caption: shown to help an editor recognise a shot without opening it, and absent when nothing fit well enough to be worth saying."
         }
       }
     },
@@ -557,6 +561,10 @@
         "thumbPath": {
           "type": "string",
           "description": "Absolute path to a still from this span. Absolute, unlike relPath, because it is a cache artefact and not media the editor owns. Absent when thumbnails were not built."
+        },
+        "caption": {
+          "type": "string",
+          "description": "What the shot appears to show, chosen from a fixed list by image similarity. A guess, not a caption: shown to help an editor recognise a shot without opening it, and absent when nothing fit well enough to be worth saying."
         }
       }
     },

@@ -654,16 +654,16 @@ def cmd_plan(args) -> int:
                 for s in analysis.usable if s.crop_risk >= CROP_RISK_THRESHOLD
             )
 
-            # Every usable span, with the still that stands for it. A story is
-            # matched against these once all the footage has been analysed --
-            # the beats have to compete across the whole job, not per file.
-            if story:
-                for span in analysis.usable:
-                    at = sample_point(span.shot.start, span.shot.end)
-                    tp = thumb_path(cache_root, path, at)
-                    if build_thumb(path, tp, at):
-                        story_spans.append(
-                            (mid, span.shot.start, span.shot.end, span.score, tp))
+            # Every usable span, with the still that stands for it. Used to match
+            # a story against, and to put a word to each shot -- an editor
+            # scanning a strip needs to know what a shot IS, and a filename does
+            # not tell them.
+            for span in analysis.usable:
+                at = sample_point(span.shot.start, span.shot.end)
+                tp = thumb_path(cache_root, path, at)
+                if build_thumb(path, tp, at):
+                    story_spans.append(
+                        (mid, span.shot.start, span.shot.end, span.score, tp))
 
             # Offer every usable span as an alternate the editor can swap in.
             # The whole pool, not the leftovers: a span already on the timeline
@@ -810,6 +810,36 @@ def cmd_plan(args) -> int:
         by_id = dict(fitted)
         collected = [(mid, by_id.get(mid, cuts), v, a) for mid, cuts, v, a in collected]
 
+    # Put a word to every shot. One text embedding for the vocabulary and cached
+    # image vectors, so this is a fraction of a second on a warm cache.
+    # media id -> [(span start, span end, description)], so a clip can be matched
+    # to its span by containment. A keep's start is not its span's start.
+    captions: dict[str, list[tuple[float, float, str]]] = {}
+    described = 0
+    if visual_used and story_spans:
+        try:
+            from . import describe
+            if describe.available(cache_root):
+                vecs, kept = describe.embed_stills_cached(
+                    [sp[4] for sp in story_spans], cache_root)
+                for (text, _score), index in zip(
+                        describe.describe_shots(vecs, cache_root), kept):
+                    if not text:
+                        continue
+                    mid_, start, end, *_ = story_spans[index]
+                    captions.setdefault(mid_, []).append((start, end, text))
+                    described += 1
+                print(f"  describe: {described} shot(s) described", file=sys.stderr)
+        except Exception as exc:            # never fail a job over a nicety
+            print(f"  describe: {exc}", file=sys.stderr)
+
+    if captions:
+        from .plan import _caption_for
+        for cand in builder._candidates:          # noqa: SLF001 - same module's data
+            text = _caption_for(captions, cand["mediaId"], cand["inSeconds"])
+            if text:
+                cand["caption"] = text
+
     # A story replaces the running order outright: the beats decide what appears
     # and in what sequence, so the source-by-source assembly above is set aside.
     story_sections: dict[str, str] = {}
@@ -828,7 +858,7 @@ def cmd_plan(args) -> int:
             crossfade_seconds=recipe.sequence.crossfade_seconds,
             beats=beats, music=recipe.music,
             min_clip_seconds=detection.min_clip_length,
-            bed_start=bed_start, every=cut_every,
+            bed_start=bed_start, every=cut_every, captions=captions,
         )
 
     # Mark the shots a centre crop is likely to spoil. A heuristic, not subject

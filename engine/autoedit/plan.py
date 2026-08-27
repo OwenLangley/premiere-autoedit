@@ -98,6 +98,14 @@ class MediaEntry:
         return d
 
 
+def _caption_for(captions, media_id: str, at: float) -> str | None:
+    """The description of whichever analysed span contains this moment."""
+    for start, end, text in (captions or {}).get(media_id, ()):
+        if start <= at < end:
+            return text
+    return None
+
+
 # Notes that are about the job, not about the file that happened to raise them.
 # Emitted once, with no media id, so identical copies collapse.
 JOB_LEVEL_NOTES = frozenset({"visual.rateBelowMinimum"})
@@ -153,7 +161,7 @@ class EditPlanBuilder:
     def add_candidate(
         self, media_id: str, in_seconds: float, out_seconds: float,
         score: float = 0.0, reason: str = "", section_id: str | None = None,
-        thumb_path: str | None = None,
+        thumb_path: str | None = None, caption: str | None = None,
     ) -> "EditPlanBuilder":
         """Offer a usable span as an alternate the editor can swap in.
 
@@ -181,6 +189,8 @@ class EditPlanBuilder:
             entry["sectionId"] = section_id
         if thumb_path:
             entry["thumbPath"] = thumb_path
+        if caption:
+            entry["caption"] = caption
         self._candidates.append(entry)
         return self
 
@@ -240,6 +250,7 @@ class EditPlanBuilder:
         min_clip_seconds: float = 0.0,
         bed_start: float = 0.0,
         every: float = 1.0,
+        captions: dict | None = None,
     ) -> "EditPlanBuilder":
         """Lay a clip's surviving spans end-to-end from the current playhead.
 
@@ -314,6 +325,13 @@ class EditPlanBuilder:
                 "linkedAudio": media.has_video and media.has_audio,
                 "reason": keep.reason,
                 "confidence": keep.confidence,
+                # What the shot appears to show, found by CONTAINMENT rather than
+                # by matching a start time. A keep's start is not its span's
+                # start: lead trim moves it, and beat snapping moves it again, so
+                # an exact-key lookup missed every clip on the timeline while
+                # matching every candidate.
+                **({"caption": _caption_for(captions, media_id, keep.start)}
+                   if _caption_for(captions, media_id, keep.start) else {}),
                 **({"sectionId": section_id} if section_id else {}),
                 # Every internal join gets a fade; without one each cut clicks.
                 "fadeInFrames": fade if i > 0 else 0,

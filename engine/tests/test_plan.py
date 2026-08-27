@@ -263,3 +263,34 @@ def test_a_real_hole_in_the_grid_still_drops_the_clip():
                   beats=grid, music=MusicSettings(beat_priority="music"),
                   min_clip_seconds=0.35, every=1.0)
     assert b.build()["timeline"] == []
+
+
+def test_a_clip_is_described_by_the_span_that_contains_it():
+    """A keep's start is not its span's start.
+
+    Lead trim moves it, and beat snapping moves it again. An exact-key lookup
+    matched every candidate and no clip on the timeline -- 0 of 28 -- because
+    candidates keep their span's start and clips do not.
+    """
+    tb = Timebase(25, 1)
+    b = builder(tb)
+    b.add_media(MediaEntry(id="A", rel_path="a.mov", duration=60.0, timebase=tb))
+    captions = {"A": [(0.0, 5.0, "children playing football"),
+                      (5.0, 10.0, "a sports hall")]}
+    b.append_cuts("A", CutPlan(keeps=[Keep(0.22, 1.0, "shot", 0.9, 0),
+                                      Keep(6.4, 7.2, "shot", 0.9, 0)],
+                               drops=[], warnings=[]),
+                  captions=captions)
+    got = [c.get("caption") for c in b.build()["timeline"]]
+    assert got == ["children playing football", "a sports hall"], got
+
+
+def test_a_moment_outside_every_span_gets_no_caption():
+    # Better to say nothing than to attach the neighbouring shot's description.
+    tb = Timebase(25, 1)
+    b = builder(tb)
+    b.add_media(MediaEntry(id="A", rel_path="a.mov", duration=60.0, timebase=tb))
+    b.append_cuts("A", CutPlan(keeps=[Keep(40.0, 41.0, "shot", 0.9, 0)],
+                               drops=[], warnings=[]),
+                  captions={"A": [(0.0, 5.0, "children playing football")]})
+    assert "caption" not in b.build()["timeline"][0]

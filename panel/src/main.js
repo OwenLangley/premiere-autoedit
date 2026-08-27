@@ -486,7 +486,8 @@ function renderStrip() {
     // Dimmed rather than removed: the editor should see that a section is
     // switched off without the edit appearing to change shape underneath them.
     if (c.sectionId && state.disabled.has(c.sectionId)) b.classList.add("off");
-    b.title = (c.sectionId ? `${sectionLabel(c.sectionId, state.plan)}\n` : "")
+    b.title = (c.caption ? `${c.caption}\n` : "")
+      + (c.sectionId ? `${sectionLabel(c.sectionId, state.plan)}\n` : "")
       + `${mediaName(c.mediaId)} — ${(c.outSeconds - c.inSeconds).toFixed(2)}s`;
     strip.appendChild(b);
 
@@ -640,6 +641,14 @@ function renderSlotDetail() {
   who.append(left, time);
   detail.appendChild(who);
 
+  if (slot.caption) {
+    // What the shot shows, above everything else about it. An editor scanning a
+    // strip is asking "what is this", and a filename does not answer it.
+    const what = document.createElement("div");
+    what.style.cssText = "color:var(--text);font-weight:600;margin-top:2px";
+    what.textContent = slot.caption;
+    detail.appendChild(what);
+  }
   if (slot.sectionId) {
     // Which described shot this slot is serving. Without it the strip is
     // colour-coded by something the editor cannot name.
@@ -753,7 +762,7 @@ function renderAlternates(slot) {
     const txt = document.createElement("div");
     txt.className = "txt";
     const title = document.createElement("div");
-    title.textContent = candidateName(c);
+    title.textContent = c.caption || candidateName(c);
     for (const [when, key] of [
       [c.current, "swap.current"],
       [!c.current && c.sameGroup, "swap.sameSource"],
@@ -767,7 +776,9 @@ function renderAlternates(slot) {
     }
     const sub = document.createElement("div");
     sub.className = "sub";
-    sub.textContent = `${c.inSeconds.toFixed(1)}s · ${(c.outSeconds - c.inSeconds).toFixed(1)}s`
+    // The filename moves down here once there is something better to lead with.
+    sub.textContent = (c.caption ? `${candidateName(c)} · ` : "")
+      + `${c.inSeconds.toFixed(1)}s`
       + (c.score ? ` · ${c.score.toFixed(2)}` : "");
     txt.append(title, sub);
     card.appendChild(txt);
