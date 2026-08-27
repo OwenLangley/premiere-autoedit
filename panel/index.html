@@ -242,6 +242,32 @@
         <button id="media-reload" data-i18n="edit.reload">Reload</button>
       </div>
 
+      <label class="field">
+        <span><span data-i18n="music.label">Music</span>
+          <span id="music-count" class="hint" style="font-weight:400"></span></span>
+        <select id="opt-music"></select>
+      </label>
+      <div class="row" id="music-tools" style="margin:-2px 0 6px">
+        <button id="music-audition" data-i18n="music.audition">Audition</button>
+        <button id="music-playhead" data-i18n="music.usePlayhead">Use playhead as start</button>
+      </div>
+      <div class="split" id="music-chunk">
+        <label class="field"><span data-i18n="music.start">Start in track</span>
+          <input type="text" id="opt-music-start" placeholder="0:00" />
+        </label>
+        <!-- Text, not number: an EMPTY UXP number input renders the literal
+             string "nan" instead of its placeholder, and this one starts empty
+             on purpose (empty means "follow the edit"). -->
+        <label class="field"><span data-i18n="music.length">Length (seconds)</span>
+          <input type="text" id="opt-music-length" data-i18n-placeholder="music.lengthPlaceholder"
+                 placeholder="follows the edit" />
+        </label>
+      </div>
+      <div class="hint" style="margin:-4px 0 8px">
+        <span data-i18n="music.hint">Cuts snap to the beat of whichever track you pick.</span>
+        <br /><span data-i18n="music.auditionHint">Audition opens the track in the Source Monitor.</span>
+      </div>
+
       <div class="row" id="adjust-row">
         <div class="grow hint" id="format-summary" style="margin:0"></div>
         <button id="adjust-toggle" data-i18n="edit.adjustHide">Hide settings</button>
@@ -271,31 +297,6 @@
         <select id="opt-language"></select>
       </label>
 
-      <label class="field">
-        <span><span data-i18n="music.label">Music</span>
-          <span id="music-count" class="hint" style="font-weight:400"></span></span>
-        <select id="opt-music"></select>
-      </label>
-      <div class="row" id="music-tools" style="margin:-2px 0 6px">
-        <button id="music-audition" data-i18n="music.audition">Audition</button>
-        <button id="music-playhead" data-i18n="music.usePlayhead">Use playhead as start</button>
-      </div>
-      <div class="split" id="music-chunk">
-        <label class="field"><span data-i18n="music.start">Start in track</span>
-          <input type="text" id="opt-music-start" placeholder="0:00" />
-        </label>
-        <!-- Text, not number: an EMPTY UXP number input renders the literal
-             string "nan" instead of its placeholder, and this one starts empty
-             on purpose (empty means "follow the edit"). -->
-        <label class="field"><span data-i18n="music.length">Length (seconds)</span>
-          <input type="text" id="opt-music-length" data-i18n-placeholder="music.lengthPlaceholder"
-                 placeholder="follows the edit" />
-        </label>
-      </div>
-      <div class="hint" style="margin:-4px 0 8px">
-        <span data-i18n="music.hint">Cuts snap to the beat of whichever track you pick.</span>
-        <br /><span data-i18n="music.auditionHint">Audition opens the track in the Source Monitor.</span>
-      </div>
 
       <label class="field" style="margin-top:4px">
         <span style="display:flex;align-items:center;gap:6px">
