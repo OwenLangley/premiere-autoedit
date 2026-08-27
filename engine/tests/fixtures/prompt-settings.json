@@ -1,0 +1,25 @@
+{
+  "$comment": "Sentences and the settings they imply. Read by BOTH the Python parser's tests and the panel's, so the two readings cannot drift apart without a test failing. Add a case here and both sides must agree.",
+  "cases": [
+    { "text": "make a 12 second tiktok video with a fast beat that acts as a dramatic promo for this football club",
+      "seconds": 12, "aspect": "vertical", "cutRate": 1, "visual": true },
+    { "text": "a 15 sec long tiktok video which opens with the storefront, then the chef",
+      "seconds": 15, "aspect": "vertical", "cutRate": null, "visual": false },
+    { "text": "a slow cinematic 30s promo for the club",
+      "seconds": 30, "aspect": null, "cutRate": 4, "visual": true },
+    { "text": "a punchy 45 second reel",
+      "seconds": 45, "aspect": "vertical", "cutRate": 1, "visual": true },
+    { "text": "1 min 30 sec youtube edit",
+      "seconds": 90, "aspect": "landscape", "cutRate": null, "visual": false },
+    { "text": "a square post, 20 seconds",
+      "seconds": 20, "aspect": "square", "cutRate": null, "visual": false },
+    { "text": "b-roll montage at high energy",
+      "seconds": null, "aspect": null, "cutRate": 1, "visual": true },
+    { "text": "3 shots of the kitchen",
+      "seconds": null, "aspect": null, "cutRate": null, "visual": false },
+    { "text": "a frantic 1:30 trailer",
+      "seconds": 90, "aspect": null, "cutRate": 0.5, "visual": true },
+    { "text": "",
+      "seconds": null, "aspect": null, "cutRate": null, "visual": false }
+  ]
+}

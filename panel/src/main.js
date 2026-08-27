@@ -24,6 +24,7 @@ const {
   normaliseJobId, jobIdWasChanged,
 } = require("./request");
 const { audition, playheadSeconds, AuditionError } = require("./audition");
+const { readPromptSettings } = require("./prompt");
 const { runSelfTest } = require("./selftest");
 const { LANGUAGES, makeTranslator } = require("./i18n");
 
@@ -63,6 +64,9 @@ const state = {
   // Every shot the helper has found across the media library, not just the
   // clips in this job. Null until it has written the index once.
   format: null,          // the deliverable card the editor picked
+  // What the description last set, so a later keystroke only pushes what
+  // actually changed and a hand-made adjustment is not overwritten.
+  promptApplied: { seconds: null, aspect: null, cutRate: null, visual: null },
   lastReceipt: null,     // the previous build of this plan, if there was one
   libraryShots: null,
   thumbFailureLogged: false,
@@ -152,6 +156,8 @@ function applyCapabilityLabels(caps) {
   // has to be re-checked here and not only on an editor's own change.
   syncDurationField();
   renderFormats(caps);
+  // A description typed before the capabilities landed still gets read.
+  applyPromptSettings();
 }
 
 async function refreshSetup() {
@@ -1190,6 +1196,68 @@ function renderFormatSummary() {
   el.textContent = bits.filter(Boolean).join(" \u00b7 ");
 }
 
+/**
+ * Let the description drive the controls it speaks to.
+ *
+ * The engine reads the same sentence and would apply these anyway, at plan
+ * time. Doing it here as well is not duplication for its own sake: without it
+ * the form says "Client promo, 60s, landscape" while the prompt says "12 second
+ * tiktok", and the editor is looking at a form that is lying about what it will
+ * make. This project has already shipped one of those.
+ *
+ * Only what CHANGED since the last reading is applied. Re-asserting every
+ * setting on every keystroke would undo an adjustment the editor made by hand
+ * halfway through typing, which is its own kind of lie.
+ */
+function applyPromptSettings() {
+  const words = state.capabilities && state.capabilities.promptWords;
+  if (!words) return;                     // capabilities not written yet
+  const got = readPromptSettings($("opt-story").value, words);
+  const last = state.promptApplied;
+  const from = [];
+
+  const push = (id, value) => {
+    const el = $(id);
+    if (!el) return;
+    el.value = String(value);
+    el.dispatchEvent(new Event("change"));
+  };
+
+  if (got.seconds !== last.seconds && got.seconds !== null) {
+    push("opt-duration-mode", "exactly");
+    push("opt-duration-seconds", Math.round(got.seconds));
+    syncDurationField();
+    from.push(`${Math.round(got.seconds)}s`);
+  }
+  if (got.aspect !== last.aspect && got.aspect !== null) {
+    push("opt-aspect", got.aspect);
+    from.push(got.aspect);
+  }
+  if (got.visual !== last.visual && got.visual) {
+    const box = $("opt-visual");
+    if (box && !box.checked) {
+      box.checked = true;
+      box.dispatchEvent(new Event("change"));
+      from.push(state.t("prompt.fromPictures"));
+    }
+  }
+  // The rate goes last, and only once cutting from pictures is on: a rate on a
+  // speech edit is a setting the engine accepts and never acts on.
+  if (got.cutRate !== last.cutRate && got.cutRate !== null && $("opt-visual").checked) {
+    push("opt-cut-rate", String(got.cutRate));
+    from.push(state.t("prompt.cutRate"));
+  }
+
+  state.promptApplied = got;
+  const note = $("prompt-applied");
+  if (note) {
+    note.textContent = from.length
+      ? state.t("prompt.applied", { settings: from.join(", ") }) : "";
+    note.classList.toggle("hidden", from.length === 0);
+  }
+  renderFormatSummary();
+}
+
 function currentForm() {
   const seconds = Number($("opt-duration-seconds").value);
   return {
@@ -1366,6 +1434,9 @@ for (const id of ["job-name", "opt-story", "opt-recipe", "opt-aspect", "opt-paci
   $(id).addEventListener("input", renderFormatSummary);
   if (id === "opt-duration-mode") {
     $(id).addEventListener("change", syncDurationField);
+  }
+  if (id === "opt-story") {
+    $(id).addEventListener("input", applyPromptSettings);
   }
   // Scrolling the panel past a dropdown would otherwise cycle its value, so an
   // editor scrolling to reach Create silently changes what they are asking for.

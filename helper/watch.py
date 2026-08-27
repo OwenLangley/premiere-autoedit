@@ -42,6 +42,9 @@ from autoedit.visual import (                             # noqa: E402
     measure as measure_visual, measurement_key,
 )
 from autoedit.recipe import list_recipes, load_recipe   # noqa: E402
+from autoedit.story import (                            # noqa: E402
+    MONTAGE_WORDS, PACE_WORDS, PLATFORM_ASPECTS,
+)
 
 REQUEST_SUFFIX = ".request.json"
 POLL_SECONDS = 2.0
@@ -101,6 +104,15 @@ def write_capabilities(jobs: Path) -> None:
         "updatedAt": _now(),
         "recipes": recipes,
         "formats": formats,
+        # The words the engine reads out of a description, so the panel can
+        # reflect the same prompt in its controls without a second vocabulary
+        # that drifts from this one. The panel owns the regex shapes; the words
+        # come from here.
+        "promptWords": {
+            "platforms": PLATFORM_ASPECTS,
+            "pace": PACE_WORDS,
+            "montage": list(MONTAGE_WORDS),
+        },
         "aspects": [{"value": k, "label": v} for k, v in ASPECT_LABELS.items()],
         "pacing": [{"value": k, "label": v.label} for k, v in PACING.items()],
         "cutRates": [{"value": _num(n), "label": lbl} for n, lbl in CUT_RATES],

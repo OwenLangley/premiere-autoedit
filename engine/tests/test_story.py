@@ -397,3 +397,26 @@ def test_latin_debris_is_still_debris():
     assert not _says_something(",")
     assert not _says_something("a")
     assert _says_something("sign")
+
+
+# --- the settings the panel must read the same way --------------------------
+
+def test_settings_match_the_shared_fixtures():
+    """Both readings of a prompt come from one file.
+
+    The panel reflects a description in its controls, which means a second
+    parser exists. These cases are asserted by that one too, so the two cannot
+    disagree without a test failing on one side or the other.
+    """
+    import json
+    from pathlib import Path
+
+    cases = json.loads(
+        (Path(__file__).parent / "fixtures" / "prompt-settings.json").read_text()
+    )["cases"]
+    for case in cases:
+        p = parse_prompt(case["text"])
+        assert p.seconds == case["seconds"], case["text"]
+        assert p.aspect == case["aspect"], case["text"]
+        assert p.cut_rate == case["cutRate"], case["text"]
+        assert p.visual == case["visual"], case["text"]
