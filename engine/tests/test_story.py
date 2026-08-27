@@ -150,3 +150,82 @@ def test_japanese_text_survives_intact():
     # or dropped, because a Japanese editor typing one beat should get one beat.
     p = parse_prompt("店の外観")
     assert [b.text for b in p.beats] == ["店の外観"]
+
+
+# --- assignment -------------------------------------------------------------
+#
+# Synthetic vectors, so the assignment rule is tested without a model. Whether
+# CLIP itself separates real footage is a different question and is answered by
+# a measurement against the library, not by a unit test.
+
+import numpy as np
+
+from autoedit.story import Beat, DISTRACTORS, assign_beats, normalise
+
+
+def _axis(i, n=8):
+    v = np.zeros(n, np.float32)
+    v[i] = 1.0
+    return v
+
+
+def test_each_shot_goes_to_the_beat_that_wants_it_most():
+    beats = [Beat("b1", "first"), Beat("b2", "second")]
+    bv = normalise(np.array([_axis(0), _axis(1)]))
+    sv = normalise(np.array([_axis(0), _axis(0), _axis(1)]))   # 2 for b1, 1 for b2
+    dv = normalise(np.array([_axis(7)]))
+    m = assign_beats(bv, sv, dv, beats)
+    assert m[0].shots == [0, 1]
+    assert m[1].shots == [2]
+    assert all(x.matched for x in m)
+
+
+def test_a_beat_the_footage_does_not_contain_wins_nothing():
+    # The decision this feature turns on. Measured against the real library: six
+    # restaurant beats against 29 shots of a futsal court matched zero, because
+    # every shot preferred a distractor. That is the correct answer, and this is
+    # the unit-level version of it.
+    beats = [Beat("b1", "a harbour at night")]
+    bv = normalise(np.array([_axis(0)]))
+    sv = normalise(np.array([_axis(3), _axis(3), _axis(4)]))   # nothing like b1
+    dv = normalise(np.array([_axis(3), _axis(4)]))             # distractors fit
+    m = assign_beats(bv, sv, dv, beats)
+    assert m[0].shots == []
+    assert not m[0].matched
+
+
+def test_one_absent_beat_does_not_starve_the_others():
+    beats = [Beat("b1", "present"), Beat("b2", "absent")]
+    bv = normalise(np.array([_axis(0), _axis(5)]))
+    sv = normalise(np.array([_axis(0), _axis(0)]))
+    dv = normalise(np.array([_axis(6)]))
+    m = assign_beats(bv, sv, dv, beats)
+    assert m[0].shots == [0, 1]
+    assert m[1].shots == []
+
+
+def test_confidence_is_reported_for_a_matched_beat():
+    beats = [Beat("b1", "first")]
+    bv = normalise(np.array([_axis(0)]))
+    sv = normalise(np.array([_axis(0)]))
+    dv = normalise(np.array([_axis(7)]))
+    m = assign_beats(bv, sv, dv, beats)
+    assert 0.0 < m[0].confidence <= 1.0
+
+
+def test_no_shots_at_all_is_not_a_crash():
+    beats = [Beat("b1", "anything")]
+    m = assign_beats(normalise(np.array([_axis(0)])), np.zeros((0, 8), np.float32),
+                     normalise(np.array([_axis(7)])), beats)
+    assert m[0].shots == []
+
+
+def test_normalise_leaves_a_zero_row_alone():
+    out = normalise(np.array([[0.0, 0.0], [3.0, 4.0]], np.float32))
+    assert not np.isnan(out).any()
+    assert abs(float(np.linalg.norm(out[1])) - 1.0) < 1e-6
+
+
+def test_there_are_enough_distractors_to_compete():
+    # One generic phrase is easy to beat by accident; a handful is not.
+    assert len(DISTRACTORS) >= 4

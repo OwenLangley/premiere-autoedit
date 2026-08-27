@@ -439,6 +439,40 @@ follow it. The verifier could not catch it either, because it checked position
 and duration and never which footage landed where; that is now checked too, and
 it is what named the culprit.
 
+## 10d. CLIP similarity is not a threshold, and CoreML is not free
+
+Two measurements from wiring a vision model to the shot library, both of which
+contradicted the obvious design.
+
+**An absolute similarity floor does not work.** Against the real library,
+phrases describing what the footage contains scored 0.268-0.298 and phrases
+describing what it does not scored 0.195-0.215. The bands separate, but both
+move with the footage and with the wording, so there is no number to write in a
+constant: set it at 0.25 and a differently-worded prompt matches nothing, set it
+at 0.20 and everything matches.
+
+What works is competition. Each shot is assigned by softmax over the beats *and*
+a handful of generic distractor phrases -- "a photograph", "people in a room" --
+and a beat that cannot beat those on its own best shot is unmatched. It
+calibrates itself per library and per prompt.
+
+Measured both ways on 29 shots of a futsal court: three beats describing a
+restaurant matched **zero** shots, and three describing the footage that is
+actually there matched 11, 16 and 1 at p=0.98, 0.91 and 0.64.
+
+**CoreML claims the model and then fails.** `CoreMLExecutionProvider` reports
+support for 1324 of the graph's 2358 nodes and happily embeds images through the
+partitioned result -- then fails outright on the text tower the moment more than
+one phrase is embedded: *"Unable to compute the prediction using a neural network
+model"*. Half the model working is the trap, because the failure arrives later
+and on the other half. CPU runs the whole thing at 0.19s a still, which is
+*faster* than the partitioned CoreML path measured, and correct.
+
+**The general lesson**, which is 5d and 10b again from a third direction: the
+number that looks like a threshold usually is not one, and a provider that
+advertises support has not promised correctness. Both were caught by running the
+thing against real footage rather than reasoning about it.
+
 ## 11. `SourceMonitor` is the way to play audio, because UXP cannot
 
 There is no `<audio>` element and no Web Audio API, so a panel cannot play a
