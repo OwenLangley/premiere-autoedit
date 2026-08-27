@@ -39,7 +39,6 @@ const {
   validatePlan, summarize, subclipName, planTag, toPremiereTranscript, isMasterFor, basenameOf,
 } = require("./plan");
 const { verifyBrandkit } = require("./brandkit");
-const { writeDiagnostic } = require("./transport");
 const { toSeconds, toFrames, ticksForFrames, ticksForSeconds } = require("./timebase");
 
 /**
@@ -608,28 +607,11 @@ async function createSubclips(project, plan, items) {
   // Subclips are created by name; look each one back up.
   const root = await project.getRootItem();
   const all = await root.getItems();
-  /** @type {any[]} */
-  const audit = [];
   for (const { key, clip } of wanted) {
     const name = subclipName(clip, plan).normalize("NFC");
     const match = all.find((it) => String(it.name || "").normalize("NFC") === name);
     if (match) byKey.set(key, match);
-    audit.push({ key, requested: name, found: !!match, matched: match ? String(match.name) : null });
   }
-
-  // A build placed a twelve-second clip where the plan asked for 27 frames, and
-  // it wiped the timeline. The plan was right, the placed item's name encoded a
-  // range that appears in neither the plan nor the library, and nothing in the
-  // apply path could say where that item came from. So write down what was
-  // asked for, what was found, and every item in the project bin -- guessing at
-  // this from the outside has already cost several rounds.
-  await writeDiagnostic("subclip-debug.json", {
-    at: new Date().toISOString(),
-    planTag: planTag(plan),
-    requested: audit,
-    notFound: audit.filter((a) => !a.found).length,
-    projectItems: all.map((it) => String(it.name || "")),
-  });
   return byKey;
 }
 

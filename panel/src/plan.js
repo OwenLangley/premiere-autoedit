@@ -320,6 +320,28 @@ function thumbForClip(plan, clip, library) {
 }
 
 /**
+ * A still for a whole source file, for the clip picker.
+ *
+ * `thumbForClip` answers "what does this moment look like" and needs a plan.
+ * Choosing footage happens before a plan exists, so this answers the simpler
+ * question -- what is in this file -- from the library index alone, taking the
+ * best-scoring span rather than the first, since the first frame of a clip is
+ * often a lens cap or a hand reaching for the camera.
+ *
+ * @param {string} relPath @param {any} library
+ * @returns {string|null}
+ */
+function thumbForSource(relPath, library) {
+  if (!relPath || !library || !Array.isArray(library.files)) return null;
+  let best = null;
+  for (const f of library.files) {
+    if (f.relPath !== relPath || !f.thumbPath) continue;
+    if (!best || (f.score || 0) > (best.score || 0)) best = f;
+  }
+  return best ? best.thumbPath : null;
+}
+
+/**
  * A media id for a library file the plan has never referenced.
  *
  * Same shape the engine derives, and checked against what is already in the
@@ -629,6 +651,7 @@ module.exports = {
   colourFor,
   candidatesFor,
   thumbForClip,
+  thumbForSource,
   slotKey,
   isPictureSlot,
   withSwaps,

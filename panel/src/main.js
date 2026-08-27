@@ -11,11 +11,11 @@ const { applyPlan, ApplyError } = require("./apply");
 const {
   validatePlan, summarize, sections, withoutSections,
   withSwaps, candidatesFor, groupKeyOf, colourFor, thumbForClip,
-  slotKey, isPictureSlot, toSeconds,
+  slotKey, isPictureSlot, toSeconds, thumbForSource,
 } = require("./plan");
 const {
   LocalFolderTransport, pickFolder, folderFromToken, listMediaFiles,
-  makeResolver, readImageDataUri, lastImageError, writeDiagnostic,
+  makeResolver, readImageDataUri, lastImageError,
   loadSettings, saveSettings,
 } = require("./transport");
 const {
@@ -66,8 +66,6 @@ const state = {
   lastReceipt: null,     // the previous build of this plan, if there was one
   libraryShots: null,
   thumbFailureLogged: false,
-  thumbDiagnosed: false,
-  thumbMeasured: false,
   watching: null,          // interval id while a job is being worked on
 };
 
@@ -591,44 +589,6 @@ function renderSlotDetail() {
   renderAlternates(slot);
 }
 
-/**
- * Record what the first real thumbnail element actually did.
- *
- * Not a simulation of the shot list -- this is the element in the grid, in the
- * card, on screen. Whichever of load / error / timeout arrives first wins; the
- * later ones are ignored.
- */
-function measureThumb(img, card, event, path) {
-  if (state.thumbMeasured) return;
-  state.thumbMeasured = true;
-  const box = (el) => {
-    try {
-      const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-      return r ? { w: Math.round(r.width), h: Math.round(r.height) } : null;
-    } catch { return null; }
-  };
-  const styleOf = (el) => {
-    try {
-      const cs = window.getComputedStyle ? window.getComputedStyle(el) : null;
-      return cs ? { display: cs.display, width: cs.width, height: cs.height } : null;
-    } catch { return null; }
-  };
-  writeDiagnostic("thumb-render.json", {
-    at: new Date().toISOString(),
-    event,
-    path,
-    naturalWidth: img.naturalWidth,
-    naturalHeight: img.naturalHeight,
-    srcLength: (img.src || "").length,
-    imgBox: box(img),
-    cardBox: box(card),
-    altsBox: box($("alts")),
-    imgStyle: styleOf(img),
-    altsStyle: styleOf($("alts")),
-    cardStyle: styleOf(card),
-  });
-}
-
 /** Report the first thumbnail failure and then stay quiet about it. */
 function reportThumbFailure(why) {
   if (!why || state.thumbFailureLogged) return;
@@ -652,44 +612,6 @@ function renderAlternates(slot) {
     const empty = (state.plan.candidates || []).length ? "swap.none" : "swap.noCandidates";
     alts.innerHTML = `<div class="why head">${state.t(empty)}</div>`;
     return;
-  }
-
-  // One-shot diagnostic, written to disk rather than to the panel's own log,
-  // because the log has to be copied out by hand and this has now cost four
-  // rounds. Records what the shot list is actually working with: how many
-  // alternates, how many carry a still, and what happens when the first one is
-  // read. Harmless to leave -- one small file, written once per panel session.
-  if (!state.thumbDiagnosed) {
-    state.thumbDiagnosed = true;
-    const first = offered.find((c) => c.thumbPath);
-    const facts = {
-      at: new Date().toISOString(),
-      planName: state.planName,
-      offered: offered.length,
-      withThumbPath: offered.filter((c) => c.thumbPath).length,
-      planCandidates: (state.plan.candidates || []).length,
-      libraryLoaded: !!state.libraryShots,
-      librarySpans: (state.libraryShots && state.libraryShots.files || []).length,
-      jobsTokenPresent: !!state.settings.jobsToken,
-      firstThumbPath: first ? first.thumbPath : null,
-    };
-    if (first) {
-      readImageDataUri(first.thumbPath, state.settings.jobsToken)
-        .then((uri) => {
-          facts.readOk = !!uri;
-          facts.uriLength = uri ? uri.length : 0;
-          facts.uriPrefix = uri ? uri.slice(0, 40) : null;
-          facts.error = uri ? null : lastImageError();
-          return writeDiagnostic("thumb-debug.json", facts);
-        })
-        .catch((err) => {
-          facts.readOk = false;
-          facts.threw = String((err && err.message) || err);
-          return writeDiagnostic("thumb-debug.json", facts);
-        });
-    } else {
-      writeDiagnostic("thumb-debug.json", facts);
-    }
   }
 
   const head = document.createElement("div");
@@ -737,21 +659,11 @@ function renderAlternates(slot) {
         const img = document.createElement("img");
         img.className = "thumb";
         card.appendChild(img);
-        img.addEventListener("load", () => {
-          shot.style.display = "none";
-          measureThumb(img, card, "load", c.thumbPath);
-        });
+        img.addEventListener("load", () => { shot.style.display = "none"; });
         img.addEventListener("error", () => {
           reportThumbFailure(`${c.thumbPath}: the <img> refused the data URI`);
-          measureThumb(img, card, "error", c.thumbPath);
         });
         img.src = uri;
-        // Measured regardless of whether either event fires. Five diagnoses have
-        // been wrong because a layer looked fine in isolation; naturalWidth on
-        // the element that is actually on screen splits the two remaining
-        // possibilities -- never decoded, versus decoded and not visible -- and
-        // no amount of reasoning has managed to.
-        setTimeout(() => measureThumb(img, card, "timeout", c.thumbPath), 2500);
       }).catch((err) => {
         // Never silent again. This catch is what hid an earlier bug.
         reportThumbFailure(String((err && err.message) || err));
@@ -1042,6 +954,10 @@ async function loadMediaList() {
     // an extension check cannot. Fall back to extensions when it has not run.
     const index = state.transport ? await state.transport.listMediaIndex() : null;
     const musicIndex = state.transport ? await state.transport.listMusicIndex() : null;
+    // The clip picker draws from the same library index the shot list uses, and
+    // it runs long before any plan is opened -- so load it here too, or the
+    // cards are nameplates until an editor happens to select a plan.
+    state.libraryShots = state.transport ? await state.transport.listLibraryShots() : null;
     state.libraryFiles = (musicIndex && Array.isArray(musicIndex.files)) ? musicIndex.files : [];
     if (index && Array.isArray(index.files)) {
       // Keyed by relPath, not name: the scan descends into subfolders now, so
@@ -1066,23 +982,54 @@ async function loadMediaList() {
     box.innerHTML = `<div class="empty">${state.t("edit.noVideoFiles")}</div>`;
     return;
   }
+  // Cards, not a checkbox list. `C1376.MP4` says nothing about what is in the
+  // file, and an editor who cannot tell opens it in Premiere to look -- which
+  // is the step this is meant to remove. The stills already exist; the helper
+  // indexes the whole media root in the background for the shot list.
+  //
+  // The checkbox stays inside each card. It is the affordance that says these
+  // are multi-select, and dropping it for a highlight would make selection a
+  // guess.
   for (const name of state.mediaFiles) {
-    const label = document.createElement("label");
+    const meta = state.mediaIndex && state.mediaIndex.get(name);
+    const card = document.createElement("label");
+    card.className = "clip";
+    if (state.selectedMedia.has(name)) card.classList.add("on");
+
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = state.selectedMedia.has(name);
     cb.addEventListener("change", () => {
       if (cb.checked) state.selectedMedia.add(name);
       else state.selectedMedia.delete(name);
+      card.classList.toggle("on", cb.checked);
       renderSummary_();
     });
-    const text = document.createElement("span");
-    const meta = state.mediaIndex && state.mediaIndex.get(name);
-    text.textContent = meta && meta.durationSeconds
-      ? `${name}  (${Math.round(meta.durationSeconds)}s)`
-      : name;
-    label.append(cb, text);
-    box.appendChild(label);
+
+    const shot = document.createElement("div");
+    shot.className = "clip-shot";
+    const tp = thumbForSource(name, state.libraryShots);
+    if (tp) {
+      readImageDataUri(tp, state.settings.jobsToken).then((uri) => {
+        if (!uri) return;
+        // Appended and then given its src: an <img> that is not in the document
+        // when src arrives never decodes, and says nothing about it.
+        const img = document.createElement("img");
+        shot.appendChild(img);
+        img.src = uri;
+      }).catch(() => { /* the name still identifies the clip */ });
+    }
+
+    const text = document.createElement("div");
+    text.className = "clip-name";
+    text.textContent = name.split("/").pop() || name;
+    const dur = document.createElement("div");
+    dur.className = "clip-dur";
+    dur.textContent = meta && meta.durationSeconds
+      ? `${Math.round(meta.durationSeconds)}s` : "";
+
+    card.append(cb, shot, text, dur);
+    box.appendChild(card);
   }
   renderSummary_();
 }

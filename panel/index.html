@@ -60,12 +60,31 @@
       }
       .split { display: flex; gap: 6px; }
       .split > * { flex: 1; min-width: 0; }
-      #media-list { max-height: 120px; overflow-y: auto; border: 1px solid var(--line);
-                    border-radius: 3px; padding: 4px; background: #202020; }
-      #media-list label { display: flex; gap: 6px; align-items: center; padding: 3px 4px;
-                          font-size: 11px; }
-      #media-list label:hover { background: #2c2c2c; }
-      #media-list .empty { color: var(--dim); padding: 8px; font-size: 11px; }
+      /* The clip picker, as cards. A filename is not a shot, and an editor who
+         cannot tell what is in C1376.MP4 opens it in Premiere to look -- which
+         is the step this removes. Wrapping flexbox, not grid. */
+      #media-list { max-height: 260px; overflow-y: auto; border: 1px solid var(--line);
+                    border-radius: 3px; padding: 5px; background: #202020;
+                    display: flex; flex-wrap: wrap; gap: 5px; align-content: flex-start; }
+      #media-list .clip {
+        position: relative; flex: 1 1 104px; min-width: 104px; max-width: 132px;
+        border: 1px solid var(--line); border-radius: 3px; overflow: hidden;
+        background: #17171a; padding: 0; font-size: 11px;
+      }
+      #media-list .clip:hover { border-color: var(--dim); }
+      #media-list .clip.on { border-color: var(--accent); background: #1d2733; }
+      /* The checkbox sits over the picture: it is the thing that says these are
+         multi-select, so it stays visible rather than being replaced by a
+         highlight the editor has to infer. */
+      #media-list .clip input { position: absolute; left: 5px; top: 5px; margin: 0; z-index: 1; }
+      #media-list .clip-shot { width: 100%; height: 78px; background: #111; }
+      #media-list .clip-shot img { display: block; width: 100%; height: 78px;
+                                   object-fit: cover; object-position: center 38%; }
+      #media-list .clip-name { padding: 4px 6px 0; overflow: hidden;
+                               text-overflow: ellipsis; white-space: nowrap; }
+      #media-list .clip-dur { padding: 0 6px 5px; color: var(--dim); font-size: 10.5px;
+                              font-variant-numeric: tabular-nums; }
+      #media-list .empty { color: var(--dim); padding: 8px; font-size: 11px; flex: 1 1 100%; }
       .summary-line { color: var(--accent); font-size: 11px; margin: 6px 0; min-height: 15px; }
       .disclosure { display: flex; align-items: center; gap: 6px; cursor: pointer;
                     color: var(--dim); font-size: 11px; user-select: none; }

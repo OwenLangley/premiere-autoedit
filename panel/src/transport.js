@@ -16,30 +16,6 @@ const fs = require("uxp").storage.localFileSystem;
 const formats = require("uxp").storage.formats;
 
 /**
- * Write a diagnostic where it can be read from outside Premiere.
- *
- * The panel's own log lives in a DOM node, which means getting it out depends on
- * someone selecting and pasting it. Four wrong diagnoses in a row is enough:
- * this drops the same facts into a file, so the next question is answered by
- * reading rather than by guessing again.
- *
- * /tmp/autoedit-selftest is used because the self-test already writes its report
- * there, so it is known to be reachable.
- *
- * @param {string} name @param {any} data
- */
-async function writeDiagnostic(name, data) {
-  try {
-    const folder = await fs.getEntryWithUrl("file:///tmp/autoedit-selftest");
-    const file = await folder.createFile(name, { overwrite: true });
-    await file.write(JSON.stringify(data, null, 2));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Get at a file two ways, because only one of them is blessed.
  *
  * `getEntryWithUrl` on an absolute path is the obvious route and may simply be
@@ -416,7 +392,6 @@ module.exports = {
   folderFromToken,
   makeResolver,
   readImageDataUri,
-  writeDiagnostic,
   lastImageError,
   loadSettings,
   saveSettings,
