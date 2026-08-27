@@ -270,10 +270,13 @@
 
       <div class="row" id="adjust-row">
         <div class="grow hint" id="format-summary" style="margin:0"></div>
-        <button id="adjust-toggle" data-i18n="edit.adjustHide">Hide settings</button>
+        <button id="adjust-toggle" data-i18n="edit.adjustShow">Show settings</button>
       </div>
 
-      <div id="adjust-block">
+      <!-- Closed by default. The description sets these and the line beside the
+           button reads them back, so opening it is for overruling rather than
+           for checking. -->
+      <div id="adjust-block" class="hidden">
       <div class="split" style="margin-top:10px">
         <label class="field"><span data-i18n="edit.recipe">Recipe</span><select id="opt-recipe"></select></label>
         <label class="field"><span data-i18n="edit.shape">Shape</span><select id="opt-aspect"></select></label>
