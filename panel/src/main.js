@@ -557,35 +557,52 @@ function renderLegend() {
   const box = $("legend");
   if (!box) return;
   box.innerHTML = "";
-  const sections = (state.plan && state.plan.sections) || [];
-  if (!sections.length) {
-    box.classList.add("hidden");
-    return;
-  }
+  if (!state.plan) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
 
-  sections.forEach((sect, i) => {
-    const row = document.createElement("div");
-    row.className = "leg";
-    if (!sect.matched) row.classList.add("off");
-
+  const row = (colour, label, count, dim) => {
+    const el = document.createElement("div");
+    el.className = dim ? "leg off" : "leg";
     const swatch = document.createElement("div");
     swatch.className = "swatch";
-    swatch.style.background = sect.matched ? colourFor(sect.id) : "transparent";
-    if (!sect.matched) swatch.style.border = "1px dashed var(--dim)";
-
+    if (colour) swatch.style.background = colour;
+    else swatch.style.border = "1px dashed var(--dim)";
     const text = document.createElement("div");
     text.className = "grow";
-    text.textContent = `${i + 1}. ${sect.text}`;
+    text.textContent = label;
+    const n = document.createElement("div");
+    n.className = "tiny dim";
+    n.textContent = count;
+    el.append(swatch, text, n);
+    box.appendChild(el);
+  };
 
-    const count = document.createElement("div");
-    count.className = "tiny dim";
-    count.textContent = sect.matched
-      ? String(sect.matched) : state.t("swap.sectionEmpty");
+  const sections = state.plan.sections || [];
+  if (sections.length) {
+    sections.forEach((sect, i) => row(
+      sect.matched ? colourFor(sect.id) : null,
+      `${i + 1}. ${sect.text}`,
+      sect.matched ? String(sect.matched) : state.t("swap.sectionEmpty"),
+      !sect.matched));
+    return;
+  }
 
-    row.append(swatch, text, count);
-    box.appendChild(row);
-  });
+  // No described shots, so the colours group by source clip. The legend still
+  // has to say so: its job is explaining what a colour means, and it used to
+  // answer that only when a description happened to list shots -- leaving the
+  // commonest case, a prompt that describes the video rather than storyboarding
+  // it, with a colour-coded strip and nothing to read it by.
+  const counts = new Map();
+  for (const c of (state.plan.timeline || []).filter(isPictureSlot)) {
+    const key = groupKeyOf(c);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  if (counts.size < 2) { box.classList.add("hidden"); return; }
+  const head = document.createElement("div");
+  head.className = "why";
+  head.textContent = state.t("swap.bySource");
+  box.appendChild(head);
+  for (const [key, n] of counts) row(colourFor(key), mediaName(key), String(n), false);
 }
 
 function renderSlotDetail() {

@@ -167,6 +167,7 @@ const EN = {
   "swap.libraryBuilding": "still indexing the library",
   "swap.noThumb": "no still yet",
   "swap.sectionEmpty": "not found",
+  "swap.bySource": "Coloured by clip — describe shots to colour by shot",
 
   "diag.title": "Diagnostics",
   "diag.selfTest": "Run self-test",
@@ -442,6 +443,7 @@ const JA = {
   "swap.libraryBuilding": "ライブラリを解析中",
   "swap.noThumb": "静止画なし",
   "swap.sectionEmpty": "見つかりません",
+  "swap.bySource": "クリップごとの色分け。ショットを説明するとショットごとになります",
 
   "diag.title": "診断",
   "diag.selfTest": "セルフテストを実行",
