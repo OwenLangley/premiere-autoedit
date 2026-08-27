@@ -229,3 +229,79 @@ def test_normalise_leaves_a_zero_row_alone():
 def test_there_are_enough_distractors_to_compete():
     # One generic phrase is easy to beat by accident; a handful is not.
     assert len(DISTRACTORS) >= 4
+
+
+# --- running order ----------------------------------------------------------
+
+from autoedit.story import MAX_SHOTS_PER_BEAT, BeatMatch, build_story_plans
+
+
+def _match(beat, shots, conf=0.9):
+    return BeatMatch(beat=beat, shots=list(shots), confidence=conf)
+
+
+SPANS = [
+    ("A", 0.0, 3.0, 0.9), ("A", 5.0, 8.0, 0.8), ("B", 1.0, 4.0, 0.7),
+    ("B", 9.0, 12.0, 0.6), ("C", 0.0, 3.0, 0.5),
+]
+
+
+def test_beats_come_out_in_the_order_they_were_described():
+    beats = [Beat("b1", "first"), Beat("b2", "second")]
+    plans, unmatched = build_story_plans(
+        [_match(beats[0], [2]), _match(beats[1], [0])], SPANS, None)
+    assert [section for _, _, section in plans] == ["b1", "b2"]
+    assert unmatched == []
+
+
+def test_an_unmatched_beat_contributes_nothing_and_is_returned():
+    # The decision this whole feature turns on: a beat the footage cannot serve
+    # produces no clips at all, and is handed back so the caller can say so.
+    beats = [Beat("b1", "present"), Beat("b2", "absent")]
+    plans, unmatched = build_story_plans(
+        [_match(beats[0], [0]), _match(beats[1], [])], SPANS, None)
+    assert [s for _, _, s in plans] == ["b1"]
+    assert [m.beat.id for m in unmatched] == ["b2"]
+
+
+def test_an_unmatched_beat_does_not_shorten_the_film():
+    # Its share goes to the beats that did match, rather than leaving a hole in
+    # the running time the editor asked for.
+    beats = [Beat("b1", "present"), Beat("b2", "absent")]
+    plans, _ = build_story_plans(
+        [_match(beats[0], [0, 1]), _match(beats[1], [])], SPANS, target_seconds=6.0)
+    total = sum(k.duration for _, plan, _ in plans for k in plan.keeps)
+    assert total > 4.0, f"one beat should have taken the whole 6s, got {total:.1f}s"
+
+
+def test_runtime_is_split_by_weight():
+    beats = [Beat("b1", "half", weight=1.0), Beat("b2", "double", weight=2.0)]
+    plans, _ = build_story_plans(
+        [_match(beats[0], [0]), _match(beats[1], [2])], SPANS, target_seconds=6.0)
+    got = {}
+    for _, plan, section in plans:
+        got[section] = got.get(section, 0) + sum(k.duration for k in plan.keeps)
+    assert got["b2"] > got["b1"], f"weight 2 should outrun weight 1: {got}"
+
+
+def test_a_beat_does_not_become_a_montage_of_itself():
+    beats = [Beat("b1", "everything")]
+    plans, _ = build_story_plans([_match(beats[0], list(range(len(SPANS))))], SPANS, None)
+    kept = sum(len(plan.keeps) for _, plan, _ in plans)
+    assert kept <= MAX_SHOTS_PER_BEAT
+
+
+def test_shots_inside_a_beat_run_in_the_order_they_were_shot():
+    # Ordering by score would cut backwards in time within one beat for no
+    # reason an audience could follow.
+    beats = [Beat("b1", "one source")]
+    plans, _ = build_story_plans([_match(beats[0], [0, 1])], SPANS, None)
+    starts = [k.start for _, plan, _ in plans for k in plan.keeps]
+    assert starts == sorted(starts)
+
+
+def test_no_matches_at_all_produces_no_plans():
+    beats = [Beat("b1", "nothing")]
+    plans, unmatched = build_story_plans([_match(beats[0], [])], SPANS, 10.0)
+    assert plans == []
+    assert len(unmatched) == 1

@@ -127,6 +127,22 @@ CATALOGUE: dict[str, str] = {
         "{file} has {found} usable spans; only the best {kept} are offered as "
         "alternates, so a shot you remember may not be in the list",
 
+    # --- describing the video in words -------------------------------------
+    "story.beatUnfilled":
+        "nothing in the footage matched \"{beat}\", so that shot is not in the "
+        "edit and its time went to the others",
+    "story.assembled":
+        "{matched} of {total} described shots were found in the footage",
+    "story.nothingMatched":
+        "none of the described shots were found in the footage, so the edit was "
+        "assembled the ordinary way instead",
+    "story.noModel":
+        "the vision model is not available, so the description could not be used "
+        "-- the edit was assembled the ordinary way",
+    "story.noVisualSpans":
+        "a description needs pictures to match against; add --visual, or pick "
+        "footage the analyser can read",
+
     # --- language ----------------------------------------------------------
     "language.uncertain":
         "{file}: only {confidence:.0%} sure this is {language} -- set the language in the "

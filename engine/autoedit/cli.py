@@ -29,6 +29,7 @@ from .preset import write_preset
 from .music import BeatGrid, MusicError, detect_beats
 from .notes import Note, note
 from .proxy import proxy_path
+from .story import DISTRACTORS, assign_beats, build_story_plans, parse_prompt
 from .thumbs import build_thumb, sample_point, thumb_path
 from .timebase import choose_timebase, holds_exactly
 from .visual import (
@@ -214,6 +215,73 @@ def _transcript_cache_key(media_hash: str, provider: str, options: dict) -> str:
     return hashlib.sha256(stamp.encode()).hexdigest()[:24]
 
 
+def _assemble_story(story, story_spans, collected, builder, options, detection, cache_root):
+    """Rebuild the running order from the editor's sentence.
+
+    Returns the plans to append, in beat order, and a map from each CutPlan's
+    identity to the beat that produced it -- identity rather than media id,
+    because one file can serve several beats and each occurrence needs its own
+    section.
+
+    Falls back to `collected` untouched whenever the story cannot be honoured:
+    no model, no analysed spans, or nothing matched. A prompt that cannot be
+    served should produce the ordinary edit and a warning, not an empty
+    sequence.
+    """
+    from . import describe
+
+    if not story_spans:
+        builder.add_warning("story", note("story.noVisualSpans"))
+        return collected, {}
+
+    if not describe.available(cache_root):
+        builder.add_warning("story", note("story.noModel"))
+        return collected, {}
+
+    try:
+        vectors, kept = describe.embed_stills_cached(
+            [sp[4] for sp in story_spans], cache_root)
+        beat_vectors = describe.embed_texts([b.text for b in story.beats], cache_root)
+        distractors = describe.embed_texts(list(DISTRACTORS), cache_root)
+    except describe.DescribeError as exc:
+        builder.add_warning("story", note("story.noModel"))
+        print(f"  story: {exc}", file=sys.stderr)
+        return collected, {}
+
+    usable = [story_spans[i] for i in kept]
+    matches = assign_beats(beat_vectors, vectors, distractors, story.beats)
+
+    # Every beat nothing matched is named. Not filled with the best-scoring
+    # leftover: an edit that confidently tells the wrong story is worse than a
+    # short one that admits what it could not find.
+    plans, unmatched = build_story_plans(
+        matches,
+        [(mid, start, end, score) for mid, start, end, score, _ in usable],
+        options.duration_seconds if options.duration_mode != "none" else None,
+        min_clip_length=detection.min_clip_length,
+    )
+    for m in unmatched:
+        builder.add_warning("story", note("story.beatUnfilled", beat=m.beat.text))
+
+    if not plans:
+        builder.add_warning("story", note("story.nothingMatched"))
+        return collected, {}
+
+    tracks = {mid: (v, a) for mid, _, v, a in collected}
+    rebuilt, sections = [], {}
+    for media_id, plan, beat_id in plans:
+        v, a = tracks.get(media_id, (0, 0))
+        rebuilt.append((media_id, plan, v, a))
+        sections[id(plan)] = beat_id
+
+    matched = len(story.beats) - len(unmatched)
+    print(f"  story: {matched}/{len(story.beats)} beats matched, "
+          f"{len(rebuilt)} clip group(s)", file=sys.stderr)
+    builder.add_warning("story", note(
+        "story.assembled", matched=matched, total=len(story.beats)))
+    return rebuilt, sections
+
+
 def _media_id(index: int, path: Path) -> str:
     stem = "".join(c for c in path.stem if c.isalnum() or c in "_-")[:24]
     return stem or f"M{index:03d}"
@@ -343,6 +411,14 @@ def cmd_plan(args) -> int:
 
     silent: list[str] = []
     visual_used = False
+    # The editor's sentence, read once. `beats` here would collide with the
+    # musical beat grid that is live throughout this function, so the story's
+    # units keep their own name everywhere: sections.
+    story = parse_prompt(args.story) if getattr(args, "story", None) else None
+    story_spans: list[tuple[str, float, float, float, Path]] = []
+    if story and not story.beats:
+        print("  story: nothing in that prompt reads as a shot", file=sys.stderr)
+        story = None
     collected: list[tuple[str, Any, int, int]] = []
     risky: list[tuple[str, float, float, float]] = []
     builder_warnings: list[str] = []
@@ -527,6 +603,17 @@ def cmd_plan(args) -> int:
                 for s in analysis.usable if s.crop_risk >= CROP_RISK_THRESHOLD
             )
 
+            # Every usable span, with the still that stands for it. A story is
+            # matched against these once all the footage has been analysed --
+            # the beats have to compete across the whole job, not per file.
+            if story:
+                for span in analysis.usable:
+                    at = sample_point(span.shot.start, span.shot.end)
+                    tp = thumb_path(cache_root, path, at)
+                    if build_thumb(path, tp, at):
+                        story_spans.append(
+                            (mid, span.shot.start, span.shot.end, span.score, tp))
+
             # Offer every usable span as an alternate the editor can swap in.
             # The whole pool, not the leftovers: a span already on the timeline
             # is a fine alternate for a DIFFERENT slot, and reaching for another
@@ -665,6 +752,13 @@ def cmd_plan(args) -> int:
         by_id = dict(fitted)
         collected = [(mid, by_id.get(mid, cuts), v, a) for mid, cuts, v, a in collected]
 
+    # A story replaces the running order outright: the beats decide what appears
+    # and in what sequence, so the source-by-source assembly above is set aside.
+    story_sections: dict[str, str] = {}
+    if story and story.beats:
+        collected, story_sections = _assemble_story(
+            story, story_spans, collected, builder, options, detection, cache_root)
+
     for mid, cuts, v_track, a_track in collected:
         # The beat grid finally reaches the speech path. It was computed once per
         # job, live in scope here the whole time, and passed only to the picture
@@ -672,6 +766,7 @@ def cmd_plan(args) -> int:
         # speech and ignored the song entirely.
         builder.append_cuts(
             mid, cuts, video_track=v_track, audio_track=a_track,
+            section_id=story_sections.get(id(cuts)),
             crossfade_seconds=recipe.sequence.crossfade_seconds,
             beats=beats, music=recipe.music,
             min_clip_seconds=detection.min_clip_length,
@@ -883,6 +978,10 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--recipe", required=True, help="recipe name or path")
     pl.add_argument("--media", nargs="+", required=True)
     pl.add_argument("--role", nargs="*", help="role per media file, matching recipe roles")
+    pl.add_argument("--story", help=(
+        "describe the video in plain text and the beats become the running "
+        "order, e.g. \"opens with the storefront, then the chef cooking, then a "
+        "happy customer\". Needs --visual: beats are matched against pictures."))
     pl.add_argument("--media-root", help="paths in the plan are recorded relative to this")
     pl.add_argument("--music-root", help="a music library outside the footage tree. Tracks under it are recorded relative to it, so the plan stays free of absolute paths.")
     pl.add_argument("--provider", help="override the recipe transcription provider")

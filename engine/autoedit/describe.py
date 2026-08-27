@@ -182,6 +182,46 @@ def embed_images(paths: list[Path], work_dir: Path) -> tuple[np.ndarray, list[in
     return _unit(np.array(rows)), kept
 
 
+def embed_stills_cached(paths: list[Path], work_dir: Path) -> tuple[np.ndarray, list[int]]:
+    """Embeddings for stills, computed once and kept.
+
+    A vector is saved beside its still as a `.vec.npy` sibling, which inherits
+    the content-derived name `thumbs.py` already generates -- so a re-edit of the
+    same footage reuses it, and replacing a file with a different take produces a
+    different still and therefore a different vector. No second cache key to keep
+    in step with the first.
+
+    Cheap enough to matter: 0.19s a still, so a thirty-shot library is six
+    seconds the first time and nothing every time after.
+    """
+    vectors: dict[int, np.ndarray] = {}
+    todo: list[tuple[int, Path]] = []
+    for i, path in enumerate(paths):
+        cached = Path(str(path) + ".vec.npy")
+        if cached.exists():
+            try:
+                vectors[i] = np.load(cached)
+                continue
+            except (OSError, ValueError):
+                pass          # a corrupt cache file is just a cache miss
+        todo.append((i, Path(path)))
+
+    if todo:
+        fresh, kept = embed_images([p for _, p in todo], work_dir)
+        for row, which in enumerate(kept):
+            index, path = todo[which]
+            vectors[index] = fresh[row]
+            try:
+                np.save(Path(str(path) + ".vec.npy"), fresh[row])
+            except OSError:
+                pass          # an unwritable cache costs speed, not correctness
+
+    order = sorted(vectors)
+    if not order:
+        return np.zeros((0, 512), np.float32), []
+    return np.array([vectors[i] for i in order], np.float32), order
+
+
 def _unit(vectors: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     return (vectors / np.where(norms == 0, 1.0, norms)).astype(np.float32)

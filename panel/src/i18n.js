@@ -267,6 +267,16 @@ const EN = {
     "beat confidence {confidence} is below {threshold}, so the cuts follow the speech instead of the music — cutting to a wrong grid is worse than not cutting to one",
   "warn.timebase.followedFootage":
     "sequence set to {chosen}fps to match the footage; the recipe asks for {recipe}fps, which no whole number of source frames lands on exactly",
+  "warn.story.beatUnfilled":
+    "nothing in the footage matched “{beat}”, so that shot is not in the edit and its time went to the others",
+  "warn.story.assembled":
+    "{matched} of {total} described shots were found in the footage",
+  "warn.story.nothingMatched":
+    "none of the described shots were found in the footage, so the edit was assembled the ordinary way instead",
+  "warn.story.noModel":
+    "the vision model is not available, so the description could not be used — the edit was assembled the ordinary way",
+  "warn.story.noVisualSpans":
+    "a description needs pictures to match against; turn on “Cut from pictures”",
   "warn.timebase.mixedRates":
     "{count} clip(s) are not an exact fit for the {chosen}fps sequence, so those cuts can be a frame out — check the joins on {files}",
   "warn.swap.candidatesTruncated":
@@ -521,6 +531,16 @@ const JA = {
     "ビート検出の信頼度が {confidence} で基準の {threshold} を下回るため、音楽ではなく話し方に合わせてカットしました（誤ったビートに合わせるより、合わせない方が安全です）",
   "warn.timebase.followedFootage":
     "素材に合わせてシーケンスを {chosen}fps に設定しました（レシピの指定は {recipe}fps ですが、素材のフレームがちょうど収まりません）",
+  "warn.story.beatUnfilled":
+    "「{beat}」に合う映像が見つからなかったため、そのショットは編集に含まれていません。その分の尺は他のショットに配分しました",
+  "warn.story.assembled":
+    "指定された {total} ショットのうち {matched} ショットが映像内に見つかりました",
+  "warn.story.nothingMatched":
+    "指定されたショットが映像内に見つからなかったため、通常の方法で編集を作成しました",
+  "warn.story.noModel":
+    "画像認識モデルを利用できないため、説明文を使用できませんでした。通常の方法で編集を作成しました",
+  "warn.story.noVisualSpans":
+    "説明文で編集するには映像の解析が必要です。「映像からカット」を有効にしてください",
   "warn.timebase.mixedRates":
     "{count} 個のクリップが {chosen}fps のシーケンスにぴったり収まらないため、つなぎ目が 1 フレームずれることがあります。{files} の編集点を確認してください",
   "warn.swap.candidatesTruncated":

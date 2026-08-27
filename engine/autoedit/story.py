@@ -338,3 +338,76 @@ def normalise(vectors: "np.ndarray") -> "np.ndarray":
     """L2-normalise rows, leaving a zero row as zeros rather than NaN."""
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     return vectors / np.where(norms == 0, 1.0, norms)
+
+
+# --- turning matches into a running order -----------------------------------
+
+# How many shots one beat may contribute. A beat that wins sixteen shots of the
+# same subject would otherwise fill the film with it; the runtime share limits
+# total length but not repetition, and six near-identical shots of a chef is not
+# what "then the chef cooking" asked for.
+MAX_SHOTS_PER_BEAT = 4
+
+
+def build_story_plans(
+    matches: list[BeatMatch],
+    spans: list[tuple[str, float, float, float]],
+    target_seconds: float | None,
+    min_clip_length: float = 0.4,
+    max_shot: float | None = None,
+) -> tuple[list[tuple[str, "object", str]], list[BeatMatch]]:
+    """Lay matched beats out in the order the editor described them.
+
+    `spans` is (media_id, start, end, score), indexed the way `assign_beats`
+    indexed them.
+
+    Returns the plans to append -- (media_id, CutPlan, beat_id), already in beat
+    order -- and the beats that matched nothing, for the caller to report.
+
+    Runtime is divided by weight across the beats that MATCHED. An unfilled beat
+    is excluded from the denominator rather than given a zero share, so the film
+    stays the length that was asked for instead of quietly shrinking by however
+    many beats the footage could not serve.
+    """
+    from .detect import CutPlan, Keep      # local: detect must not import story
+
+    matched = [m for m in matches if m.matched]
+    unmatched = [m for m in matches if not m.matched]
+    if not matched:
+        return [], unmatched
+
+    total_weight = sum(m.beat.weight for m in matched) or 1.0
+    out: list[tuple[str, object, str]] = []
+
+    for m in matched:
+        share = (target_seconds * m.beat.weight / total_weight) if target_seconds else None
+
+        # Strongest first, then capped: a beat is a moment in the story, not a
+        # montage of everything that resembled it.
+        chosen = sorted(m.shots, key=lambda i: -spans[i][3])[:MAX_SHOTS_PER_BEAT]
+
+        by_media: dict[str, list[tuple[float, float, float]]] = {}
+        for i in chosen:
+            media_id, start, end, score = spans[i]
+            by_media.setdefault(media_id, []).append((start, end, score))
+
+        # Within one beat the shots run in the order they were shot. Ordering
+        # them by score instead would cut back and forth in time for no reason
+        # an audience could follow.
+        per_beat: list[tuple[str, object]] = []
+        for media_id, items in by_media.items():
+            keeps = [
+                Keep(start, end, f"{m.beat.text} ({score:.2f})", round(min(1.0, score + 0.2), 4), 0)
+                for start, end, score in sorted(items)
+            ]
+            per_beat.append((media_id, CutPlan(keeps=keeps, drops=[], warnings=[])))
+
+        if share:
+            from .options import fit_duration_across
+            per_beat = fit_duration_across(
+                per_beat, "about", share, tolerance=0.35,
+                min_clip_length=min_clip_length, strategy="worst", max_shot=max_shot,
+            )
+        out.extend((media_id, plan, m.beat.id) for media_id, plan in per_beat)
+
+    return out, unmatched
