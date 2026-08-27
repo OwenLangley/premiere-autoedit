@@ -31,6 +31,9 @@ const { LANGUAGES, makeTranslator } = require("./i18n");
  * panel needs the concrete input/select members. */
 const $ = (id) => /** @type {any} */ (document.getElementById(id));
 
+/** Narrower than this and a frame on a strip block is a sliver, not a picture. */
+const MIN_FRAME_BLOCK = 22;
+
 const state = {
   settings: loadSettings(),
   transport: null,
@@ -460,6 +463,13 @@ function renderStrip() {
   block.classList.remove("hidden");
 
   const live = withSwaps(state.plan, state.swaps);
+  // How wide each block will be, before any are built: the strip's own width
+  // divided by the number of pictures going into it.
+  const pictureCount = live.timeline.filter(isPictureSlot).length || 1;
+  const stripWidth = strip.getBoundingClientRect
+    ? strip.getBoundingClientRect().width || 380 : 380;
+  const wideEnoughForFrames = stripWidth / pictureCount >= MIN_FRAME_BLOCK;
+
   // Pictures only. The music bed is a timeline entry too, and it is not a shot:
   // it has no frames to choose between, and it was the slot that wiped the
   // sequence when a swap keyed on frame 0 reached it as well as the picture.
@@ -483,7 +493,12 @@ function renderStrip() {
     // alternates grid uses and the only one measured to work here. This block
     // previously set a CSS background-image, which was the single use of that
     // property in the panel and rendered as nothing.
-    const tp = thumbForClip(state.plan, c, state.libraryShots);
+    // A frame only goes on the block when the block is wide enough to read one.
+    // Measured on a real 25-shot edit at docked width, each block is 13.8px --
+    // a sliver that reads as noise and costs a JPEG decode apiece. Below the
+    // threshold the group colour carries the strip on its own, which is what it
+    // was there for before the pictures arrived.
+    const tp = wideEnoughForFrames ? thumbForClip(state.plan, c, state.libraryShots) : null;
     if (tp) {
       readImageDataUri(tp, state.settings.jobsToken).then((uri) => {
         if (!uri) return;

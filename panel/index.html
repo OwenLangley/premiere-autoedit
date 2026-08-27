@@ -150,15 +150,19 @@
              /* Two across a docked panel, more when it is floated wider. */
              flex: 1 1 150px; min-width: 150px; max-width: 230px; }
       .alt:hover { border-color: var(--dim); }
-      /* An explicit height rather than aspect-ratio: UXP's CSS is a subset and
-         aspect-ratio is a recent addition, so a fixed box is one less thing
-         standing between the bytes and the screen. Tall, because these rushes
-         are vertical -- and object-fit: contain, because cropping a vertical
-         frame into a landscape box hides most of the shot, which is the one
-         thing a thumbnail exists to show. */
-      .alt .thumb { width: 100%; height: 150px; display: block;
-                    background: #111; object-fit: contain; }
-      .alt .noshot { width: 100%; height: 150px; background: #111;
+      /* A tall window, filled rather than letterboxed.
+         `contain` was the careful choice and it was wrong: measured on the real
+         panel, a 9:16 frame in a 173px box drew 85px of picture and 88px of
+         black -- 51% of every card. A shot cannot be recognised from a bar.
+         `cover` on a 200px-tall window keeps about two thirds of a vertical
+         frame with nothing wasted, biased slightly above centre because that is
+         where a subject usually sits. Landscape footage loses its edges, which
+         is the honest cost and still leaves a picture.
+         An explicit height rather than aspect-ratio: UXP's CSS is a subset and
+         aspect-ratio is a recent addition. */
+      .alt .thumb { width: 100%; height: 200px; display: block;
+                    background: #111; object-fit: cover; object-position: center 38%; }
+      .alt .noshot { width: 100%; height: 200px; background: #111;
                      display: flex; align-items: center; justify-content: center;
                      color: var(--dim); font-size: 10px; text-align: center; padding: 4px;
                      box-sizing: border-box; }
