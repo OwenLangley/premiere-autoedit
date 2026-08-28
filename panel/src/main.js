@@ -1372,6 +1372,39 @@ function watchJob(jobId) {
   }, 2000);
 }
 
+$("update").addEventListener("click", async () => {
+  const button = $("update");
+  button.disabled = true;
+  log(state.t("msg.updateChecking"));
+  try {
+    if (!state.transport || !state.transport.requestUpdate) {
+      throw new Error(state.t("msg.reportNoJobs"));
+    }
+    await state.transport.requestUpdate();
+    // The updater restarts the helper on its way past, so this waits on a file
+    // rather than on the helper answering.
+    let result = null;
+    for (let i = 0; i < 60 && !result; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      result = await state.transport.readUpdateResult();
+    }
+    if (!result) {
+      log(state.t("msg.reportNoHelper"), "err");
+    } else if (result.status === "updated") {
+      log(state.t("msg.updateDone", { detail: result.detail || "" }), "ok");
+      log(state.t("msg.updateRestart"), "ok");
+    } else if (result.status === "current") {
+      log(state.t("msg.updateCurrent", { detail: result.detail || "" }), "ok");
+    } else {
+      log(state.t("msg.updateFailed", { detail: result.detail || result.status }), "err");
+    }
+  } catch (err) {
+    log(`${err && err.message ? err.message : String(err)}`, "err");
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $("bug-report").addEventListener("click", async () => {
   const button = $("bug-report");
   button.disabled = true;

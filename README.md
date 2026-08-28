@@ -380,15 +380,27 @@ not say which code ran.
 
 ### Shipping them the fix
 
-```bash
-./update.sh
-```
+They press **Update to the latest version**, in the same Diagnostics section,
+and restart Premiere. No Terminal for that either.
 
-Pulls, reinstalls the panel, restarts the helper, and then tells them to restart
-Premiere -- which is not optional and is the step everyone forgets. The panel
-lives in `/Library` as a **copy**, so pulling alone changes nothing an editor can
-see, and the helper holds the engine in memory, so pulling alone leaves it
-running the old code. Both have caught me during this project.
+`./update.sh` is the same thing from a shell. Both pull, reinstall the panel and
+restart the helper. Those middle two matter more than they look: the panel lives
+in `/Library` as a **copy**, so pulling alone changes nothing an editor can see,
+and the helper holds the engine in memory, so pulling alone leaves it running
+the old code. Both caught me while building this.
+
+The first install is the only one that asks for a password. After it, the plugin
+folder belongs to the user, so every update after that is silent -- which is what
+makes the button possible at all.
+
+Two things worth knowing about how it runs from the panel:
+
+- **The updater detaches itself.** The last thing it does is restart the helper,
+  and a child of the helper dies with it -- launchd stops the whole process
+  group. It runs in its own session so it survives the restart it causes.
+- **It never waits for a password.** `GIT_TERMINAL_PROMPT=0` and SSH batch mode,
+  so a machine that cannot authenticate to a private repo fails in seconds with
+  "check this machine can sign in to GitHub" instead of hanging the helper.
 
 It refuses to run when the checkout has local changes rather than clobbering
 them.

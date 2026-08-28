@@ -242,6 +242,13 @@ const EN = {
   "diag.selfTestHint":
     "Exercises the Premiere API against this build and writes a report to " +
     "/tmp/autoedit-selftest/report.json. Run this first on a new machine.",
+  "diag.update": "Update to the latest version",
+  "diag.updateHint": "Installs the newest fixes. You will need to quit and reopen Premiere afterwards.",
+  "msg.updateChecking": "Checking for a newer version...",
+  "msg.updateDone": "Updated ({detail}).",
+  "msg.updateCurrent": "Already up to date ({detail}).",
+  "msg.updateRestart": "  Quit Premiere and reopen it — the panel only loads at startup.",
+  "msg.updateFailed": "Update did not complete: {detail}",
   "diag.report": "Collect a report to send",
   "diag.reportHint": "Gathers the logs, your recent jobs and this machine's setup into one zip on your Desktop. Send it to whoever maintains this.",
   "msg.reportCollecting": "Collecting logs and recent jobs...",
@@ -631,6 +638,13 @@ const JA = {
   "diag.selfTestHint":
     "このバージョンの Premiere API を検証し、/tmp/autoedit-selftest/report.json に" +
     "結果を書き出します。新しい PC では最初にこれを実行してください。",
+  "diag.update": "最新バージョンに更新",
+  "diag.updateHint": "最新の修正を適用します。適用後は Premiere を再起動してください。",
+  "msg.updateChecking": "新しいバージョンを確認しています...",
+  "msg.updateDone": "更新しました（{detail}）。",
+  "msg.updateCurrent": "すでに最新です（{detail}）。",
+  "msg.updateRestart": "  Premiere を終了して再度開いてください。パネルは起動時にのみ読み込まれます。",
+  "msg.updateFailed": "更新を完了できませんでした: {detail}",
   "diag.report": "送信用のレポートを作成",
   "diag.reportHint": "ログ・最近のジョブ・この PC の設定をまとめた zip をデスクトップに作成します。管理者に送ってください。",
   "msg.reportCollecting": "ログと最近のジョブを収集しています...",

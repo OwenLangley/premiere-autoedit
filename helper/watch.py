@@ -655,10 +655,48 @@ def run_report(jobs: Path, verbose: bool = True) -> None:
         marker.unlink(missing_ok=True)
 
 
+UPDATE_REQUEST = "update.request"
+
+
+def run_update(jobs: Path, verbose: bool = True) -> None:
+    """Update the tool because the panel asked.
+
+    **Detached, and that is the whole trick.** The last thing update.sh does is
+    restart this helper, and a child of the helper dies with it -- launchd stops
+    the whole process group. `start_new_session` puts the updater in its own
+    session, so it survives the restart it causes and finishes writing its
+    answer.
+
+    Nothing is waited on here: this function returns immediately and the panel
+    reads the result file when it appears.
+    """
+    import subprocess
+
+    marker = jobs / UPDATE_REQUEST
+    result = jobs / "update.result.json"
+    script = Path(__file__).resolve().parent.parent / "update.sh"
+    if verbose:
+        print(f"[{_now()}] {UPDATE_REQUEST}", file=sys.stderr)
+    result.unlink(missing_ok=True)
+    try:
+        subprocess.Popen(
+            ["bash", str(script), "--result", str(result)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        result.write_text(json.dumps(
+            {"status": "failed", "detail": str(exc)}, indent=2))
+    finally:
+        marker.unlink(missing_ok=True)
+
+
 def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True,
              music_root: Path | None = None) -> int:
     if (jobs / REPORT_REQUEST).exists():
         run_report(jobs, verbose)
+    if (jobs / UPDATE_REQUEST).exists():
+        run_update(jobs, verbose)
     handled = 0
     for path in sorted(jobs.glob(f"*{REQUEST_SUFFIX}")):
         marker = claimed_marker(jobs, path)

@@ -298,6 +298,28 @@ class LocalFolderTransport {
     }
   }
 
+  /** Ask the helper to pull and install the latest version. */
+  async requestUpdate() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) throw new Error("Jobs folder is not reachable. Re-select it in settings.");
+    try {
+      await (await folder.getEntry("update.result.json")).delete();
+    } catch { /* no previous result is the ordinary case */ }
+    const file = await folder.createFile("update.request", { overwrite: true });
+    await file.write(new Date().toISOString());
+  }
+
+  /** How the update went, or null while it is still running. */
+  async readUpdateResult() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return null;
+    try {
+      return JSON.parse(await (await folder.getEntry("update.result.json")).read());
+    } catch {
+      return null;
+    }
+  }
+
   /** Write a result summary back beside the plan, for the engine to pick up. */
   async writeReceipt(planName, receipt) {
     const folder = await folderFromToken(this.jobsToken);
