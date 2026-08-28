@@ -90,6 +90,28 @@ async function showFolder(token, el, fallback) {
 }
 
 /**
+ * Setup is finished work; it should not head the panel forever.
+ *
+ * Once media and jobs are both chosen there is nothing here to do again, so it
+ * folds to a single line with a way back. Music stays optional and is not part
+ * of the test -- waiting for it would keep the block open on every machine that
+ * never uses music.
+ *
+ * `setupOpen` is deliberately not persisted: reopening it is one click, and a
+ * remembered-open state is indistinguishable from the bug it replaces.
+ * @param {any} media @param {any} jobs
+ */
+let setupOpen = false;
+function showSetup(media, jobs) {
+  const done = Boolean(media && jobs) && !setupOpen;
+  $("setup-fields").classList.toggle("hidden", done);
+  $("setup-done").classList.toggle("hidden", !done);
+  if (!done) return;
+  const name = (f) => (f ? f.name || f.nativePath : "");
+  $("setup-summary").textContent = `${name(media)} → ${name(jobs)}`;
+}
+
+/**
  * Push the current language into the markup.
  *
  * Elements carry `data-i18n` (and `data-i18n-placeholder`) and keep their
@@ -161,9 +183,10 @@ function applyCapabilityLabels(caps) {
 }
 
 async function refreshSetup() {
-  await showFolder(state.settings.mediaToken, $("media-path"), state.t("setup.notSet"));
-  await showFolder(state.settings.jobsToken, $("jobs-path"), state.t("setup.notSet"));
+  const media = await showFolder(state.settings.mediaToken, $("media-path"), state.t("setup.notSet"));
+  const jobs = await showFolder(state.settings.jobsToken, $("jobs-path"), state.t("setup.notSet"));
   await showFolder(state.settings.musicToken, $("music-path"), state.t("setup.notSetOptional"));
+  showSetup(media, jobs);
   state.transport = state.settings.jobsToken
     ? new LocalFolderTransport(state.settings.jobsToken)
     : null;
@@ -1436,6 +1459,12 @@ $("bug-report").addEventListener("click", async () => {
   } finally {
     button.disabled = false;
   }
+});
+
+$("setup-edit").addEventListener("click", () => {
+  setupOpen = true;
+  $("setup-fields").classList.remove("hidden");
+  $("setup-done").classList.add("hidden");
 });
 
 $("selftest").addEventListener("click", async () => {

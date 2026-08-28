@@ -6,59 +6,131 @@
       :root {
         --bg: #1e1e1e; --panel: #262626; --line: #3a3a3a;
         --text: #e8e8e8; --dim: #9a9a9a; --accent: #4a90d9;
-        --warn: #d9a441; --bad: #d95c5c; --good: #5cb85c;
+        --warn: #d9a441; --bad: #e06a6a; --good: #5cb85c;
+        /* Two blues, because one cannot do both jobs at 4.5:1. --accent is the
+           blue that has to be READ on the panel (4.53:1 against it); this is
+           the blue that white has to be read ON (4.98:1). Measured, not picked:
+           white on --accent is 3.34:1, and the primary button is the one
+           control in this panel nobody can afford to misread. */
+        --accent-solid: #3a72b0; --accent-solid-hover: #4482c6;
+        /* One step darker than --panel, for wells sunk into a section. */
+        --well: #202020;
+        --control: #383838; --control-hover: #444;
+        /* Three sizes and no more. Body carries the interface, small carries
+           anything secondary, and micro is for section labels only. Before
+           this there were six sizes between 10.5 and 12, which is not a scale
+           -- it is six people each picking a number. */
+        --t-body: 12px; --t-small: 11px; --t-micro: 10.5px;
+        /* A 4px rhythm, so spacing is chosen from a scale rather than typed. */
+        --s1: 4px; --s2: 6px; --s3: 8px; --s4: 12px; --s5: 16px;
       }
       /* The panel is often docked into a short column; without an explicit
          scroll the Create button sits below the fold and is simply unreachable. */
       html, body { height: 100%; }
       body {
         margin: 0; padding: 10px; background: var(--bg); color: var(--text);
-        font-family: "Adobe Clean", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif; font-size: 12px; line-height: 1.45;
+        font-family: "Adobe Clean", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif; font-size: var(--t-body); line-height: 1.45;
         overflow-y: auto; overflow-x: hidden; box-sizing: border-box;
       }
-      h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
-           color: var(--dim); margin: 16px 0 6px; font-weight: 600; }
+      /* Smaller than the body text it introduces, not the same size. A heading
+         that matches its content in size leads nothing. */
+      h2 { font-size: var(--t-micro); text-transform: uppercase; letter-spacing: .09em;
+           color: var(--dim); margin: var(--s5) 0 var(--s2); font-weight: 700; }
       h2:first-child { margin-top: 0; }
       section { background: var(--panel); border: 1px solid var(--line);
-                border-radius: 4px; padding: 10px; margin-bottom: 10px; }
+                border-radius: 5px; padding: var(--s4); margin-bottom: var(--s3); }
+
+      /* A label for a run of controls inside a section. The music block used to
+         begin with an unlabelled select, so five controls in the middle of "New
+         edit" belonged to nothing an editor could name. */
+      .group { font-size: var(--t-micro); text-transform: uppercase;
+               letter-spacing: .08em; color: var(--dim); font-weight: 700;
+               margin: var(--s4) 0 var(--s2); }
+      .group:first-child { margin-top: 0; }
+
+      /* Keyboard focus. There was none: UXP draws whatever it draws, which on
+         a dark panel is frequently nothing, and the whole form was unusable
+         without a mouse. :focus-visible so a click does not ring the control. */
+      button:focus-visible, select:focus-visible, input:focus-visible,
+      textarea:focus-visible, label.clip:focus-within {
+        outline: 2px solid var(--accent); outline-offset: 1px;
+      }
       .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
       .row:last-child { margin-bottom: 0; }
       .grow { flex: 1; min-width: 0; }
-      .path { color: var(--dim); font-size: 11px; overflow: hidden;
+      .path { color: var(--dim); font-size: var(--t-small); overflow: hidden;
               text-overflow: ellipsis; white-space: nowrap; }
       .path.unset { color: var(--bad); }
-      button { background: #383838; color: var(--text); border: 1px solid var(--line);
-               border-radius: 3px; padding: 5px 10px; font-size: 12px; }
-      button:hover:not(:disabled) { background: #444; }
-      button:disabled { opacity: .4; }
-      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-      button.primary:hover:not(:disabled) { background: #5a9fe4; }
-      select { background: #383838; color: var(--text); border: 1px solid var(--line);
-               border-radius: 3px; padding: 4px; font-size: 12px; width: 100%; }
+      /* Three weights of button, because there are three weights of action:
+         the one thing this screen is for, the ordinary controls, and the
+         housekeeping. They all looked identical before, so "Reload" carried the
+         same visual promise as "Create edit". */
+      button { background: var(--control); color: var(--text);
+               border: 1px solid var(--line); border-radius: 4px;
+               padding: 6px 11px; font-size: var(--t-body);
+               transition: background .12s ease, border-color .12s ease; }
+      button:hover:not(:disabled) { background: var(--control-hover); }
+      button:active:not(:disabled) { background: #333; }
+      button:disabled { opacity: .38; }
+      button.primary { background: var(--accent-solid); border-color: var(--accent-solid);
+                       color: #fff; font-weight: 600; padding: 8px 11px; }
+      button.primary:hover:not(:disabled) { background: var(--accent-solid-hover);
+                                            border-color: var(--accent-solid-hover); }
+      button.primary:active:not(:disabled) { background: #33648f; }
+      /* Housekeeping: present, reachable, and not competing. */
+      button.quiet { background: transparent; color: var(--dim);
+                     font-size: var(--t-small); padding: 4px 8px; }
+      button.quiet:hover:not(:disabled) { background: var(--control); color: var(--text); }
+      select { background: var(--control); color: var(--text); border: 1px solid var(--line);
+               border-radius: 4px; padding: 5px; font-size: var(--t-body); width: 100%;
+               transition: border-color .12s ease; }
+      select:hover { border-color: var(--dim); }
       .stat { display: flex; justify-content: space-between; padding: 2px 0; }
       .stat span:last-child { color: var(--dim); }
-      .msg { border-left: 3px solid var(--warn); padding: 5px 8px; margin: 5px 0;
-             background: rgba(217,164,65,.09); font-size: 11px; }
-      .msg.bad { border-color: var(--bad); background: rgba(217,92,92,.09); }
+      /* A hairline and a tint, not a 3px colour bar. Two or three of these
+         stacked used to read as a wall of warnings; a full outline at one pixel
+         carries the same meaning and stops shouting.
+         No ::before dot, however much this wants one. A pseudo-element was the
+         strip's colour band once and UXP rendered nothing -- the failure mode is
+         silent, and a decoration is never worth risking it. */
+      .msg { border: 1px solid rgba(217,164,65,.38); border-radius: 4px;
+             padding: 6px 9px; margin: var(--s2) 0;
+             background: rgba(217,164,65,.07); font-size: var(--t-small); }
+      .msg.bad { border-color: rgba(217,92,92,.42); background: rgba(217,92,92,.08); }
       .sect { display: flex; align-items: center; gap: 7px; padding: 5px 0;
               border-bottom: 1px solid var(--line); }
       .sect:last-child { border-bottom: none; }
-      .sect .meta { color: var(--dim); font-size: 11px; }
-      #log { font-family: monospace; font-size: 11px; max-height: 150px;
+      .sect .meta { color: var(--dim); font-size: var(--t-small); }
+      #log { font-family: monospace; font-size: var(--t-small); max-height: 150px;
              overflow-y: auto; color: var(--dim); }
       #log div { padding: 1px 0; }
       #log .ok { color: var(--good); }
       #log .err { color: var(--bad); }
-      .hint { color: var(--dim); font-size: 11px; margin-top: 6px; }
+      .hint { color: var(--dim); font-size: var(--t-small); margin-top: 6px; }
       .hidden { display: none; }
-      label.field { display: block; margin-bottom: 8px; }
-      label.field > span { display: block; color: var(--dim); font-size: 11px;
+      label.field { display: block; margin-bottom: var(--s3); }
+      /* A switch and what it does, on one row. The hint used to be a separate
+         paragraph below each one, which put four grey paragraphs between four
+         checkboxes and made the settings read as documentation. */
+      label.check { display: flex; align-items: flex-start; gap: var(--s3);
+                    margin-bottom: var(--s3); }
+      label.check input { margin: 1px 0 0; flex: none; }
+      label.check > span { display: block; min-width: 0; }
+      label.check .hint { display: block; margin-top: 1px; }
+      label.field > span { display: block; color: var(--dim); font-size: var(--t-small);
                           margin-bottom: 3px; }
       input[type="text"], input[type="number"], textarea {
-        background: #383838; color: var(--text); border: 1px solid var(--line);
-        border-radius: 3px; padding: 5px; font-size: 12px; width: 100%;
+        background: var(--control); color: var(--text); border: 1px solid var(--line);
+        border-radius: 4px; padding: 6px; font-size: var(--t-body); width: 100%;
         font-family: inherit; box-sizing: border-box;
+        transition: border-color .12s ease;
       }
+      input[type="text"]:hover, input[type="number"]:hover, textarea:hover {
+        border-color: var(--dim);
+      }
+      /* #6f6f6f read at 2.33:1 against the field, which is unreadable rather
+         than subtle. This is 4.65:1 and still clearly a placeholder. */
+      input::placeholder, textarea::placeholder { color: #a3a3a3; }
       textarea { resize: vertical; line-height: 1.45; }
       .split { display: flex; gap: 6px; }
       .split > * { flex: 1; min-width: 0; }
@@ -71,7 +143,7 @@
       #media-list .clip {
         position: relative; flex: 1 1 104px; min-width: 104px; max-width: 132px;
         border: 1px solid var(--line); border-radius: 3px; overflow: hidden;
-        background: #17171a; padding: 0; font-size: 11px;
+        background: #17171a; padding: 0; font-size: var(--t-small);
       }
       #media-list .clip:hover { border-color: var(--dim); }
       #media-list .clip.on { border-color: var(--accent); background: #1d2733; }
@@ -84,25 +156,34 @@
                                    object-fit: cover; object-position: center 38%; }
       #media-list .clip-name { padding: 4px 6px 0; overflow: hidden;
                                text-overflow: ellipsis; white-space: nowrap; }
-      #media-list .clip-dur { padding: 0 6px 5px; color: var(--dim); font-size: 10.5px;
+      #media-list .clip-dur { padding: 0 6px 5px; color: var(--dim); font-size: var(--t-micro);
                               font-variant-numeric: tabular-nums; }
-      #media-list .empty { color: var(--dim); padding: 8px; font-size: 11px; flex: 1 1 100%; }
-      .summary-line { color: var(--accent); font-size: 11px; margin: 6px 0; min-height: 15px; }
+      #media-list .empty { color: var(--dim); padding: 8px; font-size: var(--t-small); flex: 1 1 100%; }
+      /* What the engine is about to be asked for, in the editor's own terms.
+         This is the last thing read before pressing the button, so it is not a
+         footnote. */
+      .summary-line { color: var(--accent); font-size: var(--t-body);
+                      margin: var(--s3) 0 var(--s2); min-height: 16px; }
       .disclosure { display: flex; align-items: center; gap: 6px; cursor: pointer;
-                    color: var(--dim); font-size: 11px; user-select: none; }
+                    color: var(--dim); font-size: var(--t-small); user-select: none; }
 
       /* The format cards lived here. The description does that job now, and
          two ways to choose the same thing was the confusing part. */
-      #adjust-row { margin: 2px 0 8px; }
+      #adjust-row { margin: var(--s4) 0 var(--s2); }
+      /* Full width and quiet: it opens a drawer, so it should read as a lid
+         rather than as an action competing with Create edit below it. */
+      button.disclose { background: transparent; color: var(--dim);
+                        font-size: var(--t-small); }
+      button.disclose:hover:not(:disabled) { background: var(--control); color: var(--text); }
 
       /* --- what the engine did --------------------------------------------- */
       .kv { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0;
-            border-bottom: 1px solid #2a2a30; font-size: 11.5px; }
+            border-bottom: 1px solid #2a2a30; font-size: var(--t-small); }
       .kv:last-child { border-bottom: none; }
       .kv b { font-weight: 500; color: var(--dim); }
       .kv .num { font-variant-numeric: tabular-nums; text-align: right;
                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .logline { font-family: monospace; font-size: 10.5px; color: var(--dim);
+      .logline { font-family: monospace; font-size: var(--t-micro); color: var(--dim);
                  padding: 2px 0; }
 
       /* --- the shot strip ---------------------------------------------------
@@ -136,7 +217,7 @@
       #slot-detail { margin-top: 8px; }
       #slot-detail .who { display: flex; justify-content: space-between; gap: 8px; }
       #slot-detail .who b { font-weight: 600; }
-      #slot-detail .why { color: var(--dim); font-size: 11px; margin-top: 2px; }
+      #slot-detail .why { color: var(--dim); font-size: var(--t-small); margin-top: 2px; }
       .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
       /* Several shots on screen at once, because choosing one is a visual
          comparison -- but built from wrapping flexbox, not CSS grid.
@@ -167,9 +248,9 @@
                     background: #111; object-fit: cover; object-position: center 38%; }
       .alt .noshot { width: 100%; height: 200px; background: #111;
                      display: flex; align-items: center; justify-content: center;
-                     color: var(--dim); font-size: 10px; text-align: center; padding: 4px;
+                     color: var(--dim); font-size: var(--t-micro); text-align: center; padding: 4px;
                      box-sizing: border-box; }
-      .alt .txt { padding: 5px 6px; font-size: 11px; min-width: 0; }
+      .alt .txt { padding: 5px 6px; font-size: var(--t-small); min-width: 0; }
       .alt .txt > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .alt .txt .sub { color: var(--dim); }
       /* Stacked, not side by side. Two buttons sharing a 140px card leave about
@@ -178,17 +259,25 @@
          several shots have to be comparable at once -- so the buttons give way,
          not the grid. */
       .alt .acts { display: flex; flex-direction: column; gap: 4px; padding: 0 6px 6px; }
-      .alt .acts button { width: 100%; padding: 5px 6px; font-size: 11px;
+      .alt .acts button { width: 100%; padding: 5px 6px; font-size: var(--t-small);
                           white-space: nowrap; overflow: hidden;
                           text-overflow: ellipsis; }
       .alt.current { border-color: var(--accent); background: rgba(74,144,217,.10); }
-      .tag { font-size: 10px; color: var(--dim); border: 1px solid var(--line);
+      .tag { font-size: var(--t-micro); color: var(--dim); border: 1px solid var(--line);
              border-radius: 2px; padding: 0 3px; margin-left: 4px; }
     </style>
   </head>
   <body>
     <h2 data-i18n="setup.title">Setup</h2>
     <section>
+      <!-- Once the three folders are chosen this is finished forever, so it
+           collapses to one line and stops occupying the top of the panel. It
+           was the first thing an editor saw on every single job. -->
+      <div class="row hidden" id="setup-done">
+        <div class="grow path" id="setup-summary"></div>
+        <button id="setup-edit" class="quiet" data-i18n="setup.change">Change</button>
+      </div>
+      <div id="setup-fields">
       <div class="row">
         <button id="pick-media" data-i18n="setup.mediaRoot">Media root</button>
         <div class="grow path unset" id="media-path">not set</div>
@@ -206,11 +295,11 @@
         <select id="opt-ui-language"></select>
       </label>
       <div class="hint" data-i18n="setup.hint">
-        Plans store paths relative to a root, so moving to a NAS later means
-        changing these settings and nothing else. The music folder is optional
-        and lives wherever you keep your library &mdash; it does not have to sit
-        with the footage.
+        Paths are stored relative to these roots, so moving the library later
+        means changing them here and nothing else. Music is optional and can live
+        anywhere.
       </div>
+      </div><!-- /setup-fields -->
     </section>
 
     <h2 data-i18n="edit.title">New edit</h2>
@@ -233,24 +322,21 @@
         them. Anything the footage cannot serve is left out and said so.
       </div>
 
-      <label class="field">
-        <span><span data-i18n="edit.clips">Clips</span> <span id="media-count"></span></span>
-      </label>
+      <div class="group"><span data-i18n="edit.clips">Clips</span>
+        <span id="media-count" style="font-weight:400;letter-spacing:0"></span></div>
       <div id="media-list"><div class="empty" data-i18n="edit.noMediaRoot">Set a media root above.</div></div>
       <div class="row" style="margin-top:6px">
-        <button id="media-all" data-i18n="edit.selectAll">Select all</button>
-        <button id="media-none" data-i18n="edit.clear">Clear</button>
-        <button id="media-reload" data-i18n="edit.reload">Reload</button>
+        <button id="media-all" class="quiet" data-i18n="edit.selectAll">Select all</button>
+        <button id="media-none" class="quiet" data-i18n="edit.clear">Clear</button>
+        <button id="media-reload" class="quiet" data-i18n="edit.reload">Reload</button>
       </div>
 
-      <label class="field">
-        <span><span data-i18n="music.label">Music</span>
-          <span id="music-count" class="hint" style="font-weight:400"></span></span>
-        <select id="opt-music"></select>
-      </label>
+      <div class="group"><span data-i18n="music.label">Music</span>
+        <span id="music-count" style="font-weight:400;letter-spacing:0"></span></div>
+      <select id="opt-music"></select>
       <div class="row" id="music-tools" style="margin:-2px 0 6px">
-        <button id="music-audition" data-i18n="music.audition">Audition</button>
-        <button id="music-playhead" data-i18n="music.usePlayhead">Use playhead as start</button>
+        <button id="music-audition" class="quiet" data-i18n="music.audition">Audition</button>
+        <button id="music-playhead" class="quiet" data-i18n="music.usePlayhead">Use playhead as start</button>
       </div>
       <div class="split" id="music-chunk">
         <label class="field"><span data-i18n="music.start">Start in track</span>
@@ -264,81 +350,76 @@
                  placeholder="follows the edit" />
         </label>
       </div>
-      <div class="hint" style="margin:-4px 0 8px">
-        <span data-i18n="music.hint">Cuts snap to the beat of whichever track you pick.</span>
-        <br /><span data-i18n="music.auditionHint">Audition opens the track in the Source Monitor.</span>
+      <div class="hint" style="margin:-4px 0 8px" data-i18n="music.hint">
+        Cuts snap to the beat of whichever track you pick.
       </div>
 
       <div class="row" id="adjust-row">
-        <div class="grow hint" id="format-summary" style="margin:0"></div>
-        <button id="adjust-toggle" data-i18n="edit.adjustShow">Show settings</button>
+        <button id="adjust-toggle" class="grow disclose" data-i18n="edit.adjustShow">Show settings</button>
       </div>
+      <div class="hint" id="format-summary" style="margin:0 0 var(--s2)"></div>
 
       <!-- Closed by default. The description sets these and the line beside the
            button reads them back, so opening it is for overruling rather than
            for checking. -->
       <div id="adjust-block" class="hidden">
-      <div class="split" style="margin-top:10px">
+      <div class="group" style="margin-top:var(--s4)" data-i18n="edit.groupFormat">Format</div>
+      <div class="split">
         <label class="field"><span data-i18n="edit.recipe">Recipe</span><select id="opt-recipe"></select></label>
         <label class="field"><span data-i18n="edit.shape">Shape</span><select id="opt-aspect"></select></label>
       </div>
+      <label class="field"><span data-i18n="edit.look">Look</span><select id="opt-look"></select></label>
 
+      <div class="group" data-i18n="edit.groupTiming">Timing</div>
       <div class="split">
         <label class="field"><span data-i18n="edit.length">Length</span><select id="opt-duration-mode"></select></label>
         <label class="field" id="duration-seconds-field"><span data-i18n="edit.seconds">Seconds</span>
           <input type="number" id="opt-duration-seconds" min="1" max="7200" value="30" />
         </label>
       </div>
-
       <div class="split">
         <label class="field"><span data-i18n="edit.pacing">Pacing</span><select id="opt-pacing"></select></label>
         <label class="field"><span data-i18n="edit.cutRate">Cut on</span><select id="opt-cut-rate"></select></label>
-        <label class="field"><span data-i18n="edit.look">Look</span><select id="opt-look"></select></label>
       </div>
 
+      <div class="group" data-i18n="edit.groupSpeech">Speech</div>
       <label class="field">
         <span data-i18n="edit.spokenLanguage">Spoken language</span>
         <select id="opt-language"></select>
       </label>
 
-
-      <label class="field" style="margin-top:4px">
-        <span style="display:flex;align-items:center;gap:6px">
-          <input type="checkbox" id="opt-visual" />
+      <!-- Four switches, each of which used to carry its own paragraph. The
+           hint now sits on the switch it explains and only where the label
+           cannot say it alone. -->
+      <label class="check">
+        <input type="checkbox" id="opt-visual" />
+        <span>
           <span data-i18n="edit.visual">Cut from the pictures, ignoring speech</span>
+          <span class="hint" data-i18n="edit.visualHint">For promos and b-roll.</span>
         </span>
       </label>
-      <div class="hint" style="margin:-4px 0 8px" data-i18n="edit.visualHint">
-        For promos and b-roll. Leave off to cut to what is said.
-      </div>
-
-      <label class="field" style="margin-top:4px">
-        <span style="display:flex;align-items:center;gap:6px">
-          <input type="checkbox" id="opt-subtitles" />
+      <label class="check">
+        <input type="checkbox" id="opt-subtitles" />
+        <span>
           <span data-i18n="edit.subtitles">Write subtitles (.srt)</span>
+          <span class="hint" data-i18n="edit.subtitlesHint">Transcribes the speech and writes an .srt for the finished cut.</span>
         </span>
       </label>
-      <div class="hint" style="margin:-4px 0 8px" data-i18n="edit.subtitlesHint">
-        Transcribes the speech and writes subtitles for the finished cut.
-      </div>
-
-      <label class="field" style="margin-top:4px">
-        <span style="display:flex;align-items:center;gap:6px">
-          <input type="checkbox" id="opt-protect-speech" />
+      <label class="check">
+        <input type="checkbox" id="opt-protect-speech" />
+        <span>
           <span data-i18n="edit.protectSpeech">Keep whole sentences</span>
+          <span class="hint" data-i18n="edit.protectSpeechHint">Never cut mid-word. On automatically with subtitles.</span>
         </span>
       </label>
-      <div class="hint" style="margin:-4px 0 8px" data-i18n="edit.protectSpeechHint">
-        Moves a cut off the middle of a word. On automatically with subtitles.
-      </div>
-
-      <label class="field" style="margin-top:4px">
-        <span style="display:flex;align-items:center;gap:6px">
-          <input type="checkbox" id="opt-remove-silence" />
+      <label class="check">
+        <input type="checkbox" id="opt-remove-silence" />
+        <span>
           <span data-i18n="edit.removeSilence">Cut out silence</span>
+          <span class="hint" data-i18n="edit.removeSilenceHint">Trims the quiet around speech and drops shots where nothing is said.</span>
         </span>
       </label>
-      <label class="field" id="silence-allowed-field">
+      <label class="field" id="silence-allowed-field" style="margin-left:22px;max-width:150px">
         <span data-i18n="edit.silenceAllowed">Silence to leave</span>
         <select id="opt-silence-allowed">
           <option value="0">0s</option>
@@ -351,9 +432,6 @@
           <option value="3">3s</option>
         </select>
       </label>
-      <div class="hint" style="margin:-4px 0 8px" data-i18n="edit.removeSilenceHint">
-        Trims the quiet either side of speech and drops shots where nothing is said.
-      </div>
 
       </div><!-- /adjust-block -->
 
@@ -422,32 +500,22 @@
 
     <h2 data-i18n="diag.title">Diagnostics</h2>
     <section>
+      <!-- Three full-width buttons each under its own paragraph took more of
+           the panel than the plan did. These are rare actions: two of them are
+           for when something is already wrong. -->
       <div class="row">
-        <button id="selftest" class="grow" data-i18n="diag.selfTest">Run self-test</button>
-      </div>
-      <div class="hint" data-i18n="diag.selfTestHint">
-        Exercises the Premiere API against this build and writes a report to
-        /tmp/autoedit-selftest/report.json. Run this first on a new machine.
-      </div>
-
-      <div class="row" style="margin-top:8px">
-        <button id="bug-report" class="grow" data-i18n="diag.report">
-          Collect a report to send
-        </button>
-      </div>
-      <div class="hint" data-i18n="diag.reportHint">
-        Gathers the logs, your recent jobs and this machine's setup into one zip
-        on your Desktop. Send it to whoever maintains this.
-      </div>
-
-      <div class="row" style="margin-top:8px">
-        <button id="update" class="grow" data-i18n="diag.update">
-          Update to the latest version
-        </button>
+        <button id="update" class="grow" data-i18n="diag.update">Update to the latest version</button>
       </div>
       <div class="hint" data-i18n="diag.updateHint">
-        Installs the newest fixes. You will need to quit and reopen Premiere
-        afterwards.
+        Installs the newest fixes, then quit and reopen Premiere.
+      </div>
+      <div class="row" style="margin-top:var(--s3)">
+        <button id="bug-report" class="grow quiet" data-i18n="diag.report">Collect a report to send</button>
+        <button id="selftest" class="quiet" data-i18n="diag.selfTest">Self-test</button>
+      </div>
+      <div class="hint" data-i18n="diag.reportHint">
+        A report gathers the logs and your recent jobs into one zip on your
+        Desktop &mdash; send it to whoever maintains this.
       </div>
     </section>
 
