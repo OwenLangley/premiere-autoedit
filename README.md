@@ -49,11 +49,24 @@ macOS with Premiere Pro 26. Homebrew first if you do not have it
 ([brew.sh](https://brew.sh)), then:
 
 ```bash
-brew install ffmpeg python@3.11
+brew install ffmpeg python@3.11 gh
+gh auth login          # this repo is private; see below
 git clone https://github.com/OwenLangley/premiere-autoedit.git
 cd premiere-autoedit
 ./setup.sh ~/Footage
 ```
+
+**`gh auth login` is not optional and it is not a formality.** This repo is
+private, and **GitHub has not accepted passwords for git since 13 August 2021**
+-- so cloning without signing in first fails with *"Support for password
+authentication was removed"*, which reads like a rejected password and is not
+one. No password will ever work there. `gh auth login` opens a browser, and when
+it offers to authenticate git with your GitHub credentials, say yes: that is
+what stores the credential, and it is also what makes the panel's **Update**
+button work later.
+
+Accept the repository invitation first, or the clone fails as *"repository not
+found"* -- GitHub does not distinguish private from non-existent.
 
 `~/Footage` is your own rushes -- the top of the tree, not one shoot. That is
 the only path you choose; setup makes the rest. It asks for your password once,

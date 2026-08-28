@@ -46,6 +46,25 @@ request file and a background watcher runs the engine. When the watcher is not
 running there is no error anywhere -- the request just sits on disk. `--check`
 looks for it specifically.
 
+## Signing in to GitHub
+
+Two failures land here before anything is installed, and both look like
+something they are not.
+
+**"Support for password authentication was removed"** on `git clone`. This is
+not a mistyped password and no password will fix it -- GitHub stopped accepting
+them for git on 13 August 2021. Install `gh` and run `gh auth login`, choosing
+HTTPS and answering **yes** when it offers to authenticate git with your GitHub
+credentials. That last answer is the one that matters: it stores the credential
+that both `git pull` and the panel's Update button need.
+
+**"repository not found"** on a repo that plainly exists. GitHub returns the
+same answer for private and non-existent, so this usually means the repository
+invitation has not been accepted yet.
+
+Neither is worth debugging beyond that. Anyone who can clone the repo and run
+`./setup.sh --check` cleanly is past both.
+
 ## What the first run costs
 
 - **~3 GB Whisper model download.** Once per machine, then cached in
