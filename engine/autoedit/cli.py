@@ -20,7 +20,9 @@ from .detect import plan_cuts
 from .plan import EditPlanBuilder, MediaEntry, validate_plan
 from .probe import ProbeError, content_hash, needs_proxy, probe
 from .recipe import RecipeError, list_recipes, load_recipe
-from .transcribe import TranscriptionError, extract_audio, get_provider
+from .transcribe import (
+    LISTENS, TranscriptionError, extract_audio, get_provider,
+)
 from .transcript import Transcript
 from .options import (PACING, VALID_CUT_RATES, JobOptions, OptionError, apply_pacing,
                       fit_duration_across,
@@ -419,6 +421,18 @@ def cmd_plan(args) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
+    # Subtitling needs something that can listen. A recipe written for footage
+    # nobody expected to transcribe leaves the provider unset, which defaults to
+    # sidecar -- so asking for subtitles on a silent promo asked a file reader to
+    # transcribe audio and got six "no sidecar transcript" warnings and no
+    # subtitles. An explicit --provider is still obeyed: choosing sidecar and
+    # not having one is a different mistake, and the editor's to make.
+    speech_provider_name = provider_name
+    speech_provider = provider
+    if not args.provider and provider_name not in LISTENS:
+        speech_provider_name = "whisper-local"
+        speech_provider = get_provider(speech_provider_name)
+
     # Probe before building. The sequence rate used to come straight from the
     # recipe, which meant 59.94 footage was assembled into a 30.000 sequence --
     # two grids that share almost no frame boundaries, so every clip landed a
@@ -720,8 +734,8 @@ def cmd_plan(args) -> int:
                     or getattr(args, "remove_silence", False)) and info.has_audio:
                 try:
                     heard = _transcribe_once(
-                        path, mid, info, args, recipe, provider, provider_name,
-                        cache_root, work_dir,
+                        path, mid, info, args, recipe, speech_provider,
+                        speech_provider_name, cache_root, work_dir,
                     )
                     subtitle_only.append(heard)
                 except TranscriptionError as exc:
@@ -1063,6 +1077,11 @@ def cmd_plan(args) -> int:
     if capped_to_music:
         builder.add_warning("music", note("music.cappedToTrack", seconds=music_available))
 
+    if speech_provider_name != provider_name and subtitle_only:
+        builder.add_warning("subtitles", note(
+            "subtitles.borrowedProvider",
+            recipe=args.recipe, provider=speech_provider_name))
+
     if speech_nudges:
         builder.add_warning("speech", note("speech.protected", count=speech_nudges))
         # Cuts were snapped to beats before this moved them, so some no longer
@@ -1071,6 +1090,12 @@ def cmd_plan(args) -> int:
         if protected and visual.snap_to_beats and beats and beats.beats:
             builder.add_warning("speech", note("speech.beatsGaveWay"))
         print(f"  speech: {speech_nudges} cut(s) moved off a word", file=sys.stderr)
+    if speech_stuck and speech_stuck > speech_nudges:
+        # A count on its own does not tell an editor what to change. When more
+        # boundaries are stuck than were saved, the reason is almost always the
+        # pace: at 92 BPM cutting on every beat a shot is 0.65s, and 0.65s of
+        # continuous speech has no gap in it anywhere.
+        builder.add_warning("speech", note("speech.paceTooFast"))
     if speech_stuck:
         # Whisper sometimes reports words with no silence between them at all,
         # and then there is nowhere in that stretch that is not inside a word.

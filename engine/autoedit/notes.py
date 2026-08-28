@@ -165,6 +165,10 @@ CATALOGUE: dict[str, str] = {
     "speech.couldNotProtect":
         "{count} cut(s) still fall inside a word: the speech there runs with no "
         "gap to cut in",
+    "speech.paceTooFast":
+        "more cuts fall inside a word than were saved: at this cut rate a shot "
+        "is shorter than the speech in it, so slow the cutting down or turn off "
+        "keeping whole sentences",
     "speech.beatsGaveWay":
         "some cuts no longer sit exactly on the beat, because keeping whole "
         "sentences and cutting on every beat cannot both be true",
@@ -181,6 +185,9 @@ CATALOGUE: dict[str, str] = {
     "subtitles.written":
         "{count} subtitle(s) written to {file} -- File > Import in Premiere puts "
         "them on a caption track",
+    "subtitles.borrowedProvider":
+        "the {recipe} recipe does not transcribe, so {provider} was used for the "
+        "subtitles",
     "subtitles.failed":
         "{file}: could not be transcribed, so it has no subtitles ({detail}) -- "
         "the edit itself is unaffected",

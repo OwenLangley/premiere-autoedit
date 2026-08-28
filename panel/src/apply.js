@@ -275,7 +275,7 @@ async function applyPlan(plan, options) {
   // find out is to try it on a real build and say what happened.
   if (plan.subtitlePath) {
     progress("subtitles", "importing subtitles");
-    report.warnings.push(...await importSubtitles(project, plan.subtitlePath));
+    report.warnings.push(...await importSubtitles(project, plan.subtitlePath, sequence));
     report.stages.push("subtitles");
   }
 
@@ -1252,10 +1252,48 @@ async function importTranscripts(project, plan, items) {
  * lands only in the bin, the editor drags it to a caption track, which is one
  * step rather than none and considerably better than the file going unmentioned.
  */
-async function importSubtitles(project, srtPath) {
+/**
+ * What this Premiere build offers for captions, as names rather than guesses.
+ *
+ * Reported from the BUILD rather than only from the self-test, because the
+ * self-test has to be run deliberately and this question comes up exactly when
+ * someone has just built an edit with subtitles in it. If a caption API exists,
+ * its name appears in the receipt and attaching the .srt automatically becomes
+ * a small change. If it does not, that is the answer and nobody has to guess.
+ */
+function captionApiSurface(sequence) {
+  const ppro = require("premierepro");
+  const looksRelevant = /caption|subtitle|srt|closedcaption/i;
+  const found = [];
+  for (const key of Object.keys(ppro)) {
+    if (looksRelevant.test(key)) found.push(key);
+  }
+  const sequenceClass = /** @type {any} */ (ppro).Sequence;
+  for (const host of [sequence, sequenceClass && sequenceClass.prototype]) {
+    if (!host) continue;
+    let obj = host;
+    while (obj && obj !== Object.prototype) {
+      for (const key of Object.getOwnPropertyNames(obj)) {
+        if (looksRelevant.test(key) && !found.includes(key)) found.push(key);
+      }
+      obj = Object.getPrototypeOf(obj);
+    }
+  }
+  return found;
+}
+
+async function importSubtitles(project, srtPath, sequence) {
   /** @type {BuildWarning[]} */
   const warnings = [];
   const name = basenameOf(srtPath);
+
+  // Named before anything is attempted, so the answer survives an import that
+  // throws.
+  let surface = [];
+  try {
+    surface = captionApiSurface(sequence);
+  } catch { /* discovery is a nicety; the import below is the point */ }
+
   try {
     const ok = await project.importFiles(
       [srtPath], true, await project.getRootItem(), false
@@ -1273,6 +1311,14 @@ async function importSubtitles(project, srtPath) {
       `${name} was written but Premiere would not import it (${err.message}) — ` +
       `File > Import it by hand`));
   }
+
+  warnings.push(surface.length
+    ? note("subtitles.captionApi", { names: surface.join(", ") },
+           `this Premiere build exposes ${surface.join(", ")} — captions could be ` +
+           `attached automatically; tell Claude and it will be wired up`)
+    : note("subtitles.noCaptionApi", {},
+           `this Premiere build exposes no caption API, so the .srt has to be ` +
+           `dragged onto a caption track by hand`));
   return warnings;
 }
 

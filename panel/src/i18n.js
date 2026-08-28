@@ -345,14 +345,22 @@ const EN = {
   "warn.cut.rateNeedsPictures":
     "a cut rate only applies when cutting from pictures; this edit follows the words, so the rate was not used — pick a montage format or turn on “Cut from pictures”",
   "warn.story.settingsApplied": "taken from your description: {settings}",
+  "warn.subtitles.borrowedProvider":
+    "the {recipe} recipe does not transcribe, so {provider} was used for the subtitles",
   "warn.subtitles.failed":
     "{file} could not be transcribed, so it has no subtitles ({detail}) — the edit itself is unaffected",
+  "warn.subtitles.captionApi":
+    "this Premiere build exposes {names} — captions could be attached automatically; tell Claude and it will be wired up",
+  "warn.subtitles.noCaptionApi":
+    "this Premiere build exposes no caption API, so the .srt has to be dragged onto a caption track by hand",
   "warn.subtitles.imported":
     "{file} imported — drag it onto a caption track if it is not already there",
   "warn.subtitles.notImported":
     "{file} was written but Premiere would not import it ({detail}) — File > Import it by hand",
   "warn.speech.protected":
     "{count} cut(s) moved off the middle of a word so nobody is cut off mid-sentence",
+  "warn.speech.paceTooFast":
+    "more cuts fall inside a word than were saved: at this cut rate a shot is shorter than the speech in it, so slow the cutting down or turn off keeping whole sentences",
   "warn.speech.couldNotProtect":
     "{count} cut(s) still fall inside a word: the speech there runs with no gap to cut in",
   "warn.speech.beatsGaveWay":
@@ -712,14 +720,22 @@ const JA = {
   "warn.cut.rateNeedsPictures":
     "カット間隔は映像からカットする場合にのみ適用されます。この編集は話に合わせているため、指定は使用されませんでした。モンタージュ形式を選ぶか「映像からカット」を有効にしてください",
   "warn.story.settingsApplied": "説明文から適用した設定: {settings}",
+  "warn.subtitles.borrowedProvider":
+    "{recipe} レシピは文字起こしを行わないため、字幕には {provider} を使用しました",
   "warn.subtitles.failed":
     "{file} を文字起こしできなかったため字幕はありません（{detail}）。編集自体には影響ありません",
+  "warn.subtitles.captionApi":
+    "この Premiere には {names} があります。字幕の自動追加が可能なので Claude に伝えてください",
+  "warn.subtitles.noCaptionApi":
+    "この Premiere にはキャプション API がないため、.srt はキャプショントラックへ手動でドラッグしてください",
   "warn.subtitles.imported":
     "{file} を読み込みました。キャプショントラックに入っていない場合はドラッグしてください",
   "warn.subtitles.notImported":
     "{file} は書き出しましたが Premiere が読み込めませんでした（{detail}）。ファイル > 読み込み から手動で追加してください",
   "warn.speech.protected":
     "発話の途中で切れないよう、カット {count} 箇所を語の切れ目に移動しました",
+  "warn.speech.paceTooFast":
+    "語の途中のカットが、修正できたカットより多くなっています。このカット間隔ではショットが発話より短いため、間隔を長くするか「文を途中で切らない」をオフにしてください",
   "warn.speech.couldNotProtect":
     "カット {count} 箇所は語の途中のままです。その部分は途切れなく話しているため切れる隙間がありません",
   "warn.speech.beatsGaveWay":

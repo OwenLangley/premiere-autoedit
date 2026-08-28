@@ -207,6 +207,17 @@ _REGISTRY: dict[str, Callable[[], Provider]] = {
 }
 
 
+# Providers that produce a transcript FROM AUDIO. `sidecar` reads a file
+# someone else made and cannot answer a request to transcribe something.
+#
+# The distinction matters because subtitles can now be asked for on any recipe,
+# including ones written for footage nobody expected to transcribe:
+# promo-silent leaves the provider unset, which defaults to sidecar, so asking
+# for subtitles on a promo produced six "no sidecar transcript" warnings and no
+# subtitles at all.
+LISTENS = frozenset({"whisper-local", "whisper", "stub"})
+
+
 def get_provider(name: str) -> Provider:
     if name not in _REGISTRY:
         raise TranscriptionError(

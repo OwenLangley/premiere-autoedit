@@ -150,3 +150,21 @@ def test_a_format_promising_a_length_carries_one():
         fmt = load_recipe(name).format
         if fmt and fmt["duration_mode"] != "none":
             assert fmt.get("duration"), f"{name}: {fmt['duration_mode']} with no duration"
+
+
+def test_a_recipe_that_does_not_transcribe_still_names_a_listening_fallback():
+    """Subtitles can be asked for on any recipe, including silent ones.
+
+    promo-silent leaves `transcription.provider` unset, which defaults to
+    `sidecar` -- a file reader. Asking it to transcribe produced six "no
+    sidecar transcript" warnings and no subtitles at all, on a job that had
+    asked for them in plain words.
+    """
+    from autoedit.recipe import load_recipe
+    from autoedit.transcribe import LISTENS
+
+    silent = load_recipe("promo-silent")
+    assert silent.transcription.get("provider", "sidecar") not in LISTENS, (
+        "the premise: this recipe cannot transcribe on its own"
+    )
+    assert "whisper-local" in LISTENS
