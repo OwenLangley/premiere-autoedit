@@ -14,6 +14,7 @@ import json
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,31 @@ from .transcript import Transcript
 SCHEMA_VERSION = "1.0"
 GENERATOR_NAME = "premiere-autoedit"
 GENERATOR_VERSION = "0.1.0"
+
+
+@lru_cache(maxsize=1)
+def generator_commit() -> str | None:
+    """Which build wrote this plan, as a short git sha.
+
+    A colleague reporting a bug can say "it does X" and a version of 0.1.0 does
+    not narrow that down at all -- every build this project has ever shipped
+    says 0.1.0. The sha does, and it costs one subprocess per run.
+
+    None when the engine is not running from a checkout, which is fine: it is
+    for diagnosis, and its absence is itself informative.
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5, check=True).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(Path(__file__).resolve().parent), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=5).stdout.strip()
+        return f"{out}+dirty" if dirty else out
+    except Exception:
+        return None
 
 
 class PlanError(RuntimeError):
@@ -598,7 +624,10 @@ class EditPlanBuilder:
             "jobId": self.job_id,
             "recipe": self.recipe,
             "createdAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-            "generator": {"name": GENERATOR_NAME, "version": GENERATOR_VERSION},
+            "generator": {
+                "name": GENERATOR_NAME, "version": GENERATOR_VERSION,
+                **({"commit": generator_commit()} if generator_commit() else {}),
+            },
             "timebase": self.timebase.to_dict(),
             "media": [m.to_dict() for m in self._media.values()],
             "sequence": {

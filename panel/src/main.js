@@ -1372,6 +1372,39 @@ function watchJob(jobId) {
   }, 2000);
 }
 
+$("bug-report").addEventListener("click", async () => {
+  const button = $("bug-report");
+  button.disabled = true;
+  log(state.t("msg.reportCollecting"));
+  try {
+    if (!state.transport || !state.transport.requestReport) {
+      throw new Error(state.t("msg.reportNoJobs"));
+    }
+    await state.transport.requestReport();
+    // The helper polls its folder; this polls back. Thirty tries at a second
+    // apiece covers a slow collection without hanging the panel if the helper
+    // is not running at all -- which is itself the likeliest thing to be wrong
+    // when someone is reporting a bug.
+    let result = null;
+    for (let i = 0; i < 30 && !result; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      result = await state.transport.readReportResult();
+    }
+    if (!result) {
+      log(state.t("msg.reportNoHelper"), "err");
+    } else if (result.ok && result.path) {
+      log(state.t("msg.reportReady", { path: result.path }), "ok");
+      log(state.t("msg.reportContents"));
+    } else {
+      log(state.t("msg.reportFailed", { detail: (result.output || "").slice(-300) }), "err");
+    }
+  } catch (err) {
+    log(`${err && err.message ? err.message : String(err)}`, "err");
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $("selftest").addEventListener("click", async () => {
   $("selftest").disabled = true;
   log("Running self-test against this Premiere build...");

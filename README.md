@@ -358,6 +358,41 @@ and their own samples. Read it before touching `apply.js`. The headline: every
 action must be built inside `project.lockedAccess()`, and per-clip in/out inside a
 single transaction silently does not work, so clips are placed as subclips.
 
+## When an editor hits a bug
+
+They press **Collect a report to send** in the panel's Diagnostics section, and
+send you the zip it names on their Desktop. No Terminal.
+
+It carries the build's git sha, the machine and its versions, the helper log,
+Premiere's own UXP log, and the last eight jobs -- request, status, receipt and
+subtitles, plus the newest plan in full. About 70KB. It contains media
+*filenames*, folder paths, whatever was typed in the prompt box and any subtitle
+text; it contains no video, no audio and no credentials, and the panel says so
+before they send it.
+
+`./report.sh` does the same thing from Terminal if the panel will not open,
+which is the case where you need it most.
+
+Every plan now records the sha that produced it, under `generator.commit`, with
+`+dirty` when the checkout had uncommitted changes. Before that, every build
+this project has ever shipped reported version `0.1.0`, so a bug report could
+not say which code ran.
+
+### Shipping them the fix
+
+```bash
+./update.sh
+```
+
+Pulls, reinstalls the panel, restarts the helper, and then tells them to restart
+Premiere -- which is not optional and is the step everyone forgets. The panel
+lives in `/Library` as a **copy**, so pulling alone changes nothing an editor can
+see, and the helper holds the engine in memory, so pulling alone leaves it
+running the old code. Both have caught me during this project.
+
+It refuses to run when the checkout has local changes rather than clobbering
+them.
+
 ## Known defects
 
 - **Transcript import does not work.** Premiere rejects our JSON shape and the

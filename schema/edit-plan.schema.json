@@ -38,6 +38,10 @@
         },
         "version": {
           "type": "string"
+        },
+        "commit": {
+          "type": "string",
+          "description": "Short git sha of the build that wrote this plan, with +dirty when the checkout had uncommitted changes. Absent when not run from a checkout."
         }
       },
       "required": [

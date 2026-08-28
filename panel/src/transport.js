@@ -270,6 +270,34 @@ class LocalFolderTransport {
     }
   }
 
+  /**
+   * Ask the helper to collect a diagnostic bundle.
+   *
+   * A marker file, because that is the only channel these two have: the panel
+   * cannot run a shell script -- UXP has no child process -- and an editor
+   * should not have to open Terminal to report a bug.
+   */
+  async requestReport() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) throw new Error("Jobs folder is not reachable. Re-select it in settings.");
+    try {
+      await (await folder.getEntry("report.result.json")).delete();
+    } catch { /* no previous result is the ordinary case */ }
+    const file = await folder.createFile("report.request", { overwrite: true });
+    await file.write(new Date().toISOString());
+  }
+
+  /** Where the helper put it, or null while it is still working. */
+  async readReportResult() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return null;
+    try {
+      return JSON.parse(await (await folder.getEntry("report.result.json")).read());
+    } catch {
+      return null;
+    }
+  }
+
   /** Write a result summary back beside the plan, for the engine to pick up. */
   async writeReceipt(planName, receipt) {
     const folder = await folderFromToken(this.jobsToken);

@@ -242,6 +242,14 @@ const EN = {
   "diag.selfTestHint":
     "Exercises the Premiere API against this build and writes a report to " +
     "/tmp/autoedit-selftest/report.json. Run this first on a new machine.",
+  "diag.report": "Collect a report to send",
+  "diag.reportHint": "Gathers the logs, your recent jobs and this machine's setup into one zip on your Desktop. Send it to whoever maintains this.",
+  "msg.reportCollecting": "Collecting logs and recent jobs...",
+  "msg.reportReady": "Report written to {path} — send that file.",
+  "msg.reportContents": "  It has your media filenames, folder paths, prompts and any subtitle text. No video, no audio, no passwords.",
+  "msg.reportNoHelper": "No answer from the background helper. It may not be running — run ./setup.sh --check in Terminal.",
+  "msg.reportNoJobs": "Pick the jobs folder in Setup first.",
+  "msg.reportFailed": "Could not collect the report: {detail}",
   "log.title": "Log",
 
   // --- messages the panel itself produces ----------------------------------
@@ -623,6 +631,14 @@ const JA = {
   "diag.selfTestHint":
     "このバージョンの Premiere API を検証し、/tmp/autoedit-selftest/report.json に" +
     "結果を書き出します。新しい PC では最初にこれを実行してください。",
+  "diag.report": "送信用のレポートを作成",
+  "diag.reportHint": "ログ・最近のジョブ・この PC の設定をまとめた zip をデスクトップに作成します。管理者に送ってください。",
+  "msg.reportCollecting": "ログと最近のジョブを収集しています...",
+  "msg.reportReady": "レポートを {path} に書き出しました。このファイルを送ってください。",
+  "msg.reportContents": "  含まれるのは素材のファイル名・フォルダーのパス・入力した説明文・字幕テキストです。映像・音声・パスワードは含まれません。",
+  "msg.reportNoHelper": "バックグラウンドヘルパーから応答がありません。起動していない可能性があります。ターミナルで ./setup.sh --check を実行してください。",
+  "msg.reportNoJobs": "先に設定でジョブフォルダーを選択してください。",
+  "msg.reportFailed": "レポートを作成できませんでした: {detail}",
   "log.title": "ログ",
 
   // --- messages the panel itself produces ----------------------------------

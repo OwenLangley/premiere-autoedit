@@ -615,8 +615,50 @@ def claimed_marker(jobs: Path, path: Path) -> Path:
     return jobs / f".{path.name}.claimed"
 
 
+REPORT_REQUEST = "report.request"
+
+
+def run_report(jobs: Path, verbose: bool = True) -> None:
+    """Collect a diagnostic bundle because the panel asked for one.
+
+    The panel cannot run a shell script -- UXP has no child process -- and an
+    editor should not have to open Terminal to report a bug. So the panel drops
+    a marker in the jobs folder, which the helper is already watching, and the
+    helper runs the collector it was going to run anyway.
+
+    The result path goes back through a file the panel polls, because that is
+    the only channel these two have.
+    """
+    import subprocess
+
+    marker = jobs / REPORT_REQUEST
+    out = jobs / "report.result.json"
+    script = Path(__file__).resolve().parent.parent / "report.sh"
+    if verbose:
+        print(f"[{_now()}] {REPORT_REQUEST}", file=sys.stderr)
+    try:
+        done = subprocess.run(["bash", str(script)], capture_output=True,
+                              text=True, timeout=300)
+        # The script prints the path it wrote; the last .zip it mentions is it.
+        zips = [w for w in done.stdout.split() if w.endswith(".zip")]
+        out.write_text(json.dumps({
+            "at": _now(),
+            "ok": done.returncode == 0 and bool(zips),
+            "path": zips[-1] if zips else None,
+            "output": (done.stdout + done.stderr)[-4000:],
+        }, indent=2))
+    except Exception as exc:
+        out.write_text(json.dumps({
+            "at": _now(), "ok": False, "path": None, "output": str(exc),
+        }, indent=2))
+    finally:
+        marker.unlink(missing_ok=True)
+
+
 def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True,
              music_root: Path | None = None) -> int:
+    if (jobs / REPORT_REQUEST).exists():
+        run_report(jobs, verbose)
     handled = 0
     for path in sorted(jobs.glob(f"*{REQUEST_SUFFIX}")):
         marker = claimed_marker(jobs, path)
