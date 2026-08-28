@@ -130,3 +130,43 @@ def test_genuinely_mixed_footage_keeps_the_recipe_rate():
     assert chosen == PAL
     assert displaced is None
     assert not holds_exactly(chosen, NTSC30)
+
+
+def test_a_sequence_is_never_faster_than_premiere_can_build():
+    """120fps footage produced a 119.880 sequence and no timeline at all.
+
+    Every one of Adobe's 392 shipped presets tops out at 60. A generated preset
+    above that is declined, so `createSequenceWithPresetPath` fails, so the
+    build stops before it starts -- reported by a colleague as "it wasn't going
+    to the timeline", which is exactly what it looks like from outside.
+    """
+    from autoedit.timebase import MAX_SEQUENCE_FPS, Timebase, choose_timebase
+
+    fast = Timebase(120000, 1001)
+    # The reported job: nine clips at 119.88, three at 59.94, recipe asking 25.
+    got, _ = choose_timebase(Timebase(25, 1), [fast] * 9 + [Timebase(60000, 1001)] * 3)
+    assert got.fps <= MAX_SEQUENCE_FPS
+    assert got == Timebase(60000, 1001)
+
+
+def test_the_cap_survives_a_recipe_that_matches_the_fast_footage():
+    """The shortcut for "everything already fits" must not skip the cap.
+
+    A 120fps recipe on 120fps footage holds every frame exactly, which is true
+    and useless if the sequence cannot be created.
+    """
+    from autoedit.timebase import MAX_SEQUENCE_FPS, Timebase, choose_timebase
+
+    fast = Timebase(120000, 1001)
+    got, _ = choose_timebase(fast, [fast] * 4)
+    assert got.fps <= MAX_SEQUENCE_FPS
+    # Halved, so the relationship to the source frames stays exact.
+    assert got == Timebase(120000, 2002)
+
+
+def test_capping_leaves_ordinary_jobs_alone():
+    from autoedit.timebase import Timebase, choose_timebase
+
+    for rate in (Timebase(25, 1), Timebase(30000, 1001), Timebase(60000, 1001)):
+        got, displaced = choose_timebase(rate, [rate] * 3)
+        assert got == rate and displaced is None

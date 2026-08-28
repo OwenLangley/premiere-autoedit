@@ -139,6 +139,24 @@ def holds_exactly(sequence: Timebase, source: Timebase) -> bool:
     return ratio.denominator == 1
 
 
+# The fastest sequence Premiere will make from a generated preset.
+#
+# Every one of the 392 presets Adobe ships tops out at 60: 23.976, 24, 25,
+# 29.97, 30, 48, 50, 59.94, 60 and nothing above. A colleague shooting 120fps
+# got a 119.880 sequence preset, Premiere declined to create the sequence, and
+# the build produced nothing at all -- no timeline, no receipt, no error an
+# editor could act on.
+#
+# Nothing is lost by capping. 120fps footage is shot for slow motion and
+# delivered at 30 or 60; a sequence faster than the delivery format buys an
+# editor nothing and costs them a sequence that exists.
+MAX_SEQUENCE_FPS = 60.0
+
+
+def _within_reach(candidate: "Timebase") -> bool:
+    return candidate.fps <= MAX_SEQUENCE_FPS + 1e-6
+
+
 def choose_timebase(
     preferred: Timebase, sources: "list[Timebase]"
 ) -> "tuple[Timebase, Timebase | None]":
@@ -155,12 +173,27 @@ def choose_timebase(
     the caller can say so rather than quietly changing the delivery format.
     """
     usable = [tb for tb in sources if tb is not None]
-    if not usable or all(holds_exactly(preferred, tb) for tb in usable):
+    # The cap is checked BEFORE this shortcut, or a 120fps recipe on 120fps
+    # footage sails past it: everything holds exactly, and the result is a
+    # sequence Premiere will not create.
+    if _within_reach(preferred) and (
+            not usable or all(holds_exactly(preferred, tb) for tb in usable)):
         return preferred, None
 
     # Candidates are the rates in play. Anything else would be inventing a third
-    # rate that matches neither the recipe nor the footage.
-    candidates = [preferred] + list(dict.fromkeys(usable))
+    # rate that matches neither the recipe nor the footage -- except that a rate
+    # Premiere cannot build is not a candidate at all, however well it fits.
+    candidates = [c for c in [preferred] + list(dict.fromkeys(usable))
+                  if _within_reach(c)]
+    if not candidates:
+        # Everything in play is too fast: 120fps footage cut to a 120fps recipe.
+        # Halve the fastest until it is buildable, which keeps the relationship
+        # to the source frames exact rather than inventing an unrelated rate.
+        fastest = max(usable, key=lambda tb: tb.fps)
+        num, den = fastest.fps_num, fastest.fps_den
+        while num / den > MAX_SEQUENCE_FPS + 1e-6:
+            den *= 2
+        candidates = [Timebase(num, den, fastest.drop_frame)]
 
     def score(candidate: Timebase) -> tuple:
         held = sum(1 for tb in usable if holds_exactly(candidate, tb))

@@ -856,7 +856,24 @@ async function onApply() {
       });
     }
   } catch (err) {
-    log(err instanceof ApplyError ? `${err.stage || "apply"}: ${err.message}` : String(err), "err");
+    const stage = err instanceof ApplyError ? (err.stage || "apply") : "apply";
+    const message = err && err.message ? err.message : String(err);
+    log(`${stage}: ${message}`, "err");
+    // A build that throws used to leave nothing behind at all. The absence of a
+    // receipt was the only evidence it had been tried, which meant a bug report
+    // could say what the plan was and never what went wrong with it.
+    try {
+      if (state.transport && state.planName) {
+        await state.transport.writeReceipt(state.planName, {
+          appliedAt: new Date().toISOString(),
+          failed: true,
+          stage,
+          error: message,
+          stages: [],
+          warnings: [],
+        });
+      }
+    } catch { /* the log already has it; this is for the bug report */ }
   } finally {
     $("apply").disabled = false;
   }

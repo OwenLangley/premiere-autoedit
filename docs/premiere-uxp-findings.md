@@ -692,6 +692,35 @@ where the next begins -- and then there is no moment in that stretch that is not
 inside a word. That count is reported rather than hidden, because a protection
 pass that quietly fails is worse than one that says what it could not do.
 
+## 12f. No sequence preset Adobe ships goes above 60fps
+
+A colleague shooting 120fps got a generated preset at **119.880**, Premiere
+declined to create the sequence, and the build produced nothing: no timeline,
+no receipt, and an error that said only *"could not create sequence"*. From the
+outside it looked like Build did nothing at all, which is how it was reported.
+
+Counted rather than assumed -- every distinct `VideoFrameRate` across all 392
+presets in `Adobe Premiere Pro 2026.app/Contents/Settings/SequencePresets`:
+
+```
+23.976  24  25  29.97  30  48  50  59.94  60
+```
+
+Nothing higher. `choose_timebase` now caps at 60, and the cap is checked before
+the "everything already fits" shortcut -- a 120fps recipe on 120fps footage
+holds every frame exactly, which is true and useless if the sequence cannot
+exist. When everything in play is too fast the rate is halved until it is
+buildable, so the relationship to the source frames stays exact.
+
+Nothing is lost. 120fps is shot for slow motion and delivered at 30 or 60; a
+sequence faster than the delivery format buys an editor nothing.
+
+Two diagnostics came out of the same report. The error now names the frame rate
+and the preset, because Premiere returns a bare null and the rate is the thing
+it is refusing. And **a build that throws now writes a failure receipt** -- until
+this, the absence of a receipt was the only evidence a build had been attempted,
+so a bug report could show what the plan was and never what went wrong with it.
+
 ## 13. What works
 
 - Panel loads, renders, and is interactive

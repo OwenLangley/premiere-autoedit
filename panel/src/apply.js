@@ -481,7 +481,18 @@ async function createSequence(project, plan) {
   const sequence = plan.sequence.presetPath
     ? await project.createSequenceWithPresetPath(name, plan.sequence.presetPath)
     : await project.createSequence(name);
-  if (!sequence) throw new ApplyError(`could not create sequence "${name}"`, "sequence");
+  if (!sequence) {
+    // Name the frame rate. Premiere returns nothing and says nothing, and the
+    // rate is what it is refusing: every preset Adobe ships tops out at 60, and
+    // a colleague's 120fps footage produced a 119.880 preset, no sequence, and
+    // a build that appeared to do nothing at all.
+    const tb = plan.timebase || {};
+    const fps = tb.fpsNum && tb.fpsDen ? (tb.fpsNum / tb.fpsDen).toFixed(3) : "?";
+    throw new ApplyError(
+      `Premiere would not create sequence "${name}" at ${fps} fps from ` +
+      `${plan.sequence.presetPath || "its own defaults"}. Rates above 60 are ` +
+      `usually the cause.`, "sequence");
+  }
   return sequence;
 }
 
