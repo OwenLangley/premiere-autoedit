@@ -696,6 +696,25 @@ async function probeRequiredApi(project, report) {
     }
   }
 
+  // Instance methods, checked on the prototype. Only the STATICS were checked
+  // before, which is why `createSubClipAction` -- an instance method on
+  // ClipProjectItem, and absent from earlier 26.x builds -- got through this
+  // probe and failed mid-build instead.
+  for (const { holder, names } of [
+    { holder: "ClipProjectItem", names: ["createSubClipAction", "getInPoint", "getOutPoint"] },
+    { holder: "ProjectItem", names: ["getItems", "createBinAction"] },
+    { holder: "SequenceEditor", names: ["createOverwriteItemAction",
+                                        "createInsertProjectItemAction",
+                                        "insertMogrtFromPath"] },
+    { holder: "VideoClipTrackItem", names: ["getComponentChain"] },
+  ]) {
+    const proto = /** @type {any} */ (ppro)[holder] && /** @type {any} */ (ppro)[holder].prototype;
+    for (const name of names) {
+      // A missing CLASS is reported once, not as one failure per method.
+      check(`${holder}.${name}`, Boolean(proto) && typeof proto[name] === "function");
+    }
+  }
+
   // Sequence and editor methods need an instance, which only exists mid-build,
   // so they are checked on the prototype where there is one.
   const seqProto = /** @type {any} */ (ppro).Sequence && /** @type {any} */ (ppro).Sequence.prototype;

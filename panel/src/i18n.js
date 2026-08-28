@@ -372,6 +372,8 @@ const EN = {
     "the {recipe} recipe does not transcribe, so {provider} was used for the subtitles",
   "warn.subtitles.failed":
     "{file} could not be transcribed, so it has no subtitles ({detail}) — the edit itself is unaffected",
+  "warn.clips.noSubclipApi":
+    "This Premiere cannot make subclips, so clips were placed by setting in/out on the master instead. Check the clip lengths against the plan — that method is unreliable on some builds.",
   "warn.subtitles.placed":
     "{file}: {count} caption(s) placed on the caption track",
   "warn.subtitles.stale":
@@ -776,6 +778,8 @@ const JA = {
     "{recipe} レシピは文字起こしを行わないため、字幕には {provider} を使用しました",
   "warn.subtitles.failed":
     "{file} を文字起こしできなかったため字幕はありません（{detail}）。編集自体には影響ありません",
+  "warn.clips.noSubclipApi":
+    "この Premiere はサブクリップを作成できないため、マスターに In/Out を設定して配置しました。クリップの長さがプランと一致しているか確認してください。この方法は一部のバージョンで正確でないことがあります。",
   "warn.subtitles.placed":
     "{file}: キャプション {count} 件をキャプショントラックに配置しました",
   "warn.subtitles.stale":

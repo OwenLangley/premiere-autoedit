@@ -134,6 +134,16 @@ function sourceTime(srcTb, seconds, plusFrames = 0) {
  */
 const STRATEGY = { IN_OUT: "in-out", SUBCLIP: "subclip" };
 
+/**
+ * Thrown when this build has no `createSubClipAction`, which earlier 26.x
+ * releases do not. Caught one level up and answered by falling back to IN_OUT
+ * rather than by failing the build: IN_OUT is measured broken on 26.3.2, but a
+ * build that cannot subclip at all has nothing else to try, and the
+ * post-build verification reads every range back and reports any that landed
+ * wrong. A checked edit on the wrong strategy beats no edit and no explanation.
+ */
+const NO_SUBCLIP_API = "this Premiere has no createSubClipAction";
+
 const UNDO = {
   clips: "AutoEdit: Assemble rough cut",
   graphics: "AutoEdit: Apply brand graphics",
@@ -170,7 +180,7 @@ async function applyPlan(plan, options) {
   /** @type {{stages: string[], warnings: BuildWarning[], sequenceName: string|null, verification?: any, summary?: any}} */
   const report = { stages: [], warnings: [], sequenceName: null };
   const progress = options.onProgress || (() => {});
-  const strategy = options.strategy || STRATEGY.SUBCLIP;
+  let strategy = options.strategy || STRATEGY.SUBCLIP;
 
   const problems = validatePlan(plan);
   if (problems.length) {
@@ -219,10 +229,25 @@ async function applyPlan(plan, options) {
   }
   report.warnings.push(...attached.warnings);
 
-  const sources =
-    strategy === STRATEGY.SUBCLIP
-      ? await createSubclips(project, plan, items)
-      : items;
+  let sources = items;
+  if (strategy === STRATEGY.SUBCLIP) {
+    try {
+      sources = await createSubclips(project, plan, items);
+    } catch (err) {
+      if (!(err instanceof ApplyError) || err.message !== NO_SUBCLIP_API) throw err;
+      // Earlier 26.x builds have no createSubClipAction. Falling back is not a
+      // preference -- there is nothing else to try -- and IN_OUT is measured
+      // broken on 26.3.2, so the risk is a timeline that looks right with the
+      // wrong ranges in it. The verification below reads every range back, so
+      // the risk is caught and reported rather than shipped.
+      strategy = STRATEGY.IN_OUT;
+      sources = items;
+      report.warnings.push(note("clips.noSubclipApi", {},
+        "this Premiere cannot make subclips, so the clips were placed by " +
+        "setting in/out on the master instead. Check the clip lengths on the " +
+        "timeline against the plan -- that method is unreliable on some builds."));
+    }
+  }
   report.warnings.push(...(await placeClips(project, sequence, plan, sources, strategy)));
   report.stages.push("clips");
 
@@ -636,6 +661,9 @@ async function createSubclips(project, plan, items) {
   transact(project, (compound) => {
     for (const { clip } of wanted) {
       const master = ppro.ClipProjectItem.cast(items.get(clip.mediaId));
+      if (typeof (/** @type {any} */ (master).createSubClipAction) !== "function") {
+        throw new ApplyError(NO_SUBCLIP_API, "clips");
+      }
       // Asking an audio-only master for video yields no subclip at all, and the
       // music bed then vanished with no error anywhere -- the plan had it, the
       // sequence did not. Take only the streams the source actually has.

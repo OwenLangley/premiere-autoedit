@@ -715,11 +715,20 @@ every clip on the wrong grid -- the drift this project already fixed once.
 Feature-detected, not version-sniffed: the question is whether this build has
 the method, and the object can answer that.
 
+`createSubClipAction` is the second one, found the same day: an instance method
+on `ClipProjectItem`, present in the types, absent from their build, and the
+whole reason SUBCLIP is the default strategy. There is nothing else to try, so
+the build falls back to IN_OUT -- which is measured broken on 26.3.2, so the
+risk is a timeline that looks right with the wrong ranges in it. The post-build
+verification reads every range back, so that risk is reported rather than
+shipped, and the warning tells the editor to check the lengths.
+
 The self-test now checks **every** call the build path makes -- Project,
 Sequence, and the statics on ClipProjectItem, FolderItem, Markers,
 SequenceEditor, TickTime, VideoFilterFactory and Transcript -- and names the
-missing ones. There was no reason to believe this was the only gap, and the next
-one should cost a self-test rather than a day.
+missing ones, statics AND instance methods. Checking only the statics is what
+let `createSubClipAction` through the first version of this probe and into a
+build failure.
 
 ## 12f. No sequence preset Adobe ships goes above 60fps
 
