@@ -140,6 +140,7 @@ def protect(
     max_shift: float = MAX_SHIFT,
     gap: float = UTTERANCE_GAP,
     margin: float = SNAP_MARGIN,
+    may_grow: bool = False,
 ) -> tuple[CutPlan, int, int]:
     """Move cut boundaries out of the middle of anyone's sentence.
 
@@ -195,18 +196,22 @@ def protect(
         # the one that gets both edges out of a word WITHOUT MAKING THE TAKE
         # LONGER, moving as little as possible.
         #
-        # The length rule is not a nicety. This pass runs after the duration
-        # fitting -- it has to, or the fitting moves the boundaries back inside
-        # a word -- so nothing re-fits afterwards and any clip that grows here
-        # grows the finished edit. Measured before this rule existed: four jobs
-        # asking for 15s came out at 16.28, 16.28, 20.17 and 24.54.
+        # `may_grow` says whether the caller can still re-fit afterwards.
+        #
+        # The first pass may grow a take, because reaching out to keep a whole
+        # sentence is the better cut and the duration fit that follows will
+        # reclaim the time. The LAST pass may not: nothing runs after it, so
+        # anything it grows grows the finished edit. Four jobs asking for
+        # exactly 15s once came out at 16.28, 16.28, 20.17 and 24.54 -- and
+        # forbidding growth everywhere then cost the other half, 10.24s against
+        # the same 15s, because every take shrank and nothing gave it back.
         best = None
         for a in candidates(keep.start, True):
             for b in candidates(keep.end, False):
                 lo, hi = max(0.0, a), min(media_duration, b)
                 if hi - lo < min_length or hi <= lo:
                     continue
-                if hi - lo > keep.duration + 1e-9:
+                if not may_grow and hi - lo > keep.duration + 1e-9:
                     continue
                 score = (
                     not (outside_a_word(lo) and outside_a_word(hi)),

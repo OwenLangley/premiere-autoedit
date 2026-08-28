@@ -284,3 +284,45 @@ def test_a_real_jump_in_the_source_still_breaks():
           "words": words(("here", 0.1, 0.4), ("elsewhere", 40.1, 40.6))}],
     )
     assert [c.text for c in build_cues(p)] == ["here", "elsewhere"]
+
+
+def test_a_cue_is_never_held_past_its_own_shot():
+    """A subtitle still up after the cut reads as belonging to the next shot.
+
+    Padding used to be bounded by the next cue and the end of the sequence but
+    not by the clip. Measured on a real edit: a cue held to 6.006 on a shot that
+    ended at 5.923, so it sat over the following shot.
+    """
+    p = plan(
+        [clip("A", 0.0, 1.0, 0, 25), clip("B", 0.0, 5.0, 25, 125)],
+        [{"mediaId": "A", "language": "en", "words": words(("hi", 0.85, 0.95))},
+         {"mediaId": "B", "language": "en", "words": []}],
+    )
+    cue = build_cues(p)[0]
+    assert cue.end <= 1.0 + 1e-9, f"cue ran to {cue.end}, past a shot ending at 1.0"
+
+
+def test_a_word_mostly_cut_away_is_not_subtitled():
+    """A word 51% inside a clip is barely audible and reads as debris.
+
+    Measured: a cue opened with 隔, the second half of 間隔, which means nothing
+    on its own. Midpoint is the right rule for deciding which clip OWNS a word;
+    it is the wrong rule for deciding whether to show it.
+    """
+    p = plan(
+        [clip("A", 1.0, 3.0, 0, 50)],
+        # Straddles the in-point: 0.55 of it is inside, so it is owned here and
+        # should still not be shown.
+        [{"mediaId": "A", "language": "en",
+          "words": words(("half", 0.9, 1.11), ("whole", 1.5, 1.9))}],
+    )
+    cues = build_cues(p)
+    assert [c.text for c in cues] == ["whole"]
+
+
+def test_a_word_comfortably_inside_is_kept():
+    p = plan(
+        [clip("A", 1.0, 3.0, 0, 50)],
+        [{"mediaId": "A", "language": "en", "words": words(("kept", 1.05, 1.4))}],
+    )
+    assert [c.text for c in build_cues(p)] == ["kept"]

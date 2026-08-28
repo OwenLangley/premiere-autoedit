@@ -436,6 +436,18 @@ Offering one gap candidate instead of two was itself a bug on the way: when the
 nearest gap lay in the lengthening direction there was no answer at all, and the
 take kept a cut inside a word for want of looking 80ms further the other way.
 
+**And forbidding growth everywhere cost the other half.** The same job then came
+out at **10.24s against 15s** -- every take shrank a little to clear a word and
+nothing gave the time back. Over by 1.28s and under by 4.76s are the same bug
+seen from two sides: a pass that changes lengths has to be followed by something
+that re-fits, or precede one.
+
+So it runs twice. The first pass takes the better cut even when it lengthens a
+take, and the duration fit runs again afterwards exactly as it did the first
+time. The second pass cleans up the boundaries that fit just moved and may only
+shorten, because nothing runs after it. Result on the same job: **14.23s against
+15s**, and the text stopped opening mid-word.
+
 Two routes remain, and both are blocked on something outside the code:
 
 1. **Premiere's own caption generation**, which needs a transcript inside

@@ -71,6 +71,15 @@ MAX_CUE_SECONDS = 6.0
 CPS_LATIN = 17.0
 CPS_CJK = 8.0
 
+# How much of a word has to survive the cut before it is worth subtitling.
+#
+# `Transcript.slice` claims a word for whichever clip holds its midpoint, which
+# is the right rule for deciding OWNERSHIP -- it stops one word appearing twice.
+# It is the wrong rule for deciding whether to show it. A word 51% inside a clip
+# is barely audible and reads as debris: measured on a real edit, a cue opened
+# with 隔, which is the second half of 間隔 and means nothing on its own.
+AUDIBLE = 0.75
+
 
 def is_cjk(text: str) -> bool:
     """Is this line laid out as Japanese rather than as an alphabet?"""
@@ -85,6 +94,10 @@ class Cue:
     end: float
     lines: list[str] = field(default_factory=list)
     speaker: str | None = None
+    # Where the shot this cue belongs to ends. A cue may never be held past it:
+    # a subtitle still on screen after the picture has cut reads as belonging to
+    # the next shot, and on a fast edit that is every subtitle.
+    limit: float = float("inf")
 
     @property
     def text(self) -> str:
@@ -147,8 +160,9 @@ def _wrap(words: list[Word], limit: int) -> list[str]:
 def _placed_words(plan: dict, speech=None):
     """Every transcript word that survived the edit, in sequence time.
 
-    Returns ((media id, clip in, clip out), word) so grouping can tell a
-    clean-up cut from a real one without looking the clip up again.
+    Returns ((media id, clip in, clip out, clip end in sequence), word) so
+    grouping can tell a clean-up cut from a real one, and hold no cue past the
+    shot it belongs to, without looking the clip up again.
     """
     tb = Timebase.from_dict(plan["timebase"])
     by_media: dict[str, Transcript] = {}
@@ -169,8 +183,12 @@ def _placed_words(plan: dict, speech=None):
         # speed: the offset is where the clip landed minus where it was taken
         # from.
         shift = at - clip_in
-        where = (clip["mediaId"], clip_in, clip_out)
+        where = (clip["mediaId"], clip_in, clip_out, ends)
         for word in transcript.slice(clip_in, clip_out):
+            # Enough of it has to survive the cut to be worth reading.
+            heard = min(word.end, clip_out) - max(word.start, clip_in)
+            if word.duration > 0 and heard / word.duration < AUDIBLE:
+                continue
             start = min(max(word.start + shift, at), ends)
             end = min(max(word.end + shift, start), ends)
             out.append((where, Word(
@@ -185,15 +203,15 @@ def _limit_for(words: list[Word]) -> int:
     return MAX_CHARS_CJK if is_cjk(_join(words)) else MAX_CHARS_LATIN
 
 
-def _flush(words: list[Word]) -> Cue | None:
+def _flush(words: list[Word], limit: float = float("inf")) -> Cue | None:
     if not words:
         return None
-    limit = _limit_for(words)
-    lines = _wrap(words, limit)
+    width = _limit_for(words)
+    lines = _wrap(words, width)
     if not any(line.strip() for line in lines):
         return None
     return Cue(start=words[0].start, end=words[-1].end, lines=lines,
-               speaker=words[0].speaker)
+               speaker=words[0].speaker, limit=limit)
 
 
 def _is_hard_cut(previous, current) -> bool:
@@ -231,14 +249,14 @@ def group_cues(placed) -> list[Cue]:
             if (_is_hard_cut(last_where, where) or over_length or too_long
                     or ended or gap > GAP_BREAK
                     or word.speaker != run[0].speaker):
-                cue = _flush(run)
+                cue = _flush(run, last_where[3] if last_where else float("inf"))
                 if cue:
                     cues.append(cue)
                 run = []
         run.append(word)
         last_where = where
 
-    cue = _flush(run)
+    cue = _flush(run, last_where[3] if last_where else float("inf"))
     if cue:
         cues.append(cue)
     return cues
@@ -256,7 +274,12 @@ def _pad(cues: list[Cue], limit: float) -> list[Cue]:
         wanted = max(MIN_CUE_SECONDS, len(text) / cps)
         if cue.duration >= wanted:
             continue
-        room = (cues[i + 1].start if i + 1 < len(cues) else limit) - cue.start
+        # The end of its own shot bounds this as hard as the next cue does. A
+        # padded cue used to spill past the cut -- measured: a cue held to 6.006
+        # on a shot that ended at 5.923, so the subtitle was on screen over the
+        # following shot.
+        ceiling = min(cues[i + 1].start if i + 1 < len(cues) else limit, cue.limit)
+        room = ceiling - cue.start
         cue.end = cue.start + min(wanted, max(room, cue.duration))
     return cues
 

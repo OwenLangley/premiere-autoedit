@@ -961,19 +961,41 @@ def cmd_plan(args) -> int:
     if getattr(args, "protect_speech", False) and heard_by_media:
         from . import speech
 
-        rebuilt = []
-        for mid, cuts, v_track, a_track in collected:
-            heard = heard_by_media.get(mid)
-            if heard is not None and heard.words:
-                cuts, nudged, stuck = speech.protect(
-                    cuts, heard, media_duration=durations.get(mid, 0.0) or 1e9,
-                    min_length=detection.min_clip_length)
-                speech_stuck += stuck
-                if nudged:
-                    speech_nudges += nudged
-                    protected.add(mid)
-            rebuilt.append((mid, cuts, v_track, a_track))
-        collected = rebuilt
+        def run_protection(entries, may_grow):
+            out, moved, stuck_here = [], 0, 0
+            for mid, cuts, v_track, a_track in entries:
+                heard = heard_by_media.get(mid)
+                if heard is not None and heard.words:
+                    cuts, nudged, stuck = speech.protect(
+                        cuts, heard, media_duration=durations.get(mid, 0.0) or 1e9,
+                        min_length=detection.min_clip_length, may_grow=may_grow)
+                    stuck_here += stuck
+                    if nudged:
+                        moved += nudged
+                        protected.add(mid)
+                out.append((mid, cuts, v_track, a_track))
+            return out, moved, stuck_here
+
+        # Twice, and the pair is the point. The first pass takes the better cut
+        # even when it lengthens a take; the duration fit then reclaims the time
+        # the same way it did the first time round. The second pass cleans up
+        # the boundaries that fit has just moved, and may only shorten, because
+        # nothing runs after it.
+        collected, speech_nudges, speech_stuck = run_protection(collected, True)
+
+        if options.duration_mode != "none":
+            fitted = fit_duration_across(
+                [(mid, cuts) for mid, cuts, _, _ in collected],
+                options.duration_mode, options.duration_seconds,
+                options.duration_tolerance, detection.min_clip_length, strategy,
+                max_shot=max_shot, quantum=quantum, exact_shot=exact_shot,
+            )
+            by_id = dict(fitted)
+            collected = [(mid, by_id.get(mid, cuts), v, a)
+                         for mid, cuts, v, a in collected]
+
+        collected, again, speech_stuck = run_protection(collected, False)
+        speech_nudges += again
 
     for mid, cuts, v_track, a_track in collected:
         # The beat grid finally reaches the speech path. It was computed once per
