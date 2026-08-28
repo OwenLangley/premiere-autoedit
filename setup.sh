@@ -74,19 +74,42 @@ else
 fi
 
 # --- 3. python --------------------------------------------------------------
+# `python3` is NOT the interpreter Homebrew just installed.
+#
+# `brew install python@3.11` provides `python3.11`; the unversioned `python3`
+# belongs to the plain `python` formula, so on a machine that has only ever
+# installed python@3.11 the name `python3` still resolves to /usr/bin/python3 --
+# Apple's 3.9, which macOS ships and always will. This reported "python 3.9 is
+# too old" to a colleague who had installed 3.11 a minute earlier and could see
+# it on disk, which is a fair thing to find infuriating.
+#
+# So look for a suitable interpreter by name, newest first, and use whatever is
+# found for the venv as well. Nothing here may assume `python3` means anything.
+PY=""
 PY_OK=false
-if command -v python3 >/dev/null; then
-  V=$(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])')
-  if python3 -c 'import sys;exit(0 if sys.version_info>=(3,11) else 1)'; then
-    ok "python $V"; PY_OK=true
+for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
+  command -v "$candidate" >/dev/null || continue
+  if "$candidate" -c 'import sys;exit(0 if sys.version_info>=(3,11) else 1)' 2>/dev/null; then
+    PY="$(command -v "$candidate")"
+    ok "python $("$PY" -c 'import sys;print("%d.%d"%sys.version_info[:2])') ($PY)"
+    PY_OK=true
+    break
+  fi
+done
+if ! $PY_OK; then
+  if command -v python3 >/dev/null; then
+    V=$(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null || echo "?")
+    miss "no python 3.11+ found; the python3 on PATH is $V"
+    note "brew install python@3.11"
+    # Said explicitly, because the two look identical from the outside and the
+    # fix is different: one is "install it", the other is "your shell cannot
+    # see it".
+    [ -x /opt/homebrew/bin/python3.11 ] || [ -x /usr/local/bin/python3.11 ] && \
+      note "python3.11 IS installed but not on PATH -- open a new Terminal, or add Homebrew to PATH"
   else
-    # macOS ships 3.9 and always will; this is a brew install, not an upgrade.
-    miss "python $V is too old; 3.11+ required"
+    miss "python3 not found"
     note "brew install python@3.11"
   fi
-else
-  miss "python3 not found"
-  note "brew install python@3.11"
 fi
 
 # --- 4. the pieces this repo installs ---------------------------------------
@@ -160,8 +183,10 @@ echo
 echo "Installing:"
 
 # --- engine -----------------------------------------------------------------
+# The venv is built from the interpreter found above, never from `python3` --
+# on a machine where those differ, the whole install would land on Apple's 3.9.
 if [ ! -x "$ROOT/.venv/bin/python" ]; then
-  python3 -m venv "$ROOT/.venv"
+  "$PY" -m venv "$ROOT/.venv"
 fi
 "$ROOT/.venv/bin/pip" install --quiet --upgrade pip
 "$ROOT/.venv/bin/pip" install --quiet -e "$ROOT/engine" faster-whisper pytest jsonschema PyYAML
