@@ -692,6 +692,35 @@ where the next begins -- and then there is no moment in that stretch that is not
 inside a word. That count is reported rather than hidden, because a protection
 pass that quietly fails is worse than one that says what it could not do.
 
+## 12g. The type definitions are not a guide to what a build has
+
+`project.createSequenceWithPresetPath is not a function`, on a colleague's
+Premiere Pro 2026, with the method plainly declared in `@adobe/premierepro`
+26.3.0. Their build is an earlier 26.x point release; the types package tracks
+the newest one. **A typecheck against the types proves nothing about the
+machine the panel runs on**, and the failure arrives at build time, mid-job, on
+somebody else's computer.
+
+Both calls exist in the API and the older one is deprecated rather than removed:
+
+```ts
+createSequence(name: string, presetPath?: string): Promise<Sequence>;
+createSequenceWithPresetPath(name: string, presetPath: string): Promise<Sequence>;
+```
+
+So the fallback keeps the preset, and with it the frame rate. Dropping to
+`createSequence(name)` would have handed Premiere its own default rate and put
+every clip on the wrong grid -- the drift this project already fixed once.
+
+Feature-detected, not version-sniffed: the question is whether this build has
+the method, and the object can answer that.
+
+The self-test now checks **every** call the build path makes -- Project,
+Sequence, and the statics on ClipProjectItem, FolderItem, Markers,
+SequenceEditor, TickTime, VideoFilterFactory and Transcript -- and names the
+missing ones. There was no reason to believe this was the only gap, and the next
+one should cost a self-test rather than a day.
+
 ## 12f. No sequence preset Adobe ships goes above 60fps
 
 A colleague shooting 120fps got a generated preset at **119.880**, Premiere

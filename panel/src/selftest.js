@@ -204,6 +204,8 @@ async function runSelfTest(onProgress) {
   probeDomSurface(report);
   say("probing caption API");
   probeCaptionSurface(report);
+  say("checking the API this build actually has");
+  await probeRequiredApi(project, report);
 
   say("probing whether a local image renders");
   await probeImageRendering(report);
@@ -652,6 +654,68 @@ async function probeRealThumbnail(report, config) {
  * So: enumerate. This reports what exists rather than asserting what should,
  * and the answer decides whether the drag step can be removed.
  */
+/**
+ * Does THIS Premiere have every call the build path makes?
+ *
+ * A colleague's build threw "project.createSequenceWithPresetPath is not a
+ * function" and produced no timeline. The method exists in the 26.3 type
+ * definitions and not in their earlier 26.x build, so the types were no guide
+ * at all -- which means every other call here is an assumption of the same kind
+ * waiting to be tested on somebody's machine mid-job.
+ *
+ * This asks the objects instead. A missing name is reported as a check failure
+ * with the name in it, so the next version gap costs a self-test rather than a
+ * day.
+ */
+async function probeRequiredApi(project, report) {
+  const missing = [];
+  const present = [];
+  const check = (label, ok) => (ok ? present : missing).push(label);
+
+  for (const name of [
+    "getRootItem", "importFiles", "lockedAccess", "executeTransaction",
+    "createSequence", "createSequenceWithPresetPath",
+  ]) {
+    check(`Project.${name}`, typeof (/** @type {any} */ (project))[name] === "function");
+  }
+
+  /** @type {Array<{holder: string, names: string[]}>} */
+  const statics = [
+    { holder: "ClipProjectItem", names: ["cast"] },
+    { holder: "FolderItem", names: ["cast"] },
+    { holder: "Markers", names: ["getMarkers"] },
+    { holder: "SequenceEditor", names: ["getEditor"] },
+    { holder: "TickTime", names: ["createWithSeconds", "createWithTicks"] },
+    { holder: "VideoFilterFactory", names: ["createComponent"] },
+    { holder: "Transcript", names: ["hasTranscript", "exportToJSON", "importFromJSON"] },
+  ];
+  for (const { holder, names } of statics) {
+    const owner = /** @type {any} */ (ppro)[holder];
+    for (const name of names) {
+      check(`${holder}.${name}`, Boolean(owner) && typeof owner[name] === "function");
+    }
+  }
+
+  // Sequence and editor methods need an instance, which only exists mid-build,
+  // so they are checked on the prototype where there is one.
+  const seqProto = /** @type {any} */ (ppro).Sequence && /** @type {any} */ (ppro).Sequence.prototype;
+  if (seqProto) {
+    for (const name of ["getVideoTrackCount", "getAudioTrackCount",
+                        "getCaptionTrackCount", "getSettings"]) {
+      check(`Sequence.${name}`, typeof seqProto[name] === "function");
+    }
+  }
+
+  report.add("api/required", missing.length === 0, {
+    missing,
+    presentCount: present.length,
+    note: missing.length
+      ? "this Premiere is missing calls the build path makes; a build will "
+        + "throw partway through"
+      : "every call the build path makes exists on this build",
+  });
+}
+
 function probeCaptionSurface(report) {
   const ppro = require("premierepro");
   const interesting = /caption|subtitle|srt|closedcaption/i;

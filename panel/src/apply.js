@@ -476,11 +476,34 @@ async function fetchItems(project, paths) {
   return items;
 }
 
+/**
+ * Make the sequence, on whichever Premiere this is.
+ *
+ * `createSequenceWithPresetPath` is the current API and is absent from earlier
+ * 26.x builds -- a colleague's build threw "project.createSequenceWithPresetPath
+ * is not a function" and produced no timeline at all. The older
+ * `createSequence(name, presetPath)` takes the same preset and is marked
+ * deprecated rather than removed, so it is the fallback rather than a lesser
+ * path: it pins the frame rate exactly as well.
+ *
+ * Feature-detected, not version-sniffed. The question is whether this build has
+ * the method, and that is a question the object can answer.
+ */
 async function createSequence(project, plan) {
   const name = plan.sequence.name;
-  const sequence = plan.sequence.presetPath
-    ? await project.createSequenceWithPresetPath(name, plan.sequence.presetPath)
-    : await project.createSequence(name);
+  const preset = plan.sequence.presetPath;
+  const modern = typeof (/** @type {any} */ (project).createSequenceWithPresetPath) === "function";
+  let sequence;
+  if (preset && modern) {
+    sequence = await project.createSequenceWithPresetPath(name, preset);
+  } else if (preset) {
+    // Two arguments, so the rate is still pinned. Dropping the preset here
+    // would hand Premiere its own default rate and put every clip on the wrong
+    // grid -- the drift this project already fixed once.
+    sequence = await project.createSequence(name, preset);
+  } else {
+    sequence = await project.createSequence(name);
+  }
   if (!sequence) {
     // Name the frame rate. Premiere returns nothing and says nothing, and the
     // rate is what it is refusing: every preset Adobe ships tops out at 60, and
@@ -490,8 +513,9 @@ async function createSequence(project, plan) {
     const fps = tb.fpsNum && tb.fpsDen ? (tb.fpsNum / tb.fpsDen).toFixed(3) : "?";
     throw new ApplyError(
       `Premiere would not create sequence "${name}" at ${fps} fps from ` +
-      `${plan.sequence.presetPath || "its own defaults"}. Rates above 60 are ` +
-      `usually the cause.`, "sequence");
+      `${preset || "its own defaults"} (via ` +
+      `${modern ? "createSequenceWithPresetPath" : "createSequence"}). Rates ` +
+      `above 60 are usually the cause.`, "sequence");
   }
   return sequence;
 }
