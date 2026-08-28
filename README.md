@@ -45,7 +45,12 @@ adds two floats to decide where a clip lands, so a 200-cut assembly cannot drift
 
 ## Quick start
 
-macOS with Premiere Pro 26. Homebrew first if you do not have it
+macOS with **Premiere Pro 26.3 or later** -- 26.0 and 26.2 are missing calls
+this panel makes (`createSubClipAction` arrived in 26.3,
+`createSequenceWithPresetPath` after 26.0), and while the build falls back, the
+fallbacks are less reliable. Check in Premiere under About Premiere Pro.
+
+Homebrew first if you do not have it
 ([brew.sh](https://brew.sh)), then:
 
 ```bash

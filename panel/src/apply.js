@@ -144,6 +144,37 @@ const STRATEGY = { IN_OUT: "in-out", SUBCLIP: "subclip" };
  */
 const NO_SUBCLIP_API = "this Premiere has no createSubClipAction";
 
+/**
+ * The oldest Premiere that has everything this panel calls.
+ *
+ * Measured against Adobe's own published type packages rather than guessed:
+ * `createSubClipAction` is absent from @adobe/premierepro 26.2.0 and present in
+ * 26.3.0, and `createSequenceWithPresetPath` is in 26.2.0 but not in a
+ * colleague's 26.0.1. Both fall back now, but IN_OUT is measured broken on at
+ * least one build, so falling back is damage control and not a supported path.
+ */
+const MIN_PREMIERE = [26, 3];
+
+/** This Premiere's version as numbers, or null if it will not say. */
+function premiereVersion() {
+  try {
+    const raw = /** @type {any} */ (ppro).Application
+      && /** @type {any} */ (ppro).Application.version;
+    if (!raw) return null;
+    const parts = String(raw).split(".").map((n) => parseInt(n, 10));
+    return parts.length && Number.isFinite(parts[0]) ? parts : null;
+  } catch {
+    return null;
+  }
+}
+
+function olderThanSupported(version) {
+  if (!version) return false;
+  const [major, minor = 0] = version;
+  return major < MIN_PREMIERE[0]
+    || (major === MIN_PREMIERE[0] && minor < MIN_PREMIERE[1]);
+}
+
 const UNDO = {
   clips: "AutoEdit: Assemble rough cut",
   graphics: "AutoEdit: Apply brand graphics",
@@ -181,6 +212,19 @@ async function applyPlan(plan, options) {
   const report = { stages: [], warnings: [], sequenceName: null };
   const progress = options.onProgress || (() => {});
   let strategy = options.strategy || STRATEGY.SUBCLIP;
+
+  // Said once, at the top, before anything is built. Each missing call has been
+  // surfacing one at a time as an editor hits it, which turns one upgrade into
+  // a week of separate mysteries.
+  const version = premiereVersion();
+  if (olderThanSupported(version)) {
+    report.warnings.push(note("build.oldPremiere",
+      { found: version.join("."), needed: MIN_PREMIERE.join(".") },
+      `This is Premiere ${version.join(".")}; this panel is built against ` +
+      `${MIN_PREMIERE.join(".")} and later. Some calls it makes do not exist ` +
+      `here, so parts of the build fall back to older methods that are less ` +
+      `reliable. Updating Premiere is the fix.`));
+  }
 
   const problems = validatePlan(plan);
   if (problems.length) {

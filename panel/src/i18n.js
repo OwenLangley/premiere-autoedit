@@ -372,6 +372,8 @@ const EN = {
     "the {recipe} recipe does not transcribe, so {provider} was used for the subtitles",
   "warn.subtitles.failed":
     "{file} could not be transcribed, so it has no subtitles ({detail}) — the edit itself is unaffected",
+  "warn.build.oldPremiere":
+    "This is Premiere {found}; the panel is built against {needed} and later. Some calls it makes do not exist here, so parts of the build fall back to less reliable methods. Updating Premiere is the fix.",
   "warn.clips.noSubclipApi":
     "This Premiere cannot make subclips, so clips were placed by setting in/out on the master instead. Check the clip lengths against the plan — that method is unreliable on some builds.",
   "warn.subtitles.placed":
@@ -778,6 +780,8 @@ const JA = {
     "{recipe} レシピは文字起こしを行わないため、字幕には {provider} を使用しました",
   "warn.subtitles.failed":
     "{file} を文字起こしできなかったため字幕はありません（{detail}）。編集自体には影響ありません",
+  "warn.build.oldPremiere":
+    "この Premiere は {found} です。パネルは {needed} 以降を前提としているため、一部の処理は古い方式にフォールバックします。Premiere の更新が根本的な解決策です。",
   "warn.clips.noSubclipApi":
     "この Premiere はサブクリップを作成できないため、マスターに In/Out を設定して配置しました。クリップの長さがプランと一致しているか確認してください。この方法は一部のバージョンで正確でないことがあります。",
   "warn.subtitles.placed":

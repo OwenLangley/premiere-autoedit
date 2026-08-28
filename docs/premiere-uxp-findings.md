@@ -715,6 +715,17 @@ every clip on the wrong grid -- the drift this project already fixed once.
 Feature-detected, not version-sniffed: the question is whether this build has
 the method, and the object can answer that.
 
+**The version, once it was known, explained both.** The colleague is on 26.0.1
+against 26.3.2 here, and Adobe's own published type packages settle when each
+call arrived: `createSubClipAction` is absent from `@adobe/premierepro` 26.2.0
+and present in 26.3.0; `createSequenceWithPresetPath` is in 26.2.0 and not in
+26.0.1. So the minimum is **26.3**, the panel now says so on every build against
+an older one, and the README says it before anyone installs.
+
+Worth the note that this took two separate build failures to establish, one per
+missing call, because nothing checked the version. Each arrived as its own
+mystery.
+
 `createSubClipAction` is the second one, found the same day: an instance method
 on `ClipProjectItem`, present in the types, absent from their build, and the
 whole reason SUBCLIP is the default strategy. There is nothing else to try, so
