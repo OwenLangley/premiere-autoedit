@@ -1274,13 +1274,38 @@ async function captionItemCount(sequence) {
   for (let i = 0; i < tracks; i++) {
     const track = await sequence.getCaptionTrack(i);
     try {
-      total += (track.getTrackItems(ppro.Constants.MediaType.DATA, false) || []).length;
+      total += (track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false) || []).length;
     } catch {
       // Some builds want a different track-item type constant; an unreadable
       // track contributes nothing rather than aborting the count.
     }
   }
   return { tracks, total };
+}
+
+/**
+ * Clips on the picture and sound tracks, so a placement attempt that lands the
+ * .srt somewhere it does not belong is caught rather than left there.
+ *
+ * The whole ladder below hands a caption file to calls documented for video and
+ * audio. If one of them accepts it AS video, the edit has just been polluted
+ * with a subtitle file on V1, and that must be reported loudly, not counted as
+ * a near miss.
+ */
+async function pictureItemCount(sequence) {
+  let total = 0;
+  for (const [count, get] of [
+    [await sequence.getVideoTrackCount(), (i) => sequence.getVideoTrack(i)],
+    [await sequence.getAudioTrackCount(), (i) => sequence.getAudioTrack(i)],
+  ]) {
+    for (let i = 0; i < count; i++) {
+      try {
+        const track = await get(i);
+        total += (track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false) || []).length;
+      } catch { /* an unreadable track contributes nothing */ }
+    }
+  }
+  return total;
 }
 
 async function placeSubtitles(project, sequence, srtPath, name) {
@@ -1299,25 +1324,56 @@ async function placeSubtitles(project, sequence, srtPath, name) {
   }
 
   let before = { tracks: 0, total: 0 };
+  let pictureBefore = 0;
   try {
     before = await captionItemCount(sequence);
+    pictureBefore = await pictureItemCount(sequence);
   } catch { /* a build with no caption support answers below */ }
 
-  let threw = "";
-  try {
-    const editor = ppro.SequenceEditor.getEditor(sequence);
-    transact(project, (compound) => {
-      compound.addAction(editor.createOverwriteItemAction(
-        item, ppro.TickTime.createWithSeconds(0), 0, 0));
-    }, UNDO.subtitles);
-  } catch (err) {
-    threw = (err && err.message) || String(err);
-  }
+  // A ladder, not a guess. There is no API that creates a caption track --
+  // no addTrack anywhere in the 26.3 definitions, and no caption field in any
+  // of Adobe's 392 shipped sequence presets. The one documented way a track
+  // appears at all is the note on createInsertProjectItemAction: "If you pass a
+  // track index greater than the number of existing tracks, a new track will be
+  // created." Whether that extends to a caption item is behaviour, so it is
+  // tried, and each rung is verified before the next is attempted.
+  const editor = ppro.SequenceEditor.getEditor(sequence);
+  const zero = ppro.TickTime.createWithSeconds(0);
+  const beyond = Math.max(await sequence.getVideoTrackCount(), 1) + 1;
+  /** @type {Array<{label: string, action: () => any}>} */
+  const ladder = [
+    { label: "overwrite v0", action: () => editor.createOverwriteItemAction(item, zero, 0, 0) },
+    { label: "insert v0",
+      action: () => editor.createInsertProjectItemAction(item, zero, 0, 0, false) },
+    { label: "insert beyond the last track",
+      action: () => editor.createInsertProjectItemAction(item, zero, beyond, beyond, false) },
+  ];
 
+  let threw = "";
   let after = before;
-  try {
-    after = await captionItemCount(sequence);
-  } catch { /* keep `before`, and report no change */ }
+  let tried = [];
+  for (const { label, action } of ladder) {
+    tried.push(label);
+    try {
+      transact(project, (compound) => { compound.addAction(action()); }, UNDO.subtitles);
+    } catch (err) {
+      threw = (err && err.message) || String(err);
+      continue;
+    }
+    try {
+      after = await captionItemCount(sequence);
+      const pictureNow = await pictureItemCount(sequence);
+      if (pictureNow > pictureBefore) {
+        // It went somewhere it must not. Say so plainly: this is one Cmd-Z from
+        // being undone and is far worse than not placing the subtitles.
+        warnings.push(note("subtitles.wrongTrack", { file: name, how: label },
+          `${name} was placed as a CLIP, not a caption (${label}) — press Cmd-Z ` +
+          `once to remove it, and drag the .srt to a caption track instead`));
+        return warnings;
+      }
+    } catch { /* fall through to the next rung */ }
+    if (after.total > before.total) break;
+  }
 
   if (after.total > before.total) {
     warnings.push(note("subtitles.placed",
@@ -1327,10 +1383,11 @@ async function placeSubtitles(project, sequence, srtPath, name) {
     // Say WHICH failure this is. "No caption track exists" and "the edit was
     // accepted and nothing appeared" want different next steps, and a single
     // message covering both tells an editor neither.
-    const detail = threw
-      || (before.tracks === 0
-          ? "this sequence has no caption track"
-          : `${before.tracks} caption track(s), and the edit added nothing`);
+    const detail = (before.tracks === 0
+      ? `this sequence has no caption track, and Premiere's API has no call that `
+        + `creates one — tried: ${tried.join(", ")}`
+      : `${before.tracks} caption track(s), and none of ${tried.join(", ")} added `
+        + `anything`) + (threw ? ` (${threw})` : "");
     warnings.push(note("subtitles.dragToTrack", { file: name, detail },
       `${name} is in the project — drag it to a caption track. ` +
       `Placing it automatically did not work here (${detail}).`));

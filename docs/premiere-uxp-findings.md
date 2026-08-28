@@ -391,6 +391,29 @@ counts the caption items before and after, and reports which world we are in.
 If it works the reasoning above was too pessimistic and this section is wrong;
 if it does not, the receipt says whether the sequence even had a caption track.
 
+**It did not, and the receipt said why:** `getCaptionTrackCount()` returned 0.
+An AutoEdit sequence has no caption track, so there was nowhere for the edit to
+land regardless of whether the call would have accepted it.
+
+Which raises the next question and closes it too. **Nothing creates a caption
+track.** There is no `addTrack`, `createAddTrackAction` or `TrackGroup` mutation
+anywhere in the 26.3 definitions, and **none of Adobe's 392 shipped
+`.sqpreset` files contains a caption field** -- the format has
+`InitialNumberOfVideoTracks` and an `AudioTracks` array and nothing else. So a
+generated preset cannot declare one either.
+
+The single documented way any track appears is a note on
+`createInsertProjectItemAction`: *"If you pass a track index greater than the
+number of existing tracks, a new track will be created."* Whether that extends
+to a caption item is behaviour, so the build climbs a three-rung ladder --
+overwrite at v0, insert at v0, insert beyond the last track -- verifying the
+caption count after each and stopping at the first that works.
+
+**It also counts the CLIP items on the picture and sound tracks.** If one of
+those calls accepts the `.srt` as video, the edit has just been polluted with a
+subtitle file on V1, and that is worse than not placing it: the build says so
+and tells the editor to press Cmd-Z once.
+
 Two routes remain, and both are blocked on something outside the code:
 
 1. **Premiere's own caption generation**, which needs a transcript inside

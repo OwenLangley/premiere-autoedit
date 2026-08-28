@@ -351,6 +351,8 @@ const EN = {
     "{file} could not be transcribed, so it has no subtitles ({detail}) — the edit itself is unaffected",
   "warn.subtitles.placed":
     "{file}: {count} caption(s) placed on the caption track",
+  "warn.subtitles.wrongTrack":
+    "{file} was placed as a clip, not a caption ({how}) — press Cmd-Z once to remove it, and drag the .srt to a caption track instead",
   "warn.subtitles.dragToTrack":
     "{file} is in the project — drag it to a caption track. Placing it automatically did not work here ({detail}).",
   "warn.subtitles.transcriptSchema":
@@ -728,6 +730,8 @@ const JA = {
     "{file} を文字起こしできなかったため字幕はありません（{detail}）。編集自体には影響ありません",
   "warn.subtitles.placed":
     "{file}: キャプション {count} 件をキャプショントラックに配置しました",
+  "warn.subtitles.wrongTrack":
+    "{file} がキャプションではなくクリップとして配置されました（{how}）。Cmd-Z を 1 回押して取り消し、.srt をキャプショントラックへドラッグしてください",
   "warn.subtitles.dragToTrack":
     "{file} をプロジェクトに読み込みました。キャプショントラックへドラッグしてください。自動配置はこの環境では機能しませんでした（{detail}）。",
   "warn.subtitles.transcriptSchema":
