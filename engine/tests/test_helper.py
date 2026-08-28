@@ -733,3 +733,41 @@ def test_an_ordinary_dotfile_is_not_reported_as_evicted(tmp_path):
     (tmp_path / ".DS_Store").touch()
     (tmp_path / ".hidden.mp4").touch()
     assert build_media_index(tmp_path)["evictedCount"] == 0
+
+
+def test_the_media_root_can_move_after_setup(tmp_path):
+    """Moving the footage used to point the whole tool at an empty folder.
+
+    The root was fixed in the launchd plist at install time. The panel's own
+    picker only stored a UXP token, which the helper cannot use, so changing it
+    there did nothing an editor could see -- the clip list comes from the
+    helper's index. Config is the one channel both sides share.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import resolve_media_root
+
+    installed = tmp_path / "old"
+    moved = tmp_path / "new"
+    jobs = tmp_path / "jobs"
+    for d in (installed, moved, jobs):
+        d.mkdir()
+
+    # Nothing in config: the plist value stands.
+    assert resolve_media_root(jobs, installed) == installed
+
+    (jobs / "config.json").write_text(json.dumps({"mediaRoot": str(moved)}))
+    assert resolve_media_root(jobs, installed) == moved.resolve()
+
+
+def test_a_media_root_that_is_not_a_folder_falls_back(tmp_path):
+    # A stale or mistyped path must not leave the tool pointing at nothing.
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import resolve_media_root
+
+    installed = tmp_path / "old"
+    jobs = tmp_path / "jobs"
+    installed.mkdir(); jobs.mkdir()
+    (jobs / "config.json").write_text(json.dumps({"mediaRoot": str(tmp_path / "gone")}))
+    assert resolve_media_root(jobs, installed) == installed

@@ -408,6 +408,27 @@ def read_config(jobs: Path) -> dict:
         return {}
 
 
+def resolve_media_root(jobs: Path, fallback: Path) -> Path:
+    """Where the footage is NOW, not where it was when setup ran.
+
+    The media root was fixed at install time in the launchd plist, and moving
+    the rushes anywhere else silently pointed the whole tool at an empty folder
+    -- the panel said "no video files" and there was no way to correct it
+    without re-running setup.sh in a Terminal, which is precisely what an editor
+    cannot be asked to do.
+
+    The music root has worked this way from the start. This is the same thing
+    for the folder that matters more.
+    """
+    raw = read_config(jobs).get("mediaRoot")
+    if raw:
+        candidate = Path(raw).expanduser()
+        if candidate.is_dir():
+            return candidate.resolve()
+        print(f"warning: mediaRoot in config.json is not a folder: {raw}", file=sys.stderr)
+    return fallback
+
+
 def resolve_music_root(jobs: Path, fallback: Path | None) -> Path | None:
     raw = read_config(jobs).get("musicRoot")
     if raw:
@@ -748,6 +769,9 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
           music_root: Path | None = None) -> None:
     jobs.mkdir(parents=True, exist_ok=True)
     write_capabilities(jobs)
+    # The plist value is only a fallback from here on.
+    installed_media_root = media_root
+    media_root = resolve_media_root(jobs, installed_media_root)
     write_media_index(jobs, media_root)
     ensure_proxies(media_root, work_dir)
     ensure_library_shots(media_root, work_dir, jobs)
@@ -766,6 +790,15 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
                 music_root = current
                 print(f"  music library: {music_root}", file=sys.stderr)
                 write_music_index(jobs, music_root)
+            # The footage can move too, and moving it used to break everything
+            # quietly until someone re-ran setup.sh.
+            moved = resolve_media_root(jobs, installed_media_root)
+            if moved != media_root:
+                media_root = moved
+                print(f"  media root: {media_root}", file=sys.stderr)
+                write_media_index(jobs, media_root)
+                ensure_proxies(media_root, work_dir)
+                ensure_library_shots(media_root, work_dir, jobs)
             run_once(jobs, media_root, work_dir, music_root=music_root)
             # Refresh the index periodically so newly ingested footage appears
             # without restarting the helper.

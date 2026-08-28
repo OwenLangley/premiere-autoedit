@@ -864,13 +864,24 @@ async function onApply() {
 
 $("pick-media").addEventListener("click", async () => {
   const picked = await pickFolder("media root");
-  if (picked) {
-    state.settings = saveSettings({ mediaToken: picked.token });
-    await refreshSetup();
-    state.selectedMedia.clear();
-    await loadMediaList();
-    log(`Media root: ${picked.path}`);
+  if (!picked) return;
+  state.settings = saveSettings({ mediaToken: picked.token });
+  // The token is the PANEL's handle on the folder; the helper cannot use it and
+  // has its own media root, fixed in the launchd plist when setup ran. Writing
+  // the path to config is what tells the helper the footage has moved. Without
+  // this the picker changed nothing an editor could see, because the clip list
+  // comes from the helper's index.
+  if (state.transport) {
+    try {
+      await state.transport.writeConfig({ mediaRoot: picked.path });
+    } catch (err) {
+      log(state.t("msg.mediaRootNotShared", { message: err.message }), "err");
+    }
   }
+  await refreshSetup();
+  state.selectedMedia.clear();
+  await loadMediaList();
+  log(state.t("msg.mediaRootSet", { path: picked.path }));
 });
 
 /** Absolute path of the chosen track, for the Source Monitor. */

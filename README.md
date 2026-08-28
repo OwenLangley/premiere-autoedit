@@ -69,7 +69,9 @@ Accept the repository invitation first, or the clone fails as *"repository not
 found"* -- GitHub does not distinguish private from non-existent.
 
 `~/Footage` is your own rushes -- the top of the tree, not one shoot. That is
-the only path you choose; setup makes the rest. It asks for your password once,
+the only path you choose; setup makes the rest. **If the footage moves later,
+change it in the panel under Setup > Media root** -- it does not need setup.sh
+again, and the background helper follows within a few seconds. It asks for your password once,
 because Premiere 26 only loads plugins from `/Library`.
 
 Then **restart Premiere**, open **Window -> UXP Plugins -> AutoEdit**, and under
