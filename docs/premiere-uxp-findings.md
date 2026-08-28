@@ -346,6 +346,12 @@ documented.
 run the self-test. The `transcript/schema-discovered` check calls
 `Transcript.exportToJSON` on it and dumps the real shape into the report.
 
+**Worked around for subtitles.** The engine writes a standard `.srt` beside the
+plan instead, which Premiere imports as a caption track through File → Import
+and which every platform and client already reads. It does not depend on this
+API being solved. Whether Premiere 26 imports it cleanly is still unconfirmed
+in the app itself.
+
 ## 10. An empty `<input type="number">` renders the literal string `nan`
 
 Not empty, not the placeholder -- the four characters `nan`, in the field, looking

@@ -1044,6 +1044,26 @@ def cmd_plan(args) -> int:
             )
         return 1
 
+    # --- subtitles ----------------------------------------------------------
+    # After the plan is final and before it is validated, because the path goes
+    # into the plan. Built from the plan rather than from the transcripts
+    # directly: the words have to land where the EDIT put them, not where they
+    # were spoken.
+    if plan.get("transcripts"):
+        from . import subtitles
+
+        cues = subtitles.build_cues(plan)
+        if cues:
+            srt_file = out.with_suffix("").with_suffix(".srt")
+            srt_file.write_text(subtitles.to_srt(cues), encoding="utf-8")
+            plan["subtitlePath"] = str(srt_file.resolve())
+            builder.add_warning("subtitles", note(
+                "subtitles.written", count=len(cues), file=srt_file.name))
+            plan["warnings"] = builder.build()["warnings"]
+            print(f"  subtitles: {len(cues)} cue(s) -> {srt_file.name}", file=sys.stderr)
+        else:
+            print("  subtitles: no speech survived the edit", file=sys.stderr)
+
     errors = validate_plan(plan)
     if errors:
         print(f"error: generated plan is invalid ({len(errors)} problem(s)):", file=sys.stderr)

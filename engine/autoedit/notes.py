@@ -158,6 +158,13 @@ CATALOGUE: dict[str, str] = {
         "a description needs pictures to match against; add --visual, or pick "
         "footage the analyser can read",
 
+    # --- subtitles ---------------------------------------------------------
+    "subtitles.written":
+        "{count} subtitle(s) written to {file} -- File > Import in Premiere puts "
+        "them on a caption track",
+    "subtitles.none":
+        "no subtitles were written: nothing in the finished edit has a transcript",
+
     # --- language ----------------------------------------------------------
     "language.uncertain":
         "{file}: only {confidence:.0%} sure this is {language} -- set the language in the "

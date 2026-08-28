@@ -337,6 +337,11 @@ const EN = {
   "warn.cut.rateNeedsPictures":
     "a cut rate only applies when cutting from pictures; this edit follows the words, so the rate was not used — pick a montage format or turn on “Cut from pictures”",
   "warn.story.settingsApplied": "taken from your description: {settings}",
+  "warn.subtitles.written":
+    "{count} subtitle(s) written to {file} — File > Import in Premiere puts them on a caption track",
+  "warn.subtitles.none":
+    "no subtitles were written: nothing in the finished edit has a transcript",
+
   "warn.story.noRunningOrder":
     "your description does not list shots in order, so it was used for the settings only — write “opens with X, then Y” to set a running order",
   "warn.story.beatUnfilled":
@@ -673,6 +678,11 @@ const JA = {
   "warn.cut.rateNeedsPictures":
     "カット間隔は映像からカットする場合にのみ適用されます。この編集は話に合わせているため、指定は使用されませんでした。モンタージュ形式を選ぶか「映像からカット」を有効にしてください",
   "warn.story.settingsApplied": "説明文から適用した設定: {settings}",
+  "warn.subtitles.written":
+    "字幕 {count} 件を {file} に書き出しました。Premiere の ファイル > 読み込み でキャプショントラックに追加できます",
+  "warn.subtitles.none":
+    "完成した編集に文字起こしのある素材が含まれていないため、字幕は書き出されませんでした",
+
   "warn.story.noRunningOrder":
     "説明文にショットの順序が書かれていないため、設定のみに使用しました。順序を指定するには「〜から始まり、次に〜」のように書いてください",
   "warn.story.beatUnfilled":
