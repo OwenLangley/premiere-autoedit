@@ -204,6 +204,49 @@ def _options_from_args(args) -> JobOptions:
     )
 
 
+def _transcribe_once(
+    path, mid, info, args, recipe, provider, provider_name, cache_root, work_dir,
+):
+    """One clip's transcript, from cache when it can be.
+
+    Pulled out of the speech branch so the picture branch can use it too. A
+    montage of footage with people talking in it can be subtitled -- the words
+    just do not decide where the cuts go. Before this, asking for subtitles on
+    a montage produced nothing at all and said nothing about why.
+
+    Raises TranscriptionError; the caller decides whether that is fatal.
+    """
+    tx_options = dict(recipe.transcription)
+    tx_options["duration"] = info.duration
+    tx_options["media_path"] = str(path)
+    if args.model:
+        tx_options["model"] = args.model
+    if args.language:
+        tx_options["language"] = args.language
+    if getattr(args, "transcript", None):
+        tx_options["path"] = args.transcript
+
+    # Cache transcripts on content hash + provider settings. Transcription is
+    # by far the slowest step and recipe tuning is an iterative loop -- without
+    # this, nudging min_silence by 0.05s means re-transcribing hours of rushes.
+    cache_key = _transcript_cache_key(content_hash(path), provider_name, tx_options)
+    cache_file = cache_root / "transcripts" / f"{cache_key}.json"
+
+    if cache_file.exists() and not args.no_cache:
+        print(f"  {path.name}: transcript from cache", file=sys.stderr)
+        transcript = Transcript.from_dict(json.loads(cache_file.read_text()))
+        transcript.media_id = mid
+        return transcript
+
+    print(f"  {path.name}: extracting audio", file=sys.stderr)
+    wav = extract_audio(path, work_dir / f"{mid}.wav")
+    print(f"  {path.name}: transcribing via {provider_name}", file=sys.stderr)
+    transcript = provider.transcribe(wav, mid, tx_options)
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(json.dumps(transcript.to_dict(), indent=2))
+    return transcript
+
+
 def _transcript_cache_key(media_hash: str, provider: str, options: dict) -> str:
     """Key a cached transcript on the media plus anything that would change it.
 
@@ -432,6 +475,11 @@ def cmd_plan(args) -> int:
     # units keep their own name everywhere: sections.
     story = parse_prompt(args.story) if getattr(args, "story", None) else None
     story_spans: list[tuple[str, float, float, float, Path]] = []
+    # Transcripts made ONLY to subtitle a montage. Deliberately not added to the
+    # plan: the panel hands plan transcripts to Premiere's Text-Based Editing,
+    # which rejects them, and a montage would collect one "could not import"
+    # warning per clip for a feature its editor never asked for.
+    subtitle_only: list[Transcript] = []
     if story:
         # What the sentence said about the film itself. The editor typed this in
         # the same breath as everything else, so it wins over the form: a prompt
@@ -448,6 +496,9 @@ def cmd_plan(args) -> int:
         if story.visual and not args.visual:
             args.visual = True
             applied.append("from pictures")
+        if story.subtitles and not getattr(args, "subtitles", False):
+            args.subtitles = True
+            applied.append("subtitles")
         if story.cut_rate and options.cut_rate != story.cut_rate:
             options = replace(options, cut_rate=story.cut_rate)
             applied.append(f"cut every {story.cut_rate:g}")
@@ -697,6 +748,24 @@ def cmd_plan(args) -> int:
                     reason=f"quality {span.score:.2f}", thumb_path=thumb,
                 )
 
+            # Subtitles for a montage. The words do not decide where the cuts
+            # go -- that is what makes this the picture branch -- but footage of
+            # people talking can still be subtitled, and asking for that used to
+            # produce nothing at all and no reason why.
+            if getattr(args, "subtitles", False) and info.has_audio:
+                try:
+                    subtitle_only.append(_transcribe_once(
+                        path, mid, info, args, recipe, provider, provider_name,
+                        cache_root, work_dir,
+                    ))
+                except TranscriptionError as exc:
+                    # Never fatal here: the edit does not depend on it, and
+                    # losing the whole job over a missing subtitle would be a
+                    # far worse trade than losing the subtitle.
+                    builder.add_warning("subtitles", note(
+                        "subtitles.failed", file=path.name, detail=str(exc)), mid)
+                    print(f"  {path.name}: no subtitles ({exc})", file=sys.stderr)
+
             collected.append((mid, cuts, v_track, a_track))
             continue
 
@@ -705,38 +774,15 @@ def cmd_plan(args) -> int:
         # `options.duration_mode` a few lines later -- unnoticed only because the
         # work since has all gone through the --visual path, which never enters
         # this loop.
-        tx_options = dict(recipe.transcription)
-        tx_options["duration"] = info.duration
-        tx_options["media_path"] = str(path)
-        if args.model:
-            tx_options["model"] = args.model
-        if args.language:
-            tx_options["language"] = args.language
-        if args.transcript:
-            tx_options["path"] = args.transcript
-
-        # Cache transcripts on content hash + provider settings. Transcription is
-        # by far the slowest step and recipe tuning is an iterative loop -- without
-        # this, nudging min_silence by 0.05s means re-transcribing hours of rushes.
-        cache_key = _transcript_cache_key(content_hash(path), provider_name, tx_options)
-        cache_file = cache_root / "transcripts" / f"{cache_key}.json"
         transcript: Transcript
-
-        if cache_file.exists() and not args.no_cache:
-            print(f"  {path.name}: transcript from cache", file=sys.stderr)
-            transcript = Transcript.from_dict(json.loads(cache_file.read_text()))
-            transcript.media_id = mid
-        else:
-            print(f"  {path.name}: extracting audio", file=sys.stderr)
-            try:
-                wav = extract_audio(path, work_dir / f"{mid}.wav")
-                print(f"  {path.name}: transcribing via {provider_name}", file=sys.stderr)
-                transcript = provider.transcribe(wav, mid, tx_options)
-            except TranscriptionError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                return 1
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text(json.dumps(transcript.to_dict(), indent=2))
+        try:
+            transcript = _transcribe_once(
+                path, mid, info, args, recipe, provider, provider_name,
+                cache_root, work_dir,
+            )
+        except TranscriptionError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
 
         if transcript.language_confidence is not None:
             print(
@@ -1049,10 +1095,11 @@ def cmd_plan(args) -> int:
     # into the plan. Built from the plan rather than from the transcripts
     # directly: the words have to land where the EDIT put them, not where they
     # were spoken.
-    if plan.get("transcripts"):
+    speech = list(plan.get("transcripts") or []) + [t.to_dict() for t in subtitle_only]
+    if speech:
         from . import subtitles
 
-        cues = subtitles.build_cues(plan)
+        cues = subtitles.build_cues(plan, speech)
         if cues:
             srt_file = out.with_suffix("").with_suffix(".srt")
             srt_file.write_text(subtitles.to_srt(cues), encoding="utf-8")
@@ -1062,7 +1109,13 @@ def cmd_plan(args) -> int:
             plan["warnings"] = builder.build()["warnings"]
             print(f"  subtitles: {len(cues)} cue(s) -> {srt_file.name}", file=sys.stderr)
         else:
+            builder.add_warning("subtitles", note("subtitles.none"))
+            plan["warnings"] = builder.build()["warnings"]
             print("  subtitles: no speech survived the edit", file=sys.stderr)
+    elif getattr(args, "subtitles", False):
+        builder.add_warning("subtitles", note("subtitles.none"))
+        plan["warnings"] = builder.build()["warnings"]
+        print("  subtitles: asked for, but nothing was transcribed", file=sys.stderr)
 
     errors = validate_plan(plan)
     if errors:
@@ -1123,6 +1176,9 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--music-length", type=float, default=None, help="seconds of track to use. Omit and the bed follows the picture; set it and that much music is laid even past the last frame.")
     pl.add_argument("--no-music-snap", action="store_true", help="use the start exactly as given instead of moving it to the nearest beat")
     pl.add_argument("--visual", action="store_true", help="cut from the pictures even when the footage has audio")
+    pl.add_argument("--subtitles", action="store_true", help=(
+        "write an .srt for the finished edit. Implied by a speech edit, which "
+        "already has the words; needed for a montage, which does not"))
     pl.add_argument("--aspect", choices=list(ASPECT_LABELS),
                     help="output shape; generates a matching sequence preset (default: source)")
     pl.add_argument("--duration", type=float, help="target length in seconds")

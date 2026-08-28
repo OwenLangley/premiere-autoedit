@@ -37,6 +37,9 @@ const WORDS = {
   platforms: pyDict("PLATFORM_ASPECTS"),
   pace: pyDict("PACE_WORDS"),
   montage: pyTuple("MONTAGE_WORDS"),
+  // Both halves, because the engine splits them by script and the panel does
+  // its own boundary check per term.
+  subtitles: [...pyTuple("SUBTITLE_WORDS"), ...pyTuple("SUBTITLE_WORDS_CJK")],
 };
 
 const CASES = JSON.parse(fs.readFileSync(
@@ -48,6 +51,8 @@ test("the vocabulary was actually parsed out of the engine", () => {
   assert.ok(Object.keys(WORDS.platforms).length >= 8, "platforms");
   assert.ok(Object.keys(WORDS.pace).length >= 8, "pace");
   assert.ok(WORDS.montage.length >= 8, "montage");
+  assert.ok(WORDS.subtitles.length >= 8, "subtitles");
+  assert.ok(WORDS.subtitles.includes("字幕"), "japanese subtitle word");
   assert.strictEqual(WORDS.platforms.tiktok, "vertical");
 });
 
@@ -58,6 +63,7 @@ for (const c of CASES) {
     assert.strictEqual(got.aspect, c.aspect, "aspect");
     assert.strictEqual(got.cutRate, c.cutRate, "cutRate");
     assert.strictEqual(got.visual, c.visual, "visual");
+    assert.strictEqual(got.subtitles, c.subtitles === true, "subtitles");
   });
 }
 
@@ -71,11 +77,20 @@ test("words match whole, not inside other words", () => {
   assert.ok(!hasWord("a shortstop swinging", "short"));
 });
 
+test("a Japanese term matches without word boundaries", () => {
+  // \b never fires between two CJK characters, so a boundary check would find
+  // 字幕 in no sentence anyone would actually write.
+  assert.ok(hasWord("字幕付きの動画", "字幕"));
+  assert.ok(hasWord("テロップを入れて", "テロップ"));
+  assert.ok(!hasWord("a promo video", "字幕"));
+});
+
 test("no vocabulary yet means no settings, not a crash", () => {
   // capabilities.json may not have been written when the panel first loads.
   const got = readPromptSettings("a 15s tiktok", null);
   assert.deepStrictEqual(got,
-    { seconds: null, aspect: null, cutRate: null, visual: false, recipe: null });
+    { seconds: null, aspect: null, cutRate: null, visual: false, subtitles: false,
+      recipe: null });
 });
 
 

@@ -43,7 +43,8 @@ from autoedit.visual import (                             # noqa: E402
 )
 from autoedit.recipe import list_recipes, load_recipe   # noqa: E402
 from autoedit.story import (                            # noqa: E402
-    MONTAGE_WORDS, PACE_WORDS, PLATFORM_ASPECTS,
+    MONTAGE_WORDS, PACE_WORDS, PLATFORM_ASPECTS, SUBTITLE_WORDS,
+    SUBTITLE_WORDS_CJK,
 )
 
 REQUEST_SUFFIX = ".request.json"
@@ -112,6 +113,7 @@ def write_capabilities(jobs: Path) -> None:
             "platforms": PLATFORM_ASPECTS,
             "pace": PACE_WORDS,
             "montage": list(MONTAGE_WORDS),
+            "subtitles": list(SUBTITLE_WORDS) + list(SUBTITLE_WORDS_CJK),
         },
         "aspects": [{"value": k, "label": v} for k, v in ASPECT_LABELS.items()],
         "pacing": [{"value": k, "label": v.label} for k, v in PACING.items()],
@@ -484,6 +486,11 @@ def request_to_argv(
         argv += ["--visual"]
     if story:
         argv += ["--story", story]
+    # The engine reads the sentence too and will turn this on itself; the flag
+    # is for the checkbox, and for a prompt that says it in a way only one side
+    # happens to recognise.
+    if options.get("subtitles"):
+        argv += ["--subtitles"]
     if options.get("model"):
         argv += ["--model", options["model"]]
     if options.get("language"):

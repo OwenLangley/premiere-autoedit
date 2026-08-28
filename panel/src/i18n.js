@@ -337,6 +337,12 @@ const EN = {
   "warn.cut.rateNeedsPictures":
     "a cut rate only applies when cutting from pictures; this edit follows the words, so the rate was not used — pick a montage format or turn on “Cut from pictures”",
   "warn.story.settingsApplied": "taken from your description: {settings}",
+  "warn.subtitles.failed":
+    "{file} could not be transcribed, so it has no subtitles ({detail}) — the edit itself is unaffected",
+  "warn.subtitles.imported":
+    "{file} imported — drag it onto a caption track if it is not already there",
+  "warn.subtitles.notImported":
+    "{file} was written but Premiere would not import it ({detail}) — File > Import it by hand",
   "warn.subtitles.written":
     "{count} subtitle(s) written to {file} — File > Import in Premiere puts them on a caption track",
   "warn.subtitles.none":
@@ -678,6 +684,12 @@ const JA = {
   "warn.cut.rateNeedsPictures":
     "カット間隔は映像からカットする場合にのみ適用されます。この編集は話に合わせているため、指定は使用されませんでした。モンタージュ形式を選ぶか「映像からカット」を有効にしてください",
   "warn.story.settingsApplied": "説明文から適用した設定: {settings}",
+  "warn.subtitles.failed":
+    "{file} を文字起こしできなかったため字幕はありません（{detail}）。編集自体には影響ありません",
+  "warn.subtitles.imported":
+    "{file} を読み込みました。キャプショントラックに入っていない場合はドラッグしてください",
+  "warn.subtitles.notImported":
+    "{file} は書き出しましたが Premiere が読み込めませんでした（{detail}）。ファイル > 読み込み から手動で追加してください",
   "warn.subtitles.written":
     "字幕 {count} 件を {file} に書き出しました。Premiere の ファイル > 読み込み でキャプショントラックに追加できます",
   "warn.subtitles.none":

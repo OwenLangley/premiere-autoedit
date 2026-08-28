@@ -267,6 +267,18 @@ async function applyPlan(plan, options) {
     report.stages.push("transcript");
   }
 
+  // --- subtitles -----------------------------------------------------------
+  // The .srt is a real file the engine already wrote, so the worst case here is
+  // that it stays a file and the editor imports it by hand. Attempted rather
+  // than assumed: whether Premiere 26 takes an .srt through importFiles and
+  // makes a caption asset of it is not documented anywhere, and the only way to
+  // find out is to try it on a real build and say what happened.
+  if (plan.subtitlePath) {
+    progress("subtitles", "importing subtitles");
+    report.warnings.push(...await importSubtitles(project, plan.subtitlePath));
+    report.stages.push("subtitles");
+  }
+
   // --- verify what actually landed ----------------------------------------
   progress("verify", "checking the timeline against the plan");
   try {
@@ -1225,6 +1237,44 @@ async function importTranscripts(project, plan, items) {
   return warnings;
 }
 
+
+
+/**
+ * Bring the .srt into the project, and say plainly what became of it.
+ *
+ * Premiere's own transcript API is a dead end -- `Transcript.importFromJSON`
+ * rejects the obvious shape and the real one is undocumented (findings 9) --
+ * so the subtitles are a standard SubRip file instead. That file is useful on
+ * its own: every platform and every client reads it.
+ *
+ * What is NOT settled is whether Premiere attaches it to the sequence as a
+ * caption track by itself. It is imported here and the outcome reported; if it
+ * lands only in the bin, the editor drags it to a caption track, which is one
+ * step rather than none and considerably better than the file going unmentioned.
+ */
+async function importSubtitles(project, srtPath) {
+  /** @type {BuildWarning[]} */
+  const warnings = [];
+  const name = basenameOf(srtPath);
+  try {
+    const ok = await project.importFiles(
+      [srtPath], true, await project.getRootItem(), false
+    );
+    warnings.push(ok
+      ? note("subtitles.imported", { file: name },
+             `${name} imported — drag it onto a caption track if it is not already there`)
+      : note("subtitles.notImported", { file: name, detail: "importFiles returned false" },
+             `${name} was written but Premiere would not import it — File > Import it by hand`));
+  } catch (err) {
+    // Never fatal. The edit is built; this is the last step and the file is
+    // already on disk.
+    warnings.push(note(
+      "subtitles.notImported", { file: name, detail: err.message },
+      `${name} was written but Premiere would not import it (${err.message}) — ` +
+      `File > Import it by hand`));
+  }
+  return warnings;
+}
 
 
 // --------------------------------------------------------------- setup check

@@ -162,6 +162,9 @@ CATALOGUE: dict[str, str] = {
     "subtitles.written":
         "{count} subtitle(s) written to {file} -- File > Import in Premiere puts "
         "them on a caption track",
+    "subtitles.failed":
+        "{file}: could not be transcribed, so it has no subtitles ({detail}) -- "
+        "the edit itself is unaffected",
     "subtitles.none":
         "no subtitles were written: nothing in the finished edit has a transcript",
 

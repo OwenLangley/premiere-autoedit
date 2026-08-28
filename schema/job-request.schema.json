@@ -134,6 +134,10 @@
           "default": false,
           "description": "Cut from the pictures even when the footage has usable audio."
         },
+        "subtitles": {
+          "type": "boolean",
+          "description": "Write an .srt for the finished edit. A speech edit already has the words; a montage does not, so this makes it transcribe for subtitles alone."
+        },
         "story": {
           "type": "string",
           "minLength": 1,

@@ -144,7 +144,7 @@ def _wrap(words: list[Word], limit: int) -> list[str]:
     return lines[:MAX_LINES]
 
 
-def _placed_words(plan: dict) -> list[tuple[int, Word]]:
+def _placed_words(plan: dict, speech=None):
     """Every transcript word that survived the edit, in sequence time.
 
     Returns ((media id, clip in, clip out), word) so grouping can tell a
@@ -152,7 +152,7 @@ def _placed_words(plan: dict) -> list[tuple[int, Word]]:
     """
     tb = Timebase.from_dict(plan["timebase"])
     by_media: dict[str, Transcript] = {}
-    for raw in plan.get("transcripts") or []:
+    for raw in (plan.get("transcripts") if speech is None else speech) or []:
         t = Transcript.from_dict(raw)
         by_media[t.media_id] = t
 
@@ -261,10 +261,15 @@ def _pad(cues: list[Cue], limit: float) -> list[Cue]:
     return cues
 
 
-def build_cues(plan: dict) -> list[Cue]:
-    """The finished cut's subtitles, frame-snapped, in order."""
+def build_cues(plan: dict, speech=None) -> list[Cue]:
+    """The finished cut's subtitles, frame-snapped, in order.
+
+    `speech` is the transcripts to use, defaulting to the plan's own. A montage
+    subtitled on request has transcripts that deliberately never went into the
+    plan, so they are handed in instead.
+    """
     tb = Timebase.from_dict(plan["timebase"])
-    placed = _placed_words(plan)
+    placed = _placed_words(plan, speech)
     if not placed:
         return []
 

@@ -445,6 +445,7 @@ def test_settings_match_the_shared_fixtures():
         assert p.aspect == case["aspect"], case["text"]
         assert p.cut_rate == case["cutRate"], case["text"]
         assert p.visual == case["visual"], case["text"]
+        assert p.subtitles == case.get("subtitles", False), case["text"]
 
 
 def test_the_descriptor_fixture_matches_the_vocabulary():

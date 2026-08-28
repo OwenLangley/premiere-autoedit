@@ -202,6 +202,8 @@ async function runSelfTest(onProgress) {
 
   say("checking which DOM methods this build has");
   probeDomSurface(report);
+  say("probing caption API");
+  probeCaptionSurface(report);
 
   say("probing whether a local image renders");
   await probeImageRendering(report);
@@ -637,6 +639,60 @@ async function probeRealThumbnail(report, config) {
  * list, so the next person reaching for a convenient method can check instead
  * of finding out from a user.
  */
+/**
+ * What this build offers for captions, if anything.
+ *
+ * Subtitles are written as an .srt and imported as a file, because Premiere's
+ * transcript JSON API is undocumented and rejects the obvious shape (findings
+ * 9). Whether there is a *caption* API -- one that could put the file on a
+ * caption track without the editor dragging it -- is unknown, and guessing at
+ * method names in the build code would be exactly the kind of assumption this
+ * project keeps paying for.
+ *
+ * So: enumerate. This reports what exists rather than asserting what should,
+ * and the answer decides whether the drag step can be removed.
+ */
+function probeCaptionSurface(report) {
+  const ppro = require("premierepro");
+  const interesting = /caption|subtitle|srt|closedcaption/i;
+
+  /** Top-level classes whose names mention captions at all. */
+  const classes = Object.keys(ppro).filter((k) => interesting.test(k));
+
+  /** Members of the ones that do, so a usable call is visible if there is one. */
+  const members = {};
+  for (const name of classes) {
+    const value = /** @type {any} */ (ppro)[name];
+    if (!value) continue;
+    const own = Object.getOwnPropertyNames(value).filter((k) => k !== "prototype");
+    const proto = value.prototype
+      ? Object.getOwnPropertyNames(value.prototype).filter((k) => k !== "constructor")
+      : [];
+    members[name] = { static: own, instance: proto };
+  }
+
+  // Sequence and Project are where a caption track would hang off, whether or
+  // not the word "caption" appears in a class name of its own.
+  const hosts = {};
+  for (const host of ["Sequence", "Project", "TrackItem", "VideoTrack"]) {
+    const value = /** @type {any} */ (ppro)[host];
+    if (!value || !value.prototype) continue;
+    hosts[host] = Object.getOwnPropertyNames(value.prototype)
+      .filter((k) => interesting.test(k) || /track/i.test(k));
+  }
+
+  report.add("caption/surface", true, {
+    classes,
+    members,
+    hosts,
+    note: classes.length
+      ? "a caption API exists on this build -- read `members` and see whether an " +
+        ".srt can be placed on a caption track directly"
+      : "no caption class on this build; importing the .srt as a file and dragging " +
+        "it to a caption track is the only route",
+  });
+}
+
 function probeDomSurface(report) {
   const el = document.createElement("div");
   const surface = {};

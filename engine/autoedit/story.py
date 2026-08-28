@@ -46,7 +46,23 @@ PLATFORM_ASPECTS: dict[str, str] = {
     "youtube": "landscape",
     "landscape": "landscape",
     "widescreen": "landscape",
+    # Japanese. Compound forms only, deliberately: a bare 縦 or 横 would fire
+    # inside 横浜 and turn a shop in Yokohama into a landscape edit. These say
+    # the shape and nothing else.
+    "縦型": "vertical",
+    "縦動画": "vertical",
+    "縦長": "vertical",
+    "横型": "landscape",
+    "横動画": "landscape",
+    "横長": "landscape",
+    "正方形": "square",
+    "スクエア": "square",
 }
+
+# CJK characters are word characters, so \b never fires between two of them and
+# a boundary search finds none of the Japanese keys above. Substring for those,
+# boundary for the rest.
+_CJK_KEY = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 # "15 sec", "15 seconds", "15s", "1 minute", "1:30".
 _DURATION = re.compile(
@@ -55,6 +71,13 @@ _DURATION = re.compile(
     re.I,
 )
 _CLOCK = re.compile(r"\b(?P<m>\d{1,2}):(?P<s>\d{2})\b")
+
+# "15秒", "1分30秒", "2分". No word boundaries, because Japanese has none: 秒 is
+# a word character and \b never fires between 15 and 秒. The units are single
+# characters that mean nothing else in a number's company, so a boundary is not
+# needed to keep them honest.
+_DURATION_JA = re.compile(r"(?:(?P<mins>\d+)\s*分)?\s*(?P<secs>\d+)\s*秒")
+_MINUTES_JA = re.compile(r"(?P<mins>\d+)\s*分")
 
 # Where the description of the video stops and the running order starts. Only
 # the FIRST of these matters -- everything after it is shots.
@@ -146,6 +169,30 @@ MONTAGE_WORDS = (
 )
 
 
+# Asking for subtitles in words. A montage never transcribes -- that is what
+# makes it a montage -- so without this an editor could write "with subtitles",
+# get an edit with none, and be told nothing about why.
+#
+# Split by script because \b does not work in Japanese: CJK characters are word
+# characters, so \b字幕\b never matches inside 字幕付きの動画. The Latin terms
+# still need the boundary, or "caption" fires inside "captioning software".
+SUBTITLE_WORDS = (
+    "subtitle", "subtitles", "caption", "captions", "captioned",
+    "subtitled", "closed captions",
+)
+SUBTITLE_WORDS_CJK = (
+    "字幕", "テロップ", "キャプション",
+)
+
+
+def wants_subtitles(text: str) -> bool:
+    """Did the editor ask for subtitles in the description?"""
+    low = text.lower()
+    if any(w in low for w in SUBTITLE_WORDS_CJK):
+        return True
+    return any(re.search(rf"\b{re.escape(w)}\b", low) for w in SUBTITLE_WORDS)
+
+
 @dataclass
 class Beat:
     """One shot in the running order, as the editor described it."""
@@ -179,6 +226,7 @@ class StoryPrompt:
     platform: str | None = None
     cut_rate: float | None = None
     visual: bool = False
+    subtitles: bool = False
 
     @property
     def has_running_order(self) -> bool:
@@ -198,7 +246,8 @@ class StoryPrompt:
 def find_duration(text: str) -> float | None:
     """Seconds asked for, or None.
 
-    Handles "15 sec", "90 seconds", "1 min 30 sec" and "1:30". A bare number is
+    Handles "15 sec", "90 seconds", "1 min 30 sec", "1:30", and the same in
+    Japanese: "15秒", "1分30秒", "2分". A bare number is
     deliberately NOT a duration: "3 shots of the kitchen" is not three seconds,
     and guessing there would set a length the editor never asked for -- which is
     exactly the failure that produced a forty-second edit against a fifteen-
@@ -207,6 +256,12 @@ def find_duration(text: str) -> float | None:
     clock = _CLOCK.search(text)
     if clock:
         return int(clock.group("m")) * 60 + int(clock.group("s"))
+    ja = _DURATION_JA.search(text)
+    if ja:
+        return float(ja.group("secs")) + float(ja.group("mins") or 0) * 60
+    ja_mins = _MINUTES_JA.search(text)
+    if ja_mins:
+        return float(ja_mins.group("mins")) * 60
     m = _DURATION.search(text)
     if not m:
         # "2 minutes" on its own, with no seconds part.
@@ -222,11 +277,14 @@ def find_platform(text: str) -> tuple[str | None, str | None]:
     """The platform word and the shape it implies, or (None, None).
 
     Longest key first so "instagram post" wins over a bare "post" would-be
-    match, and word boundaries so "shorts" does not fire inside "shortstop".
+    match, and word boundaries so "shorts" does not fire inside "shortstop" --
+    except for the Japanese keys, which have no boundaries to search for.
     """
     low = text.lower()
     for word in sorted(PLATFORM_ASPECTS, key=len, reverse=True):
-        if re.search(rf"\b{re.escape(word)}\b", low):
+        found = (word in low if _CJK_KEY.search(word)
+                 else re.search(rf"\b{re.escape(word)}\b", low))
+        if found:
             return word, PLATFORM_ASPECTS[word]
     return None, None
 
@@ -387,6 +445,7 @@ def parse_prompt(text: str) -> StoryPrompt:
         platform=platform,
         cut_rate=pace,
         visual=visual,
+        subtitles=wants_subtitles(text),
     )
 
 
