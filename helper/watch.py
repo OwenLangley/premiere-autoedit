@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 import shutil
 import subprocess
 import threading
@@ -304,8 +305,19 @@ def _write_shots(jobs: Path, shots: list[dict], complete: bool) -> None:
     }, indent=2) + "\n")
 
 
-def iter_media(media_root: Path, max_depth: int = MAX_INDEX_DEPTH):
-    """Media files under the root, breadth-first so top-level rushes come first."""
+# `.C1367.MP4.icloud` -- what iCloud leaves behind when it evicts a file to
+# save space. The original name is inside it.
+_EVICTED = re.compile(r"^\.(?P<name>.+)\.icloud$")
+
+
+def iter_media(media_root: Path, max_depth: int = MAX_INDEX_DEPTH,
+               evicted: list | None = None):
+    """Media files under the root, breadth-first so top-level rushes come first.
+
+    `evicted` collects the names of files iCloud has moved to the cloud, which
+    are not readable and not visible to any of the tests below.
+    """
+    evicted = [] if evicted is None else evicted
     queue: list[tuple[Path, int]] = [(media_root, 0)]
     while queue:
         folder, depth = queue.pop(0)
@@ -316,6 +328,15 @@ def iter_media(media_root: Path, max_depth: int = MAX_INDEX_DEPTH):
         folders = []
         for path in entries:
             if path.name.startswith("."):
+                # A file iCloud has evicted is not there: it is a hidden
+                # placeholder named `.C1367.MP4.icloud`, so it fails BOTH the
+                # dotfile skip and the extension test. The footage is visible in
+                # Finder with a cloud badge and invisible here, and the panel
+                # said "no video files in the media root", which is true and
+                # useless.
+                gone = _EVICTED.match(path.name)
+                if gone and Path(gone.group("name")).suffix.lower() in MEDIA_EXTENSIONS:
+                    evicted.append(gone.group("name"))
                 continue
             if path.is_dir():
                 if depth < max_depth:
@@ -334,8 +355,9 @@ def build_media_index(media_root: Path, max_files: int = MAX_INDEX_FILES) -> dic
     were footage.
     """
     entries: list[dict] = []
+    evicted: list[str] = []
     truncated = False
-    for path in iter_media(media_root):
+    for path in iter_media(media_root, evicted=evicted):
         if len(entries) >= max_files:
             truncated = True
             break
@@ -361,6 +383,10 @@ def build_media_index(media_root: Path, max_files: int = MAX_INDEX_FILES) -> dic
         "updatedAt": _now(),
         "scanDepth": MAX_INDEX_DEPTH,
         "truncated": truncated,
+        # Named, not just counted: "6 files are in iCloud" is actionable in a
+        # way that an empty picker is not.
+        "evicted": sorted(evicted)[:20],
+        "evictedCount": len(evicted),
         "files": entries,
     }
 
@@ -430,6 +456,14 @@ def write_music_index(jobs: Path, music_root: Path | None) -> None:
 
 def write_media_index(jobs: Path, media_root: Path) -> None:
     index = build_media_index(media_root)
+    if index["evictedCount"] and not index["files"]:
+        print(
+            f"warning: {index['evictedCount']} file(s) under {media_root} are in "
+            f"iCloud and not downloaded, so nothing is readable. In Finder, "
+            f"select them and File > Download Now, or turn off "
+            f"'Optimise Mac Storage'.",
+            file=sys.stderr,
+        )
     if index["truncated"]:
         print(
             f"warning: media index stopped at {MAX_INDEX_FILES} files; "

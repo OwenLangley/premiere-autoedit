@@ -1026,6 +1026,7 @@ async function loadMediaList() {
     // cards are nameplates until an editor happens to select a plan.
     state.libraryShots = state.transport ? await state.transport.listLibraryShots() : null;
     state.libraryFiles = (musicIndex && Array.isArray(musicIndex.files)) ? musicIndex.files : [];
+    state.mediaIndexMeta = index || null;
     if (index && Array.isArray(index.files)) {
       // Keyed by relPath, not name: the scan descends into subfolders now, so
       // two `theme.wav` under different folders are different files.
@@ -1046,7 +1047,15 @@ async function loadMediaList() {
     return;
   }
   if (!state.mediaFiles.length) {
-    box.innerHTML = `<div class="empty">${state.t("edit.noVideoFiles")}</div>`;
+    // "No video files in the media root" is true and useless: it names neither
+    // the folder looked in nor the reason. The two real causes are a folder
+    // with no footage in it, and footage iCloud has evicted -- which is visible
+    // in Finder with a cloud badge and unreadable to everything else.
+    const gone = state.mediaIndexMeta && state.mediaIndexMeta.evictedCount;
+    const where = (state.mediaIndexMeta && state.mediaIndexMeta.mediaRoot) || "";
+    box.innerHTML = `<div class="empty">${
+      gone ? state.t("edit.mediaInICloud", { count: gone, where })
+           : state.t("edit.noVideoFiles", { where })}</div>`;
     return;
   }
   // Cards, not a checkbox list. `C1376.MP4` says nothing about what is in the

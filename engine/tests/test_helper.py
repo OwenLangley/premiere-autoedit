@@ -699,3 +699,37 @@ def test_a_request_without_a_story_is_unchanged():
     }
     argv = request_to_argv(req, Path("/tmp/j"), Path("/tmp/m"), Path("/tmp/w"))
     assert "--story" not in argv and "--visual" not in argv
+
+
+def test_icloud_placeholders_are_counted_not_silently_skipped(tmp_path):
+    """Footage iCloud has evicted is invisible to every test in the walk.
+
+    An evicted file is a hidden placeholder named `.C1367.MP4.icloud`, so it
+    fails the dotfile skip AND the extension test. The footage shows in Finder
+    with a cloud badge and the panel said "no video files in the media root",
+    which is true and tells an editor nothing they can act on.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import build_media_index
+
+    (tmp_path / "sub").mkdir()
+    for name in (".C1367.MP4.icloud", ".C1371.MOV.icloud", ".Notes.txt.icloud"):
+        (tmp_path / name).touch()
+    (tmp_path / "sub" / ".C1380.MP4.icloud").touch()
+
+    index = build_media_index(tmp_path)
+    assert index["files"] == []
+    # The text file is not footage and must not be reported as missing footage.
+    assert index["evicted"] == ["C1367.MP4", "C1371.MOV", "C1380.MP4"]
+    assert index["evictedCount"] == 3
+
+
+def test_an_ordinary_dotfile_is_not_reported_as_evicted(tmp_path):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import build_media_index
+
+    (tmp_path / ".DS_Store").touch()
+    (tmp_path / ".hidden.mp4").touch()
+    assert build_media_index(tmp_path)["evictedCount"] == 0
