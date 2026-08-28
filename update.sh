@@ -41,13 +41,25 @@ trap finish EXIT
 echo
 echo "Updating AutoEdit..."
 
-if [ -n "$(git status --porcelain)" ]; then
+# Only TRACKED changes block a pull. `git status --porcelain` also lists
+# untracked files, and a stray note or a leftover download has nothing to do
+# with whether a fast-forward is safe -- but it stopped a colleague's update
+# dead, with a message telling them to commit a file they had never touched.
+CHANGED="$(git status --porcelain --untracked-files=no)"
+if [ -n "$CHANGED" ]; then
   STATUS="dirty"
-  DETAIL="this checkout has uncommitted changes, so nothing was pulled"
-  warn "$DETAIL"
-  git status --short
+  # Name them. "This checkout has uncommitted changes" is unactionable when you
+  # do not know which file, and the answer is nearly always a file the editor
+  # did not knowingly edit.
+  DETAIL="changed here: $(echo "$CHANGED" | awk '{print $2}' | tr '\n' ' ')"
+  warn "these tracked files differ from the repository, so nothing was pulled:"
+  echo "$CHANGED" | sed 's/^/      /'
   echo
-  echo "  Commit or stash them, then run this again."
+  echo "  If you did not change them on purpose, throw the changes away with:"
+  echo
+  echo "    git checkout -- ."
+  echo
+  echo "  Then run this again. To keep them instead, use: git stash"
   exit 1
 fi
 
