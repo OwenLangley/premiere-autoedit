@@ -35,6 +35,7 @@ function note(messageKey, params, message) {
 /** @typedef {import("@adobe/premierepro").ClipProjectItem} ClipProjectItem */
 
 const ppro = require("premierepro");
+const { MIN_PREMIERE, parseVersion, olderThanSupported } = require("./version");
 const {
   validatePlan, summarize, subclipName, planTag, toPremiereTranscript, isMasterFor, basenameOf,
 } = require("./plan");
@@ -144,35 +145,14 @@ const STRATEGY = { IN_OUT: "in-out", SUBCLIP: "subclip" };
  */
 const NO_SUBCLIP_API = "this Premiere has no createSubClipAction";
 
-/**
- * The oldest Premiere that has everything this panel calls.
- *
- * Measured against Adobe's own published type packages rather than guessed:
- * `createSubClipAction` is absent from @adobe/premierepro 26.2.0 and present in
- * 26.3.0, and `createSequenceWithPresetPath` is in 26.2.0 but not in a
- * colleague's 26.0.1. Both fall back now, but IN_OUT is measured broken on at
- * least one build, so falling back is damage control and not a supported path.
- */
-const MIN_PREMIERE = [26, 3];
-
 /** This Premiere's version as numbers, or null if it will not say. */
 function premiereVersion() {
   try {
-    const raw = /** @type {any} */ (ppro).Application
-      && /** @type {any} */ (ppro).Application.version;
-    if (!raw) return null;
-    const parts = String(raw).split(".").map((n) => parseInt(n, 10));
-    return parts.length && Number.isFinite(parts[0]) ? parts : null;
+    return parseVersion(/** @type {any} */ (ppro).Application
+      && /** @type {any} */ (ppro).Application.version);
   } catch {
     return null;
   }
-}
-
-function olderThanSupported(version) {
-  if (!version) return false;
-  const [major, minor = 0] = version;
-  return major < MIN_PREMIERE[0]
-    || (major === MIN_PREMIERE[0] && minor < MIN_PREMIERE[1]);
 }
 
 const UNDO = {

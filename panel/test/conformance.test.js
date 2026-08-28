@@ -23,3 +23,24 @@ for (const c of vectors.cases) {
     for (const v of c.timecode) assert.strictEqual(tb.timecode(t, v.frames), v.timecode);
   });
 }
+
+test("the Premiere version warning fires on old builds and stays quiet otherwise", () => {
+  // It gates a warning shown on every build. Wrong in one direction it cries
+  // wolf until warnings are ignored; wrong in the other it stays silent while
+  // an editor hits missing calls one at a time, which is what happened.
+  const { MIN_PREMIERE, olderThanSupported, parseVersion } = require("../src/version");
+  assert.deepEqual(MIN_PREMIERE, [26, 3], "measured: createSubClipAction arrived in 26.3.0");
+
+  for (const v of [[26, 0, 1], [26, 2, 0], [25, 9, 9], [26, 2]]) {
+    assert.ok(olderThanSupported(v), `${v.join(".")} should warn`);
+  }
+  for (const v of [[26, 3, 0], [26, 3, 2], [26, 5, 0], [27, 0, 0], [26, 3]]) {
+    assert.ok(!olderThanSupported(v), `${v.join(".")} should not warn`);
+  }
+  // An unreadable version must not warn: a false alarm on every build teaches
+  // editors to ignore the one that matters.
+  assert.ok(!olderThanSupported(null));
+  assert.deepEqual(parseVersion("26.3.2"), [26, 3, 2]);
+  assert.equal(parseVersion(""), null);
+  assert.equal(parseVersion(undefined), null);
+});
