@@ -65,7 +65,12 @@ if [ $PULL_RC -ne 0 ]; then
     echo "  Those files differ from the repository. If you did not change them"
     echo "  on purpose -- and on an editing machine you almost certainly did not:"
     echo
-    echo "    git checkout -- . && ./update.sh"
+    # `git restore .` rather than `git checkout -- .`: the double dash does not
+    # survive being pasted through a chat app, which turns it into an en dash or
+    # eats it, and the result is "fatal: 'ff-only' does not appear to be a git
+    # repository" -- a message about a mangled flag that reads like a broken
+    # repository. Nothing here should contain a `--` that a human has to retype.
+    echo "    git restore . && ./update.sh"
     echo
     echo "  To keep them instead: git stash"
   else

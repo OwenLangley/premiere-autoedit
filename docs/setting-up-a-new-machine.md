@@ -65,6 +65,13 @@ invitation has not been accepted yet.
 Neither is worth debugging beyond that. Anyone who can clone the repo and run
 `./setup.sh --check` cleanly is past both.
 
+**A third, which is not a git problem at all:**
+`fatal: 'ff-only' does not appear to be a git repository`. The `--` in
+`git pull --ff-only` did not survive being pasted -- chat apps turn a double
+dash into an en dash, and git then reads the flag as the name of a remote. Plain
+`git pull` does the same job here. When sending commands to someone, prefer ones
+with no double dash in them: `git restore .` over `git checkout -- .`.
+
 ## What the first run costs
 
 - **~3 GB Whisper model download.** Once per machine, then cached in
