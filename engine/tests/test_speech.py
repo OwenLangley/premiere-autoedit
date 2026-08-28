@@ -53,9 +53,10 @@ def test_a_cut_inside_a_word_is_moved_out_of_it():
     t = tx(("hello", 1.0, 1.4), ("there", 1.45, 2.0))
     got, moved, _ = protect(plan((0.0, 1.6)), t, media_duration=10.0)
     assert moved == 1
-    # 1.6 was inside the utterance 1.0-2.0; reaching forward keeps it whole, and
-    # the margin puts it clear of the edge so frame-snapping cannot round back in.
-    assert got.keeps[0].end == pytest.approx(2.0 + SNAP_MARGIN)
+    # Out of "there" and into the gap between the two words. NOT forward to 2.05:
+    # that would lengthen the take, and nothing re-fits the edit afterwards.
+    assert got.keeps[0].end == pytest.approx(1.425)
+    assert got.keeps[0].duration <= 1.6
 
 
 def test_a_whole_utterance_goes_in_or_out_never_half():
@@ -81,8 +82,10 @@ def test_a_far_boundary_excludes_the_utterance_rather_than_reaching():
     """
     t = tx(("a", 1.0, 1.2), ("verylong", 1.25, 9.0))
     got, _, _ = protect(plan((0.0, 1.5)), t, media_duration=20.0, max_shift=1.5)
-    # Reaching forward to 9.0 is 7.5s away, so the utterance is excluded instead.
-    assert got.keeps[0].end == pytest.approx(1.0 - SNAP_MARGIN)
+    # Reaching forward to 9.0 is 7.5s away and would lengthen the take besides,
+    # so the cut lands in the gap between the two words instead.
+    assert got.keeps[0].end == pytest.approx(1.225)
+    assert got.keeps[0].duration <= 1.5
 
 
 def test_a_keep_that_would_collapse_is_left_as_it_was():
@@ -219,20 +222,30 @@ def test_the_word_gap_fallback_survives_frame_snapping():
                     f"{fps:.2f}fps: {edge} -> {snapped} landed inside a word")
 
 
-def test_the_nearer_edge_wins_so_the_edit_changes_least():
-    """Whole sentence in or out, whichever moves the cut less.
+def test_protection_never_lengthens_a_take():
+    """The rule the finished edit depends on.
 
-    Always reaching forward would lengthen every clip that happened to end in
-    speech, which fights the duration the editor asked for. The guarantee is
-    that no word is cut, not which side of it the cut lands on.
+    This pass runs AFTER the duration fitting -- it has to, or the fitting moves
+    boundaries back inside a word -- so nothing re-fits afterwards and a clip
+    that grows here grows the film. Before this rule existed, four jobs asking
+    for exactly 15s came out at 16.28, 16.28, 20.17 and 24.54 seconds.
     """
     t = tx(("short", 1.0, 1.3))
-    # 1.1 is 0.1 from the start and 0.2 from the end, so the cut lands before it.
-    got, _, _ = protect(plan((0.0, 1.1)), t, media_duration=10.0)
-    assert got.keeps[0].end == pytest.approx(1.0 - SNAP_MARGIN)
-    # 1.25 is nearer the end, so the word is kept whole instead.
-    got, _, _ = protect(plan((0.0, 1.25)), t, media_duration=10.0)
-    assert got.keeps[0].end == pytest.approx(1.3 + SNAP_MARGIN)
+    for cut in (1.05, 1.1, 1.2, 1.25, 1.29):
+        got, _, _ = protect(plan((0.0, cut)), t, media_duration=10.0)
+        assert got.keeps[0].duration <= cut + 1e-9, (
+            f"cut at {cut} grew to {got.keeps[0].duration}")
+
+
+def test_no_take_grows_on_a_dense_transcript():
+    # The realistic case: many short words, many candidate boundaries, and every
+    # combination of them still has to respect the length.
+    spoken = [(f"w{i}", 1.0 + i * 0.3, 1.0 + i * 0.3 + 0.22) for i in range(30)]
+    t = tx(*spoken)
+    original = plan((2.0, 3.6), (4.1, 5.9), (6.05, 7.0))
+    got, _, _ = protect(original, t, media_duration=20.0, min_length=0.4)
+    for before, after in zip(original.keeps, got.keeps):
+        assert after.duration <= before.duration + 1e-9
 
 
 def test_words_with_no_gap_between_them_are_reported_not_hidden():

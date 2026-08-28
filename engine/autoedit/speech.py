@@ -109,19 +109,26 @@ def silences(transcript: Transcript, media_duration: float) -> list[tuple[float,
     return out
 
 
-def _nearest_quiet(quiet: list[tuple[float, float]], at: float) -> float | None:
-    """The safest moment near `at` that is not inside a word.
+def _quiet_near(quiet: list[tuple[float, float]], at: float) -> list[float]:
+    """Safe moments near `at`, one on each side. Empty when there are none.
 
-    The MIDDLE of the nearest gap, not its edge. An edge is a millisecond from
-    being inside the word again, and every boundary here is snapped to a frame
+    The MIDDLE of a gap, not its edge. An edge is a millisecond from being
+    inside the word again, and every boundary here is snapped to a frame
     afterwards -- rounding to nearest, in whichever direction it likes.
+
+    Both sides, not just the nearest. A boundary may only move in the direction
+    that does not lengthen the take, and offering one candidate meant that when
+    the nearest gap happened to lie the wrong way there was no answer at all --
+    the take was left with a cut inside a word for want of looking 80ms further.
     """
-    best = None
-    for start, end in quiet:
-        middle = (start + end) / 2
-        if best is None or abs(middle - at) < abs(best - at):
-            best = middle
-    return best
+    before = [(s + e) / 2 for s, e in quiet if (s + e) / 2 <= at]
+    after = [(s + e) / 2 for s, e in quiet if (s + e) / 2 > at]
+    out = []
+    if before:
+        out.append(before[-1])
+    if after:
+        out.append(after[0])
+    return out
 
 
 def protect(
@@ -162,42 +169,52 @@ def protect(
     quiet = silences(transcript, media_duration)
     words = [(w.start, w.end) for w in transcript.words]
 
-    def whole_sentence(at: float, is_start: bool) -> float:
-        """Out of the utterance entirely: the whole thing in, or the whole out."""
+    def candidates(at: float, is_start: bool) -> list[float]:
+        """Where this boundary could go, best first.
+
+        Both edges of the utterance, then the nearest gap between two words.
+        Ordered by how far the cut has to move, because the smallest change to
+        the edit that gets out of the word is the right one.
+        """
         inside = _containing(spans, at)
         if not inside:
-            return at
-        toward_start, toward_end = at - inside[0], inside[1] - at
-        if is_start:
-            take_top = toward_start <= max_shift and toward_start <= toward_end
-            return inside[0] - margin if take_top else inside[1] + margin
-        take_end = toward_end <= max_shift and toward_end <= toward_start
-        return inside[1] + margin if take_end else inside[0] - margin
+            return [at]
+        options = [inside[0] - margin, inside[1] + margin]
+        options.extend(_quiet_near(quiet, at))
+        options = [o for o in options if abs(o - at) <= max_shift] or options[:1]
+        return sorted(set(options), key=lambda o: abs(o - at))
+
+    def outside_a_word(at: float) -> bool:
+        return not any(w0 < at < w1 for w0, w1 in words)
 
     moved = 0
     stuck = 0
     out: list[Keep] = []
     for keep in cuts.keeps:
-        start = whole_sentence(keep.start, True)
-        end = whole_sentence(keep.end, False)
-        start, end = max(0.0, start), min(media_duration, end)
-
-        # Second tier. Keeping a whole sentence is the better answer and is
-        # tried first, but it only exists when the take is longer than the
-        # sentence. When it is not, the boundary still must not fall inside a
-        # word -- so it goes to the middle of the nearest gap between two words,
-        # which costs a few tens of milliseconds instead of the whole take.
-        if end - start < min_length:
-            start = _nearest_quiet(quiet, keep.start)
-            end = _nearest_quiet(quiet, keep.end)
-            start = keep.start if start is None else max(0.0, start)
-            end = keep.end if end is None else min(media_duration, end)
-
-        if end - start < min_length or end <= start:
-            # Nowhere to go. Left as it was and counted as unprotected rather
-            # than reported as moved -- a count that includes the ones that did
-            # not work is worse than no count.
-            start, end = keep.start, keep.end
+        # Every combination of where each edge could go, scored. The winner is
+        # the one that gets both edges out of a word WITHOUT MAKING THE TAKE
+        # LONGER, moving as little as possible.
+        #
+        # The length rule is not a nicety. This pass runs after the duration
+        # fitting -- it has to, or the fitting moves the boundaries back inside
+        # a word -- so nothing re-fits afterwards and any clip that grows here
+        # grows the finished edit. Measured before this rule existed: four jobs
+        # asking for 15s came out at 16.28, 16.28, 20.17 and 24.54.
+        best = None
+        for a in candidates(keep.start, True):
+            for b in candidates(keep.end, False):
+                lo, hi = max(0.0, a), min(media_duration, b)
+                if hi - lo < min_length or hi <= lo:
+                    continue
+                if hi - lo > keep.duration + 1e-9:
+                    continue
+                score = (
+                    not (outside_a_word(lo) and outside_a_word(hi)),
+                    abs(lo - keep.start) + abs(hi - keep.end),
+                )
+                if best is None or score < best[0]:
+                    best = (score, lo, hi)
+        start, end = (best[1], best[2]) if best else (keep.start, keep.end)
 
         if (start, end) != (keep.start, keep.end):
             moved += 1

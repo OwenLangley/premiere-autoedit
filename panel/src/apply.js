@@ -1429,6 +1429,16 @@ async function importSubtitles(project, srtPath, sequence) {
   const warnings = [];
   const name = basenameOf(srtPath);
 
+  // Already in the project from an earlier build of the same job? Then the
+  // engine has overwritten the file underneath it, and what Premiere shows is
+  // whatever it read the first time. Same filename, different edit, and the
+  // captions drift out of sync with a timeline that looks freshly built.
+  let stale = false;
+  try {
+    const index = await indexProjectMedia(project);
+    stale = index.has(normalizePath(srtPath));
+  } catch { /* the import below is the point */ }
+
   try {
     const ok = await project.importFiles(
       [srtPath], true, await project.getRootItem(), false
@@ -1445,6 +1455,12 @@ async function importSubtitles(project, srtPath, sequence) {
       "subtitles.notImported", { file: name, detail: err.message },
       `${name} was written but Premiere would not import it (${err.message}) — ` +
       `File > Import it by hand`));
+  }
+
+  if (stale) {
+    warnings.push(note("subtitles.stale", { file: name },
+      `${name} was already in this project from an earlier build — remove the old ` +
+      `one from the bin and re-import, or its captions will be from the previous edit`));
   }
 
   warnings.push(...await placeSubtitles(project, sequence, srtPath, name));

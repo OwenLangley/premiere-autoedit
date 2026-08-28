@@ -414,6 +414,28 @@ those calls accepts the `.srt` as video, the edit has just been polluted with a
 subtitle file on V1, and that is worse than not placing it: the build says so
 and tells the editor to press Cmd-Z once.
 
+## 12e. A pass that runs after the duration fitting must not lengthen anything
+
+Speech protection has to run last -- the duration fitting and the beat snapping
+both move boundaries, and running before them put the cuts straight back inside
+a word. But nothing re-fits after it, so every clip it grew grew the film.
+
+Measured across four jobs asking for **exactly 15 seconds**: 16.28, 16.28, 20.17
+and 24.54. The one job with protection off came in at 11.68 against 12. It was
+not subtle and it was not noticed until an editor said the subtitles ran past
+the end of the video, which is how it looks from the outside.
+
+The rule is now that protection **may shorten a take and may never lengthen
+one**. Each boundary gets a candidate list -- both utterance edges, and the
+middle of the nearest gap between two words on *each* side -- and the
+combination is chosen that gets both edges out of a word without exceeding the
+original length, moving as little as possible. Same job afterwards: 13.50s,
+under the target and reported as under, rather than 1.28s over it and silent.
+
+Offering one gap candidate instead of two was itself a bug on the way: when the
+nearest gap lay in the lengthening direction there was no answer at all, and the
+take kept a cut inside a word for want of looking 80ms further the other way.
+
 Two routes remain, and both are blocked on something outside the code:
 
 1. **Premiere's own caption generation**, which needs a transcript inside
