@@ -66,7 +66,8 @@ const state = {
   format: null,          // the deliverable card the editor picked
   // What the description last set, so a later keystroke only pushes what
   // actually changed and a hand-made adjustment is not overwritten.
-  promptApplied: { seconds: null, aspect: null, cutRate: null, visual: null, recipe: null },
+  promptApplied: { seconds: null, aspect: null, cutRate: null, visual: null,
+                   subtitles: null, recipe: null },
   lastReceipt: null,     // the previous build of this plan, if there was one
   libraryShots: null,
   thumbFailureLogged: false,
@@ -1202,6 +1203,17 @@ function applyPromptSettings() {
       from.push(state.t("prompt.fromPictures"));
     }
   }
+  // Asking for subtitles in the description ticks the box, and ticking the box
+  // is what makes the setting visible. Left untouched, an editor would write
+  // "with subtitles", get them, and see a form saying they had not asked.
+  if (got.subtitles && !last.subtitles) {
+    const box = $("opt-subtitles");
+    if (box && !box.checked) {
+      box.checked = true;
+      box.dispatchEvent(new Event("change"));
+      from.push(state.t("prompt.subtitles"));
+    }
+  }
   // The rate goes last, and only once cutting from pictures is on: a rate on a
   // speech edit is a setting the engine accepts and never acts on.
   if (got.cutRate !== last.cutRate && got.cutRate !== null && $("opt-visual").checked) {
@@ -1234,6 +1246,10 @@ function currentForm() {
     cutRate: $("opt-cut-rate").value,
     look: $("opt-look").value || null,
     visual: $("opt-visual").checked,
+    subtitles: $("opt-subtitles").checked,
+    protectSpeech: $("opt-protect-speech").checked,
+    removeSilence: $("opt-remove-silence").checked,
+    silenceAllowed: Number($("opt-silence-allowed").value),
     story: $("opt-story").value,
     durationMode: $("opt-duration-mode").value,
     durationSeconds: Number.isFinite(seconds) ? seconds : null,
@@ -1390,6 +1406,25 @@ $("media-none").addEventListener("click", () => {
   loadMediaList();
 });
 $("opt-visual").addEventListener("change", renderSummary_);
+
+/**
+ * The allowance only means something once silence is being removed, and
+ * "keep whole sentences" is not a choice once subtitles are on -- the engine
+ * turns it on regardless, so a box the editor could untick would be a lie.
+ */
+function syncSpeechFields() {
+  const removing = $("opt-remove-silence").checked;
+  $("silence-allowed-field").classList.toggle("hidden", !removing);
+  const subs = $("opt-subtitles").checked;
+  const protect = $("opt-protect-speech");
+  if (subs) protect.checked = true;
+  protect.disabled = subs;
+}
+for (const id of ["opt-subtitles", "opt-protect-speech", "opt-remove-silence",
+                  "opt-silence-allowed"]) {
+  $(id).addEventListener("change", () => { syncSpeechFields(); renderSummary_(); });
+}
+syncSpeechFields();
 for (const id of ["job-name", "opt-story", "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut-rate",
                   "opt-look", "opt-duration-mode", "opt-duration-seconds",
                   "opt-music", "opt-music-start", "opt-music-length"]) {

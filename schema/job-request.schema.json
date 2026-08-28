@@ -138,6 +138,20 @@
           "type": "boolean",
           "description": "Write an .srt for the finished edit. A speech edit already has the words; a montage does not, so this makes it transcribe for subtitles alone."
         },
+        "protectSpeech": {
+          "type": "boolean",
+          "description": "Never cut through the middle of what someone is saying: a boundary landing inside an utterance moves to its edge. Implied by subtitles."
+        },
+        "removeSilence": {
+          "type": "boolean",
+          "description": "Trim silence beyond silenceAllowed from each take, and drop takes with no speech in them."
+        },
+        "silenceAllowed": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Seconds of silence to leave around what is said. Only meaningful with removeSilence."
+        },
         "story": {
           "type": "string",
           "minLength": 1,

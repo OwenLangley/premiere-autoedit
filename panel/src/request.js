@@ -192,6 +192,8 @@ function jobIdWasChanged(raw) {
  *   aspect?: string, pacing?: string, cutRate?: string|number, look?: string|null,
  *   durationMode?: string, durationSeconds?: number|null,
  *   music?: string, visual?: boolean,
+ *   subtitles?: boolean, protectSpeech?: boolean,
+ *   removeSilence?: boolean, silenceAllowed?: number,
  *   musicStart?: number, musicLength?: number, musicSnap?: boolean, language?: string,
  *   story?: string,
  * }} form
@@ -216,6 +218,16 @@ function buildRequest(form) {
   }
   if (form.look) options.look = form.look;
   if (form.visual) options.visual = true;
+  if (form.subtitles) options.subtitles = true;
+  // Sent only when asked for. The engine turns it on itself for a subtitled
+  // edit, so sending false here would not disable anything -- it would just be
+  // a field that looks like a decision and is not one.
+  if (form.protectSpeech) options.protectSpeech = true;
+  if (form.removeSilence) {
+    options.removeSilence = true;
+    const allowed = Number(form.silenceAllowed);
+    if (Number.isFinite(allowed) && allowed >= 0) options.silenceAllowed = allowed;
+  }
   // Sent raw. The engine owns the parsing, so there is one grammar rather than
   // two that drift -- and the beats it found come back on the plan, where the
   // editor reviews them against real shots instead of against a guess.

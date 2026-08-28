@@ -62,6 +62,7 @@ const EN = {
   "edit.describeHint": "Each shot you describe becomes a section of the edit, in the order you write them. Anything the footage cannot serve is left out and said so.",
   "prompt.applied": "Set from your description: {settings}",
   "prompt.fromPictures": "cut from pictures",
+  "prompt.subtitles": "subtitles",
   "edit.adjustShow": "Show settings",
   "edit.adjustHide": "Hide settings",
   "format.noLimit": "No length limit",
@@ -85,6 +86,13 @@ const EN = {
   "edit.createHint": "Runs in the background. The plan appears below when it is ready.",
   "edit.visual": "Cut from the pictures, ignoring speech",
   "edit.visualHint": "For promos and b-roll. Leave off to cut to what is said.",
+  "edit.subtitles": "Write subtitles (.srt)",
+  "edit.subtitlesHint": "Transcribes the speech and writes subtitles for the finished cut.",
+  "edit.protectSpeech": "Keep whole sentences",
+  "edit.protectSpeechHint": "Moves a cut off the middle of a word. On automatically with subtitles.",
+  "edit.removeSilence": "Cut out silence",
+  "edit.removeSilenceHint": "Trims the quiet either side of speech and drops shots where nothing is said.",
+  "edit.silenceAllowed": "Silence to leave",
   "edit.noMediaRoot": "Set a media root above.",
   "edit.noVideoFiles": "No video files in the media root.",
   "edit.mediaUnreadable": "Could not read the media root: {message}",
@@ -343,6 +351,18 @@ const EN = {
     "{file} imported — drag it onto a caption track if it is not already there",
   "warn.subtitles.notImported":
     "{file} was written but Premiere would not import it ({detail}) — File > Import it by hand",
+  "warn.speech.protected":
+    "{count} cut(s) moved off the middle of a word so nobody is cut off mid-sentence",
+  "warn.speech.couldNotProtect":
+    "{count} cut(s) still fall inside a word: the speech there runs with no gap to cut in",
+  "warn.speech.beatsGaveWay":
+    "some cuts no longer sit exactly on the beat, because keeping whole sentences and cutting on every beat cannot both be true",
+  "warn.silence.removed":
+    "{seconds}s of silence removed, leaving up to {allowed}s around what is said",
+  "warn.silence.shotDropped":
+    "nothing is said in this shot",
+  "warn.silence.allDropped":
+    "removing silence would have emptied the edit, so it was left alone — raise the allowance or turn it off",
   "warn.subtitles.written":
     "{count} subtitle(s) written to {file} — File > Import in Premiere puts them on a caption track",
   "warn.subtitles.none":
@@ -411,6 +431,7 @@ const JA = {
   "edit.describeHint": "説明した各ショットが、書いた順にセクションになります。映像内に見つからないものは除外し、その旨をお知らせします。",
   "prompt.applied": "説明文から設定しました: {settings}",
   "prompt.fromPictures": "映像からカット",
+  "prompt.subtitles": "字幕",
   "edit.adjustShow": "設定を表示",
   "edit.adjustHide": "設定を隠す",
   "format.noLimit": "長さの指定なし",
@@ -434,6 +455,13 @@ const JA = {
   "edit.createHint": "バックグラウンドで実行されます。完了するとプランが下に表示されます。",
   "edit.visual": "音声を無視して映像でカットする",
   "edit.visualHint": "プロモや B ロール向けです。オフにすると話した内容に合わせてカットします。",
+  "edit.subtitles": "字幕を書き出す（.srt）",
+  "edit.subtitlesHint": "音声を文字起こしし、完成した編集に合わせた字幕を書き出します。",
+  "edit.protectSpeech": "文を途中で切らない",
+  "edit.protectSpeechHint": "語の途中に来たカットをずらします。字幕を書き出す場合は自動でオンになります。",
+  "edit.removeSilence": "無音を削除する",
+  "edit.removeSilenceHint": "発話の前後の静かな部分を詰め、発話のないショットを外します。",
+  "edit.silenceAllowed": "残す無音の長さ",
   "edit.noMediaRoot": "上で素材フォルダを設定してください。",
   "edit.noVideoFiles": "素材フォルダに動画ファイルがありません。",
   "edit.mediaUnreadable": "素材フォルダを読み込めませんでした：{message}",
@@ -690,6 +718,18 @@ const JA = {
     "{file} を読み込みました。キャプショントラックに入っていない場合はドラッグしてください",
   "warn.subtitles.notImported":
     "{file} は書き出しましたが Premiere が読み込めませんでした（{detail}）。ファイル > 読み込み から手動で追加してください",
+  "warn.speech.protected":
+    "発話の途中で切れないよう、カット {count} 箇所を語の切れ目に移動しました",
+  "warn.speech.couldNotProtect":
+    "カット {count} 箇所は語の途中のままです。その部分は途切れなく話しているため切れる隙間がありません",
+  "warn.speech.beatsGaveWay":
+    "文を最後まで残すことと拍ちょうどで切ることは両立しないため、一部のカットは拍からずれています",
+  "warn.silence.removed":
+    "無音 {seconds} 秒を削除し、発話の前後に最大 {allowed} 秒を残しました",
+  "warn.silence.shotDropped":
+    "このショットには発話がありません",
+  "warn.silence.allDropped":
+    "無音を削除すると編集が空になるため、そのままにしました。許容量を増やすかオフにしてください",
   "warn.subtitles.written":
     "字幕 {count} 件を {file} に書き出しました。Premiere の ファイル > 読み込み でキャプショントラックに追加できます",
   "warn.subtitles.none":

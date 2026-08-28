@@ -491,6 +491,11 @@ def request_to_argv(
     # happens to recognise.
     if options.get("subtitles"):
         argv += ["--subtitles"]
+    if options.get("protectSpeech"):
+        argv += ["--protect-speech"]
+    if options.get("removeSilence"):
+        argv += ["--remove-silence"]
+        argv += ["--silence-allowed", _num(options.get("silenceAllowed", 0.5))]
     if options.get("model"):
         argv += ["--model", options["model"]]
     if options.get("language"):

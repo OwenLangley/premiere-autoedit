@@ -559,6 +559,32 @@ editor named 店の外観 and it was simply not in the edit. Only the clause the
 marker trails is a shot; what precedes *that* is the preamble, and the last
 connective before the marker is where it ends.
 
+## 12d. A protected cut has to survive the frame snap that follows it
+
+Cutting a montage of people talking put boundaries inside words -- three in one
+plan, one of them inside a single character. Moving the boundary to the edge of
+the word is the obvious fix and it does not work: `append_cuts` snaps every
+source point to the source frame grid afterwards, **rounding to nearest**, so a
+boundary sitting exactly on a word's edge rounds straight back in. Measured: the
+cut was moved to 1.1600, the word began at 1.1600, snapping at 59.94fps produced
+1.1678. Eleven cuts were reported protected and ten were still mid-word.
+
+The boundary has to land a clear margin outside -- 50ms covers one frame at
+every rate this tool supports, and it is spent on silence either way.
+
+That fixed three of eleven. The rest needed a second idea entirely: **continuous
+speech does not divide into sentences a clip can fit inside.** A coach shouting
+instructions produced utterances of 4.7 and 5.9 seconds against takes of 1.6, so
+"keep the whole sentence" had nowhere to put the boundary and gave up. Cutting
+between two words inside a long sentence is ordinary editing; cutting through
+the middle of one never is. Whole sentence first, nearest inter-word gap second.
+
+**Eleven of twenty down to two.** The last two are not a bug: Whisper sometimes
+reports a run of words with no silence between them at all -- one ends exactly
+where the next begins -- and then there is no moment in that stretch that is not
+inside a word. That count is reported rather than hidden, because a protection
+pass that quietly fails is worse than one that says what it could not do.
+
 ## 13. What works
 
 - Panel loads, renders, and is interactive

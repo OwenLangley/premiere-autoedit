@@ -185,6 +185,29 @@ SUBTITLE_WORDS_CJK = (
 )
 
 
+# Descriptions where what is being said is the point. Subtitles imply this on
+# their own; these catch the editor who says it without using that word.
+#
+# Compound forms in Japanese: a bare 話 lives inside 電話 and 世話 and would fire
+# on a phone and on looking after someone.
+SPEECH_WORDS = (
+    "interview", "interviews", "talking head", "talking heads", "testimonial",
+    "vox pop", "speech", "what they say", "what they are saying",
+    "what people say", "dialogue", "podcast", "voiceover", "voice over",
+)
+SPEECH_WORDS_CJK = (
+    "インタビュー", "会話", "トーク", "話している", "話してる", "証言", "対談",
+)
+
+
+def wants_speech_kept(text: str) -> bool:
+    """Does this description make the talking the point?"""
+    low = text.lower()
+    if any(w in low for w in SPEECH_WORDS_CJK):
+        return True
+    return any(re.search(rf"\b{re.escape(w)}\b", low) for w in SPEECH_WORDS)
+
+
 def wants_subtitles(text: str) -> bool:
     """Did the editor ask for subtitles in the description?"""
     low = text.lower()
@@ -227,6 +250,7 @@ class StoryPrompt:
     cut_rate: float | None = None
     visual: bool = False
     subtitles: bool = False
+    protect_speech: bool = False
 
     @property
     def has_running_order(self) -> bool:
@@ -446,6 +470,8 @@ def parse_prompt(text: str) -> StoryPrompt:
         cut_rate=pace,
         visual=visual,
         subtitles=wants_subtitles(text),
+        # Subtitling an edit is itself a statement that the words matter.
+        protect_speech=wants_subtitles(text) or wants_speech_kept(text),
     )
 
 

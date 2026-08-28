@@ -158,6 +158,25 @@ CATALOGUE: dict[str, str] = {
         "a description needs pictures to match against; add --visual, or pick "
         "footage the analyser can read",
 
+    # --- speech-aware cutting ----------------------------------------------
+    "speech.protected":
+        "{count} cut(s) moved off the middle of a word so nobody is cut off "
+        "mid-sentence",
+    "speech.couldNotProtect":
+        "{count} cut(s) still fall inside a word: the speech there runs with no "
+        "gap to cut in",
+    "speech.beatsGaveWay":
+        "some cuts no longer sit exactly on the beat, because keeping whole "
+        "sentences and cutting on every beat cannot both be true",
+    "silence.removed":
+        "{seconds:.1f}s of silence removed, leaving up to {allowed:.1f}s around "
+        "what is said",
+    "silence.shotDropped":
+        "nothing is said in this shot",
+    "silence.allDropped":
+        "removing silence would have emptied the edit, so it was left alone -- "
+        "raise the allowance or turn it off",
+
     # --- subtitles ---------------------------------------------------------
     "subtitles.written":
         "{count} subtitle(s) written to {file} -- File > Import in Premiere puts "

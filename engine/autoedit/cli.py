@@ -474,12 +474,23 @@ def cmd_plan(args) -> int:
     # musical beat grid that is live throughout this function, so the story's
     # units keep their own name everywhere: sections.
     story = parse_prompt(args.story) if getattr(args, "story", None) else None
+    # An edit worth subtitling is one where what is said matters, so cutting
+    # through the middle of a sentence is never what was wanted. Checked again
+    # after the description is read, because the description can ask for
+    # subtitles too and this must hold however the ask arrived.
+    if args.subtitles:
+        args.protect_speech = True
     story_spans: list[tuple[str, float, float, float, Path]] = []
     # Transcripts made ONLY to subtitle a montage. Deliberately not added to the
     # plan: the panel hands plan transcripts to Premiere's Text-Based Editing,
     # which rejects them, and a montage would collect one "could not import"
     # warning per clip for a feature its editor never asked for.
     subtitle_only: list[Transcript] = []
+    speech_nudges = 0
+    speech_stuck = 0
+    silence_removed: dict[str, float] = {}
+    heard_by_media: dict[str, Transcript] = {}
+    durations: dict[str, float] = {}
     if story:
         # What the sentence said about the film itself. The editor typed this in
         # the same breath as everything else, so it wins over the form: a prompt
@@ -499,6 +510,9 @@ def cmd_plan(args) -> int:
         if story.subtitles and not getattr(args, "subtitles", False):
             args.subtitles = True
             applied.append("subtitles")
+        if (story.protect_speech or args.subtitles) and not args.protect_speech:
+            args.protect_speech = True
+            applied.append("whole sentences")
         if story.cut_rate and options.cut_rate != story.cut_rate:
             options = replace(options, cut_rate=story.cut_rate)
             applied.append(f"cut every {story.cut_rate:g}")
@@ -696,7 +710,53 @@ def cmd_plan(args) -> int:
             except VisualError as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1
+            # The words, before the cuts rather than after them. A montage does
+            # not cut TO speech -- that is what makes it a montage -- but it can
+            # avoid cutting THROUGH it, and it cannot do that without knowing
+            # where the speech is.
+            heard: Transcript | None = None
+            if (getattr(args, "subtitles", False)
+                    or getattr(args, "protect_speech", False)
+                    or getattr(args, "remove_silence", False)) and info.has_audio:
+                try:
+                    heard = _transcribe_once(
+                        path, mid, info, args, recipe, provider, provider_name,
+                        cache_root, work_dir,
+                    )
+                    subtitle_only.append(heard)
+                except TranscriptionError as exc:
+                    # Never fatal here: the edit does not depend on it, and
+                    # losing the whole job over a missing subtitle would be a
+                    # far worse trade than losing the subtitle.
+                    builder.add_warning("subtitles", note(
+                        "subtitles.failed", file=path.name, detail=str(exc)), mid)
+                    print(f"  {path.name}: no subtitles ({exc})", file=sys.stderr)
+
             cuts = plan_visual_cuts(analysis, info.duration, visual, beats)
+
+            if heard is not None and heard.words:
+                from . import speech
+
+                if getattr(args, "remove_silence", False):
+                    trimmed, gone = speech.drop_silence(
+                        cuts, heard, allowed=float(args.silence_allowed),
+                        min_length=detection.min_clip_length)
+                    if trimmed.keeps:
+                        cuts = trimmed
+                        if gone > 0.05:
+                            silence_removed[mid] = gone
+                    else:
+                        # Every take was silent. Emptying the edit is never the
+                        # answer to a slider.
+                        builder.add_warning("silence", note("silence.allDropped"), mid)
+
+                # Protection does NOT happen here. Duration fitting and beat
+                # snapping both run after this and move boundaries again, which
+                # put them straight back inside a word -- measured: 36 cuts
+                # nudged here, 10 still mid-word in the finished plan. It is the
+                # last word on a boundary or it is nothing.
+                heard_by_media[mid] = heard
+                durations[mid] = info.duration
             kept = len(analysis.usable)
             usable_shots += kept
             print(
@@ -747,24 +807,6 @@ def cmd_plan(args) -> int:
                     mid, span.shot.start, span.shot.end, span.score,
                     reason=f"quality {span.score:.2f}", thumb_path=thumb,
                 )
-
-            # Subtitles for a montage. The words do not decide where the cuts
-            # go -- that is what makes this the picture branch -- but footage of
-            # people talking can still be subtitled, and asking for that used to
-            # produce nothing at all and no reason why.
-            if getattr(args, "subtitles", False) and info.has_audio:
-                try:
-                    subtitle_only.append(_transcribe_once(
-                        path, mid, info, args, recipe, provider, provider_name,
-                        cache_root, work_dir,
-                    ))
-                except TranscriptionError as exc:
-                    # Never fatal here: the edit does not depend on it, and
-                    # losing the whole job over a missing subtitle would be a
-                    # far worse trade than losing the subtitle.
-                    builder.add_warning("subtitles", note(
-                        "subtitles.failed", file=path.name, detail=str(exc)), mid)
-                    print(f"  {path.name}: no subtitles ({exc})", file=sys.stderr)
 
             collected.append((mid, cuts, v_track, a_track))
             continue
@@ -899,6 +941,26 @@ def cmd_plan(args) -> int:
         collected, story_sections = _assemble_story(
             story, story_spans, collected, builder, options, detection, cache_root)
 
+    # Every boundary is now final except for the beat snapping inside
+    # append_cuts, so this is the last place a cut can be moved off a word.
+    protected: set[str] = set()
+    if getattr(args, "protect_speech", False) and heard_by_media:
+        from . import speech
+
+        rebuilt = []
+        for mid, cuts, v_track, a_track in collected:
+            heard = heard_by_media.get(mid)
+            if heard is not None and heard.words:
+                cuts, nudged, stuck = speech.protect(
+                    cuts, heard, media_duration=durations.get(mid, 0.0) or 1e9,
+                    min_length=detection.min_clip_length)
+                speech_stuck += stuck
+                if nudged:
+                    speech_nudges += nudged
+                    protected.add(mid)
+            rebuilt.append((mid, cuts, v_track, a_track))
+        collected = rebuilt
+
     for mid, cuts, v_track, a_track in collected:
         # The beat grid finally reaches the speech path. It was computed once per
         # job, live in scope here the whole time, and passed only to the picture
@@ -908,7 +970,10 @@ def cmd_plan(args) -> int:
             mid, cuts, video_track=v_track, audio_track=a_track,
             section_id=story_sections.get(id(cuts)),
             crossfade_seconds=recipe.sequence.crossfade_seconds,
-            beats=beats, music=recipe.music,
+            # Speech wins over the metronome on a clip whose boundaries were
+            # just moved to keep a sentence whole. Snapping it back to the grid
+            # would undo the thing that was asked for, silently.
+            beats=None if mid in protected else beats, music=recipe.music,
             min_clip_seconds=detection.min_clip_length,
             bed_start=bed_start, every=cut_every, captions=captions,
         )
@@ -997,6 +1062,25 @@ def cmd_plan(args) -> int:
 
     if capped_to_music:
         builder.add_warning("music", note("music.cappedToTrack", seconds=music_available))
+
+    if speech_nudges:
+        builder.add_warning("speech", note("speech.protected", count=speech_nudges))
+        # Cuts were snapped to beats before this moved them, so some no longer
+        # land on one. Better said out loud than discovered by an editor
+        # wondering why a music-led promo drifted.
+        if protected and visual.snap_to_beats and beats and beats.beats:
+            builder.add_warning("speech", note("speech.beatsGaveWay"))
+        print(f"  speech: {speech_nudges} cut(s) moved off a word", file=sys.stderr)
+    if speech_stuck:
+        # Whisper sometimes reports words with no silence between them at all,
+        # and then there is nowhere in that stretch that is not inside a word.
+        builder.add_warning("speech", note("speech.couldNotProtect", count=speech_stuck))
+        print(f"  speech: {speech_stuck} cut(s) had nowhere to go", file=sys.stderr)
+    if silence_removed:
+        total = sum(silence_removed.values())
+        builder.add_warning("silence", note(
+            "silence.removed", seconds=total, allowed=float(args.silence_allowed)))
+        print(f"  silence: {total:.1f}s removed", file=sys.stderr)
 
     if proxied:
         builder.add_warning("media", note("media.proxyAttached", count=len(proxied)))
@@ -1176,6 +1260,13 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--music-length", type=float, default=None, help="seconds of track to use. Omit and the bed follows the picture; set it and that much music is laid even past the last frame.")
     pl.add_argument("--no-music-snap", action="store_true", help="use the start exactly as given instead of moving it to the nearest beat")
     pl.add_argument("--visual", action="store_true", help="cut from the pictures even when the footage has audio")
+    pl.add_argument("--protect-speech", action="store_true", help=(
+        "do not cut through the middle of what someone is saying. Implied by "
+        "--subtitles: an edit worth subtitling is one where the words matter"))
+    pl.add_argument("--remove-silence", action="store_true",
+                    help="drop silence beyond --silence-allowed, and shots with no speech")
+    pl.add_argument("--silence-allowed", type=float, default=0.5, metavar="SECONDS",
+                    help="silence to leave around what is said (default 0.5)")
     pl.add_argument("--subtitles", action="store_true", help=(
         "write an .srt for the finished edit. Implied by a speech edit, which "
         "already has the words; needed for a montage, which does not"))
