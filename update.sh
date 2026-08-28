@@ -41,35 +41,38 @@ trap finish EXIT
 echo
 echo "Updating AutoEdit..."
 
-# Only TRACKED changes block a pull. `git status --porcelain` also lists
-# untracked files, and a stray note or a leftover download has nothing to do
-# with whether a fast-forward is safe -- but it stopped a colleague's update
-# dead, with a message telling them to commit a file they had never touched.
-CHANGED="$(git status --porcelain --untracked-files=no)"
-if [ -n "$CHANGED" ]; then
-  STATUS="dirty"
-  # Name them. "This checkout has uncommitted changes" is unactionable when you
-  # do not know which file, and the answer is nearly always a file the editor
-  # did not knowingly edit.
-  DETAIL="changed here: $(echo "$CHANGED" | awk '{print $2}' | tr '\n' ' ')"
-  warn "these tracked files differ from the repository, so nothing was pulled:"
-  echo "$CHANGED" | sed 's/^/      /'
-  echo
-  echo "  If you did not change them on purpose, throw the changes away with:"
-  echo
-  echo "    git checkout -- ."
-  echo
-  echo "  Then run this again. To keep them instead, use: git stash"
-  exit 1
-fi
+# No pre-flight purity check. There used to be one and it was wrong twice: it
+# counted untracked files, and then, once that was fixed, it still stopped an
+# editor who could not pull the fix to the thing that was stopping them.
+#
+# `git pull --ff-only` already refuses safely. It fails only when a local change
+# would actually be overwritten, it names the files itself, and it is right
+# about which ones matter -- which is more than the guard managed. Let it
+# decide, and pass its own words along.
 
 # Never wait for a password on a machine with nobody at the keyboard. A private
 # repo with no working credential would otherwise hang the helper forever
 # rather than failing in a few seconds with something an editor can act on.
-if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes" git pull --ff-only; then
-  STATUS="unreachable"
-  DETAIL="could not reach the repository -- check this machine can sign in to GitHub"
-  warn "$DETAIL"
+PULL_OUT="$(GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes" \
+            git pull --ff-only 2>&1)"
+PULL_RC=$?
+echo "$PULL_OUT" | sed 's/^/  /'
+if [ $PULL_RC -ne 0 ]; then
+  if echo "$PULL_OUT" | grep -qi "local changes\|would be overwritten\|commit your changes"; then
+    STATUS="dirty"
+    DETAIL="local changes block the update: $(echo "$PULL_OUT" | grep -i '^\s*[a-zA-Z].*\.' | head -3 | tr '\n' ' ')"
+    echo
+    echo "  Those files differ from the repository. If you did not change them"
+    echo "  on purpose -- and on an editing machine you almost certainly did not:"
+    echo
+    echo "    git checkout -- . && ./update.sh"
+    echo
+    echo "  To keep them instead: git stash"
+  else
+    STATUS="unreachable"
+    DETAIL="could not reach the repository -- check this machine can sign in to GitHub"
+    warn "$DETAIL"
+  fi
   exit 1
 fi
 
