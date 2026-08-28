@@ -275,7 +275,7 @@ async function applyPlan(plan, options) {
   // find out is to try it on a real build and say what happened.
   if (plan.subtitlePath) {
     progress("subtitles", "importing subtitles");
-    report.warnings.push(...await importSubtitles(project, plan.subtitlePath, sequence));
+    report.warnings.push(...await importSubtitles(project, plan.subtitlePath));
     report.stages.push("subtitles");
   }
 
@@ -1253,46 +1253,38 @@ async function importTranscripts(project, plan, items) {
  * step rather than none and considerably better than the file going unmentioned.
  */
 /**
- * What this Premiere build offers for captions, as names rather than guesses.
+ * Premiere's transcript JSON schema, learned from a clip that already has one.
  *
- * Reported from the BUILD rather than only from the self-test, because the
- * self-test has to be run deliberately and this question comes up exactly when
- * someone has just built an edit with subtitles in it. If a caption API exists,
- * its name appears in the receipt and attaching the .srt automatically becomes
- * a small change. If it does not, that is the answer and nobody has to guess.
+ * This is the last route to captions on the timeline and it is one manual step
+ * from working. `Transcript.importFromJSON` exists in the 26.3 API and rejects
+ * the obvious shape; the real shape is undocumented, and `exportToJSON` will
+ * hand it over from any clip Premiere has transcribed itself.
+ *
+ * Run from the BUILD rather than only the self-test, because the self-test has
+ * to be started deliberately and its report has gone missing once already,
+ * while build warnings land in the receipt in the jobs folder every time.
  */
-function captionApiSurface(sequence) {
-  const ppro = require("premierepro");
-  const looksRelevant = /caption|subtitle|srt|closedcaption/i;
-  const found = [];
-  for (const key of Object.keys(ppro)) {
-    if (looksRelevant.test(key)) found.push(key);
-  }
-  const sequenceClass = /** @type {any} */ (ppro).Sequence;
-  for (const host of [sequence, sequenceClass && sequenceClass.prototype]) {
-    if (!host) continue;
-    let obj = host;
-    while (obj && obj !== Object.prototype) {
-      for (const key of Object.getOwnPropertyNames(obj)) {
-        if (looksRelevant.test(key) && !found.includes(key)) found.push(key);
-      }
-      obj = Object.getPrototypeOf(obj);
+async function probeTranscriptSchemaDuringBuild(project) {
+  try {
+    const index = await indexProjectMedia(project);
+    for (const [, item] of index) {
+      const clip = ppro.ClipProjectItem.cast(item);
+      if (!ppro.Transcript.hasTranscript(clip)) continue;
+      const parsed = JSON.parse(await ppro.Transcript.exportToJSON(clip));
+      return note("subtitles.transcriptSchema",
+        { keys: Object.keys(parsed).join(", "),
+          sample: JSON.stringify(parsed).slice(0, 600) },
+        `Premiere transcript schema: {${Object.keys(parsed).join(", ")}} ` +
+        `${JSON.stringify(parsed).slice(0, 600)}`);
     }
-  }
-  return found;
+  } catch { /* discovery is a nicety; it must never fail a build */ }
+  return null;
 }
 
-async function importSubtitles(project, srtPath, sequence) {
+async function importSubtitles(project, srtPath) {
   /** @type {BuildWarning[]} */
   const warnings = [];
   const name = basenameOf(srtPath);
-
-  // Named before anything is attempted, so the answer survives an import that
-  // throws.
-  let surface = [];
-  try {
-    surface = captionApiSurface(sequence);
-  } catch { /* discovery is a nicety; the import below is the point */ }
 
   try {
     const ok = await project.importFiles(
@@ -1312,13 +1304,17 @@ async function importSubtitles(project, srtPath, sequence) {
       `File > Import it by hand`));
   }
 
-  warnings.push(surface.length
-    ? note("subtitles.captionApi", { names: surface.join(", ") },
-           `this Premiere build exposes ${surface.join(", ")} — captions could be ` +
-           `attached automatically; tell Claude and it will be wired up`)
-    : note("subtitles.noCaptionApi", {},
-           `this Premiere build exposes no caption API, so the .srt has to be ` +
-           `dragged onto a caption track by hand`));
+  // Why this is not attached for you, stated once, from the API definitions
+  // rather than from a guess: Premiere 26.3 exposes CaptionTrack with read,
+  // rename and mute, and its insert and overwrite actions take a video track
+  // index and an audio track index and nothing else. There is no call that puts
+  // an item on a caption track.
+  warnings.push(note("subtitles.dragToTrack", { file: name },
+    `${name} is in the project — drag it to a caption track. Premiere's API has ` +
+    `no call that places one, so this last step is manual.`));
+
+  const schema = await probeTranscriptSchemaDuringBuild(project);
+  if (schema) warnings.push(schema);
   return warnings;
 }
 

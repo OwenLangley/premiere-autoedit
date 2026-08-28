@@ -347,10 +347,52 @@ run the self-test. The `transcript/schema-discovered` check calls
 `Transcript.exportToJSON` on it and dumps the real shape into the report.
 
 **Worked around for subtitles.** The engine writes a standard `.srt` beside the
-plan instead, which Premiere imports as a caption track through File → Import
-and which every platform and client already reads. It does not depend on this
-API being solved. Whether Premiere 26 imports it cleanly is still unconfirmed
-in the app itself.
+plan instead, which every platform and client already reads. It does not depend
+on this API being solved.
+
+**Why solving it still matters:** it is the only remaining route to captions on
+the timeline. See 9b.
+
+## 9b. There is no API that puts an item on a caption track
+
+Read the shipped definitions rather than guessing, and the answer is flat.
+`@adobe/premierepro` 26.3 declares:
+
+```ts
+export declare type CaptionTrack = {
+  createSetNameAction(name: string): object;
+  setMute(mute: boolean): Promise<boolean>;
+  getMediaType(): Promise<Guid>;
+  getIndex(): Promise<number>;
+  isMuted(): Promise<boolean>;
+  getTrackItems(trackItemType: number, includeEmptyTrackItems: boolean): [];
+  readonly name: string;
+};
+```
+
+Read, rename, mute. Nothing that adds anything. And every editing action that
+places media takes video and audio indices only:
+
+```ts
+createInsertProjectItemAction(projectItem, time, videoTrackIndex, audioTrackIndex, limitShift)
+createOverwriteItemAction(projectItem, time, videoTrackIndex, audioTrackIndex)
+```
+
+`Constants.MediaType` has `DATA`, and it appears in exactly one editing call --
+`createRemoveItemsAction`. **Captions can be removed programmatically and not
+created.** Importing the `.srt` puts it in the project; the drag to the track is
+the editor's, and no amount of API archaeology changes that.
+
+Two routes remain, and both are blocked on something outside the code:
+
+1. **Premiere's own caption generation**, which needs a transcript inside
+   Premiere — so it needs finding 9 solved. `exportToJSON` will hand over the
+   real schema from any clip Premiere has transcribed itself, and the build now
+   probes for that automatically rather than waiting for a self-test run.
+2. **Burned-in text**, which the panel could already do: `insertMogrtFromPath`
+   plus `setMogrtFields` is proven and in use for brand graphics. It needs a
+   subtitle `.mogrt` template, and there is none in the brandkit. That is an
+   asset someone has to author in After Effects; it cannot be written here.
 
 ## 10. An empty `<input type="number">` renders the literal string `nan`
 

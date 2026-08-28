@@ -349,10 +349,10 @@ const EN = {
     "the {recipe} recipe does not transcribe, so {provider} was used for the subtitles",
   "warn.subtitles.failed":
     "{file} could not be transcribed, so it has no subtitles ({detail}) — the edit itself is unaffected",
-  "warn.subtitles.captionApi":
-    "this Premiere build exposes {names} — captions could be attached automatically; tell Claude and it will be wired up",
-  "warn.subtitles.noCaptionApi":
-    "this Premiere build exposes no caption API, so the .srt has to be dragged onto a caption track by hand",
+  "warn.subtitles.dragToTrack":
+    "{file} is in the project — drag it to a caption track. Premiere's API has no call that places one, so this last step is manual.",
+  "warn.subtitles.transcriptSchema":
+    "Premiere transcript schema found — keys {keys}, sample {sample}",
   "warn.subtitles.imported":
     "{file} imported — drag it onto a caption track if it is not already there",
   "warn.subtitles.notImported":
@@ -724,10 +724,10 @@ const JA = {
     "{recipe} レシピは文字起こしを行わないため、字幕には {provider} を使用しました",
   "warn.subtitles.failed":
     "{file} を文字起こしできなかったため字幕はありません（{detail}）。編集自体には影響ありません",
-  "warn.subtitles.captionApi":
-    "この Premiere には {names} があります。字幕の自動追加が可能なので Claude に伝えてください",
-  "warn.subtitles.noCaptionApi":
-    "この Premiere にはキャプション API がないため、.srt はキャプショントラックへ手動でドラッグしてください",
+  "warn.subtitles.dragToTrack":
+    "{file} をプロジェクトに読み込みました。キャプショントラックへドラッグしてください。Premiere の API には配置する呼び出しがないため、この最後の手順のみ手動です。",
+  "warn.subtitles.transcriptSchema":
+    "Premiere の文字起こしスキーマを取得しました。キー {keys}、サンプル {sample}",
   "warn.subtitles.imported":
     "{file} を読み込みました。キャプショントラックに入っていない場合はドラッグしてください",
   "warn.subtitles.notImported":
