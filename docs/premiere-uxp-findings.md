@@ -380,8 +380,16 @@ createOverwriteItemAction(projectItem, time, videoTrackIndex, audioTrackIndex)
 
 `Constants.MediaType` has `DATA`, and it appears in exactly one editing call --
 `createRemoveItemsAction`. **Captions can be removed programmatically and not
-created.** Importing the `.srt` puts it in the project; the drag to the track is
-the editor's, and no amount of API archaeology changes that.
+created**, as far as the declarations go.
+
+**But a signature describes its parameters, not what Premiere does with what it
+is handed.** Whether an overwrite edit routes a DATA project item to a caption
+track is behaviour, and behaviour is measured here rather than inferred -- this
+project has been wrong in both directions on exactly that distinction, most
+expensively on IN_OUT versus SUBCLIP. So the build attempts the placement,
+counts the caption items before and after, and reports which world we are in.
+If it works the reasoning above was too pessimistic and this section is wrong;
+if it does not, the receipt says whether the sequence even had a caption track.
 
 Two routes remain, and both are blocked on something outside the code:
 

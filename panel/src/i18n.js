@@ -349,8 +349,10 @@ const EN = {
     "the {recipe} recipe does not transcribe, so {provider} was used for the subtitles",
   "warn.subtitles.failed":
     "{file} could not be transcribed, so it has no subtitles ({detail}) — the edit itself is unaffected",
+  "warn.subtitles.placed":
+    "{file}: {count} caption(s) placed on the caption track",
   "warn.subtitles.dragToTrack":
-    "{file} is in the project — drag it to a caption track. Premiere's API has no call that places one, so this last step is manual.",
+    "{file} is in the project — drag it to a caption track. Placing it automatically did not work here ({detail}).",
   "warn.subtitles.transcriptSchema":
     "Premiere transcript schema found — keys {keys}, sample {sample}",
   "warn.subtitles.imported":
@@ -724,8 +726,10 @@ const JA = {
     "{recipe} レシピは文字起こしを行わないため、字幕には {provider} を使用しました",
   "warn.subtitles.failed":
     "{file} を文字起こしできなかったため字幕はありません（{detail}）。編集自体には影響ありません",
+  "warn.subtitles.placed":
+    "{file}: キャプション {count} 件をキャプショントラックに配置しました",
   "warn.subtitles.dragToTrack":
-    "{file} をプロジェクトに読み込みました。キャプショントラックへドラッグしてください。Premiere の API には配置する呼び出しがないため、この最後の手順のみ手動です。",
+    "{file} をプロジェクトに読み込みました。キャプショントラックへドラッグしてください。自動配置はこの環境では機能しませんでした（{detail}）。",
   "warn.subtitles.transcriptSchema":
     "Premiere の文字起こしスキーマを取得しました。キー {keys}、サンプル {sample}",
   "warn.subtitles.imported":

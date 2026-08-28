@@ -142,6 +142,7 @@ const UNDO = {
   crop: "AutoEdit: Scale to fill frame",
   transcript: "AutoEdit: Import transcript",
   subclips: "AutoEdit: Create subclips",
+  subtitles: "AutoEdit: Place subtitles",
 };
 
 class ApplyError extends Error {
@@ -275,7 +276,7 @@ async function applyPlan(plan, options) {
   // find out is to try it on a real build and say what happened.
   if (plan.subtitlePath) {
     progress("subtitles", "importing subtitles");
-    report.warnings.push(...await importSubtitles(project, plan.subtitlePath));
+    report.warnings.push(...await importSubtitles(project, plan.subtitlePath, sequence));
     report.stages.push("subtitles");
   }
 
@@ -1253,6 +1254,91 @@ async function importTranscripts(project, plan, items) {
  * step rather than none and considerably better than the file going unmentioned.
  */
 /**
+ * Put the imported .srt on the sequence's caption track, and check whether it
+ * landed.
+ *
+ * The type definitions say this should not work: `createOverwriteItemAction`
+ * takes a video track index and an audio track index and nothing else, and
+ * `CaptionTrack` has no method that adds anything. But a signature describes
+ * its parameters, not what Premiere does with a DATA item handed to it — and
+ * that is behaviour, which is measured, not assumed. This project has been
+ * wrong in both directions on exactly that distinction.
+ *
+ * So: count the caption items before, attempt it, count after, and report which
+ * of the two worlds we are in. A failure here is a warning, never a failed
+ * build -- the .srt is already written and already in the project.
+ */
+async function captionItemCount(sequence) {
+  let total = 0;
+  const tracks = await sequence.getCaptionTrackCount();
+  for (let i = 0; i < tracks; i++) {
+    const track = await sequence.getCaptionTrack(i);
+    try {
+      total += (track.getTrackItems(ppro.Constants.MediaType.DATA, false) || []).length;
+    } catch {
+      // Some builds want a different track-item type constant; an unreadable
+      // track contributes nothing rather than aborting the count.
+    }
+  }
+  return { tracks, total };
+}
+
+async function placeSubtitles(project, sequence, srtPath, name) {
+  /** @type {BuildWarning[]} */
+  const warnings = [];
+  let item = null;
+  try {
+    const index = await indexProjectMedia(project);
+    item = index.get(normalizePath(srtPath)) || null;
+  } catch { /* fall through to the manual message */ }
+
+  if (!item) {
+    warnings.push(note("subtitles.dragToTrack", { file: name },
+      `${name} is in the project — drag it to a caption track.`));
+    return warnings;
+  }
+
+  let before = { tracks: 0, total: 0 };
+  try {
+    before = await captionItemCount(sequence);
+  } catch { /* a build with no caption support answers below */ }
+
+  let threw = "";
+  try {
+    const editor = ppro.SequenceEditor.getEditor(sequence);
+    transact(project, (compound) => {
+      compound.addAction(editor.createOverwriteItemAction(
+        item, ppro.TickTime.createWithSeconds(0), 0, 0));
+    }, UNDO.subtitles);
+  } catch (err) {
+    threw = (err && err.message) || String(err);
+  }
+
+  let after = before;
+  try {
+    after = await captionItemCount(sequence);
+  } catch { /* keep `before`, and report no change */ }
+
+  if (after.total > before.total) {
+    warnings.push(note("subtitles.placed",
+      { file: name, count: after.total - before.total },
+      `${name}: ${after.total - before.total} caption(s) placed on the caption track`));
+  } else {
+    // Say WHICH failure this is. "No caption track exists" and "the edit was
+    // accepted and nothing appeared" want different next steps, and a single
+    // message covering both tells an editor neither.
+    const detail = threw
+      || (before.tracks === 0
+          ? "this sequence has no caption track"
+          : `${before.tracks} caption track(s), and the edit added nothing`);
+    warnings.push(note("subtitles.dragToTrack", { file: name, detail },
+      `${name} is in the project — drag it to a caption track. ` +
+      `Placing it automatically did not work here (${detail}).`));
+  }
+  return warnings;
+}
+
+/**
  * Premiere's transcript JSON schema, learned from a clip that already has one.
  *
  * This is the last route to captions on the timeline and it is one manual step
@@ -1281,7 +1367,7 @@ async function probeTranscriptSchemaDuringBuild(project) {
   return null;
 }
 
-async function importSubtitles(project, srtPath) {
+async function importSubtitles(project, srtPath, sequence) {
   /** @type {BuildWarning[]} */
   const warnings = [];
   const name = basenameOf(srtPath);
@@ -1304,14 +1390,7 @@ async function importSubtitles(project, srtPath) {
       `File > Import it by hand`));
   }
 
-  // Why this is not attached for you, stated once, from the API definitions
-  // rather than from a guess: Premiere 26.3 exposes CaptionTrack with read,
-  // rename and mute, and its insert and overwrite actions take a video track
-  // index and an audio track index and nothing else. There is no call that puts
-  // an item on a caption track.
-  warnings.push(note("subtitles.dragToTrack", { file: name },
-    `${name} is in the project — drag it to a caption track. Premiere's API has ` +
-    `no call that places one, so this last step is manual.`));
+  warnings.push(...await placeSubtitles(project, sequence, srtPath, name));
 
   const schema = await probeTranscriptSchemaDuringBuild(project);
   if (schema) warnings.push(schema);
