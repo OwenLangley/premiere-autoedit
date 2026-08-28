@@ -60,12 +60,20 @@ _CLOCK = re.compile(r"\b(?P<m>\d{1,2}):(?P<s>\d{2})\b")
 # the FIRST of these matters -- everything after it is shots.
 _OPENERS = re.compile(
     r"\b(?:which\s+)?(?:opens?|starts?|begins?)\s+(?:with|on)\b|"
-    r"\bopening\s+(?:with|on)\b|"
-    # Japanese: "...から始まり" / "...で始まる" -- the opener trails its clause
-    # rather than leading it, so what precedes it is the preamble either way.
-    r"から始ま[りるっ]て?|で始ま[りるっ]て?",
+    r"\bopening\s+(?:with|on)\b",
     re.I,
 )
+
+# The same thing in Japanese, where the opener TRAILS the shot it introduces:
+# "店の外観から始まり" is "opens with the shop front", and the shot is the part
+# before the marker, not after it.
+#
+# This is why it needs its own pattern. Treating it like the English one --
+# dropping everything up to the marker as preamble -- threw away the opening
+# shot every time, silently: "店の外観から始まり、次にシェフが料理をしている"
+# parsed to one beat, and the shop front the editor had asked for by name was
+# simply not in the edit.
+_OPENERS_TRAILING = re.compile(r"から始ま[りるっ]て?|で始ま[りるっ]て?", re.I)
 
 # How one shot is separated from the next. Longest first, so "then cuts to" is
 # consumed whole rather than leaving "cuts to" glued to the next beat.
@@ -307,8 +315,20 @@ def split_beats(text: str) -> list[str]:
     price than turning every description into a phantom shot.
     """
     opener = _OPENERS.search(text)
-    body = text[opener.end():] if opener else text
-    if not opener and not _SPLIT.search(body):
+    trailing = _OPENERS_TRAILING.search(text)
+    if opener:
+        body = text[opener.end():]
+    elif trailing:
+        # Keep the clause the marker trails -- that is the opening shot. Only
+        # what precedes THAT is preamble, and the last connective before the
+        # marker is where it ends: in "15秒の動画、店の外観から始まり" the
+        # preamble is "15秒の動画" and the first beat is "店の外観".
+        head = text[:trailing.start()]
+        cut = max((m.end() for m in _SPLIT.finditer(head)), default=0)
+        body = head[cut:] + "、" + text[trailing.end():]
+    else:
+        body = text
+    if not opener and not trailing and not _SPLIT.search(body):
         return []
     return [
         c for c in (_clean(p) for p in _SPLIT.split(body))
@@ -424,9 +444,18 @@ def assign_beats(
     papering over -- an edit that confidently tells the wrong story is worse
     than a short one that admits what it could not find.
 
-    Shots are not shared. A beat that would otherwise be empty can be given the
-    strongest shot already claimed elsewhere, but only when nothing else clears
-    the distractors, and the duplicate is visible in the result.
+    Shots are NOT shared, and no beat gets a second chance at one another beat
+    already took. Sharing was specified once and this docstring described it for
+    a while before anyone noticed it had never been written -- so it is written
+    down here as absent, deliberately: the decision on record is that an empty
+    beat is skipped and named, not filled with a shot that fitted something else
+    better.
+
+    It costs most where beats are close together in meaning, or where one beat
+    is much the strongest and sweeps the pool. That happens more in Japanese,
+    because the multilingual encoder compresses the gaps between phrases: on one
+    real library three English beats split 4/17/7 while their Japanese
+    equivalents went 0/28/0 against the same pictures.
     """
     if not beats or shot_vectors.size == 0:
         return [BeatMatch(beat=b) for b in beats]

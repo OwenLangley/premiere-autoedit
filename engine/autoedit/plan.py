@@ -98,11 +98,16 @@ class MediaEntry:
         return d
 
 
-def _caption_for(captions, media_id: str, at: float) -> str | None:
-    """The description of whichever analysed span contains this moment."""
-    for start, end, text in (captions or {}).get(media_id, ()):
+def _caption_for(captions, media_id: str, at: float) -> tuple[str, str] | None:
+    """The description of whichever analysed span contains this moment.
+
+    Returns (English text, id). The id is what the panel translates; the text
+    is what it falls back to, so a plan stays readable even where a language is
+    missing a word for something.
+    """
+    for start, end, text, key in (captions or {}).get(media_id, ()):
         if start <= at < end:
-            return text
+            return text, key
     return None
 
 
@@ -162,6 +167,7 @@ class EditPlanBuilder:
         self, media_id: str, in_seconds: float, out_seconds: float,
         score: float = 0.0, reason: str = "", section_id: str | None = None,
         thumb_path: str | None = None, caption: str | None = None,
+        caption_id: str | None = None,
     ) -> "EditPlanBuilder":
         """Offer a usable span as an alternate the editor can swap in.
 
@@ -191,6 +197,8 @@ class EditPlanBuilder:
             entry["thumbPath"] = thumb_path
         if caption:
             entry["caption"] = caption
+        if caption_id:
+            entry["captionId"] = caption_id
         self._candidates.append(entry)
         return self
 
@@ -314,6 +322,7 @@ class EditPlanBuilder:
                     self._beats_dropped += 1
                     continue
 
+            described = _caption_for(captions, media_id, keep.start)
             self._timeline.append({
                 "mediaId": media_id,
                 "inSeconds": round(in_s, 4),
@@ -330,8 +339,8 @@ class EditPlanBuilder:
                 # start: lead trim moves it, and beat snapping moves it again, so
                 # an exact-key lookup missed every clip on the timeline while
                 # matching every candidate.
-                **({"caption": _caption_for(captions, media_id, keep.start)}
-                   if _caption_for(captions, media_id, keep.start) else {}),
+                **(dict(zip(("caption", "captionId"), described))
+                   if described else {}),
                 **({"sectionId": section_id} if section_id else {}),
                 # Every internal join gets a fade; without one each cut clicks.
                 "fadeInFrames": fade if i > 0 else 0,

@@ -504,6 +504,55 @@ again on every build, or its subclip is never found.
 `relPath` where the helper writes the index. The panel's font stack also needs
 CJK fallbacks: `"Adobe Clean"` has no Japanese coverage, so every label is tofu.
 
+## 12b. CLIP reads Japanese without complaining, and understands none of it
+
+CLIP's tokenizer is byte-level BPE, so it accepts Japanese, round-trips it
+cleanly, and returns a vector. The vector means nothing. Four phrases with quite
+different meanings, measured against the same 29 stills:
+
+| | サッカーをしている子どもたち | ゴールキーパー | 料理の皿 | 建物の外観 |
+|---|---|---|---|---|
+| similarity | 0.219 | 0.218 | 0.218 | 0.222 |
+
+A spread of **0.0016**, against **0.0370** for the same four ideas in English.
+That is not a weak signal, it is no signal — and because nothing errors, a
+Japanese prompt produced a confident edit built from arbitrary shots. "A plate
+of food" won two shots of a futsal court.
+
+The fix is `sentence-transformers/clip-ViT-B-32-multilingual-v1`, a text encoder
+**distilled onto CLIP ViT-B/32's own text space**. That property is what makes
+it affordable: the image tower is untouched, so every cached `.vec.npy` stays
+valid and no library is re-embedded. 50 languages, Apache 2.0, 135MB quantized.
+It lifts the Japanese spread to 0.0319.
+
+Two things to know about it:
+
+- **It is shipped as safetensors plus an ONNX transformer, not one file.** The
+  ONNX is the encoder only; the 768→512 projection that lands it in CLIP's space
+  is a separate 1.6MB matrix. Mean-pool over the attention mask, then project.
+  Pooling over the padding too drags every short phrase toward the same vector —
+  which is the exact failure being fixed, reintroduced by hand.
+- **The quantized builds are per-architecture.** `model_qint8_arm64.onnx` is not
+  portable to Intel; pick by `platform.machine()`.
+
+It closes most of the gap but not all of it. The encoder preserves ranking
+across languages and compresses the *distances* unevenly, so a strong beat
+sweeps a pool that its English equivalent would have shared. Same footage, same
+intent: English beats split 4/17/7, Japanese went 0/28/0. Japanese prompts find
+the right footage; they discriminate between beats less finely.
+
+## 12c. A Japanese opener trails the shot it introduces
+
+English openers lead their clause — "opens with the shop front" — so everything
+before one is preamble and gets dropped. Japanese puts the marker last:
+「店の外観から始まり」 is the same sentence, and the shot is the part *before*
+から始まり.
+
+Parsing both the same way threw the opening shot away every time, silently. The
+editor named 店の外観 and it was simply not in the edit. Only the clause the
+marker trails is a shot; what precedes *that* is the preamble, and the last
+connective before the marker is where it ends.
+
 ## 13. What works
 
 - Panel loads, renders, and is interactive

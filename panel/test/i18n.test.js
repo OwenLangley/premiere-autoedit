@@ -143,3 +143,20 @@ test("no shot-list label is left as English in the Japanese catalogue", () => {
   const untranslated = keys.filter((k) => JA[k] === EN[k] && /[A-Za-z]{4}/.test(EN[k]));
   assert.deepStrictEqual(untranslated, []);
 });
+
+test("every shot descriptor the engine can choose has a label here", () => {
+  // The other half of engine/tests/fixtures/shot-descriptors.json, which Python
+  // asserts still matches autoedit.describe.DESCRIPTORS. A descriptor added to
+  // the engine without a translation shows English inside a Japanese panel, and
+  // nobody finds out until an editor does.
+  const { ids } = JSON.parse(fs.readFileSync(
+    path.join(__dirname, "..", "..", "engine", "tests", "fixtures",
+              "shot-descriptors.json"), "utf8"));
+  assert.ok(ids.length > 0, "fixture is empty");
+  const missing = { en: [], ja: [] };
+  for (const id of ids) {
+    if (EN[`shot.${id}`] === undefined) missing.en.push(id);
+    if (JA[`shot.${id}`] === undefined) missing.ja.push(id);
+  }
+  assert.deepEqual(missing, { en: [], ja: [] });
+});

@@ -50,6 +50,11 @@ looks for it specifically.
 
 - **~3 GB Whisper model download.** Once per machine, then cached in
   `~/.cache/huggingface`.
+- **~290 MB of vision models**, fetched the first time a job describes shots or
+  reads a written prompt: CLIP for the pictures (154 MB) and a multilingual text
+  encoder for the words (135 MB). They live under the jobs folder's `.cache`, so
+  clearing the cache clears them and a reinstall does not. The second one is
+  what lets an editor write the prompt in Japanese.
 - **Proxy building** for footage Premiere cannot play smoothly. Runs in the
   background as media is indexed and is cached by content hash. Budget a few
   minutes per 4K clip and roughly 5 MB per second of footage.

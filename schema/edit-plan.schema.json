@@ -341,7 +341,12 @@
         },
         "caption": {
           "type": "string",
-          "description": "What the shot appears to show, chosen from a fixed list by image similarity. A guess, not a caption: shown to help an editor recognise a shot without opening it, and absent when nothing fit well enough to be worth saying."
+          "description": "What the shot appears to show, chosen from a fixed list by image similarity. A guess, not a caption: shown to help an editor recognise a shot without opening it, and absent when nothing fit well enough to be worth saying. English; the panel prefers captionId and falls back to this."
+        },
+        "captionId": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "The caption as a translation key, resolved by the panel as shot.<captionId>. Present whenever caption is."
         }
       }
     },
@@ -564,7 +569,12 @@
         },
         "caption": {
           "type": "string",
-          "description": "What the shot appears to show, chosen from a fixed list by image similarity. A guess, not a caption: shown to help an editor recognise a shot without opening it, and absent when nothing fit well enough to be worth saying."
+          "description": "What the shot appears to show, chosen from a fixed list by image similarity. A guess, not a caption: shown to help an editor recognise a shot without opening it, and absent when nothing fit well enough to be worth saying. English; the panel prefers captionId and falls back to this."
+        },
+        "captionId": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "The caption as a translation key, resolved by the panel as shot.<captionId>. Present whenever caption is."
         }
       }
     },

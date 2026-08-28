@@ -486,7 +486,7 @@ function renderStrip() {
     // Dimmed rather than removed: the editor should see that a section is
     // switched off without the edit appearing to change shape underneath them.
     if (c.sectionId && state.disabled.has(c.sectionId)) b.classList.add("off");
-    b.title = (c.caption ? `${c.caption}\n` : "")
+    b.title = (captionOf(c) ? `${captionOf(c)}\n` : "")
       + (c.sectionId ? `${sectionLabel(c.sectionId, state.plan)}\n` : "")
       + `${mediaName(c.mediaId)} — ${(c.outSeconds - c.inSeconds).toFixed(2)}s`;
     strip.appendChild(b);
@@ -541,6 +541,23 @@ function renderStrip() {
   $("swap-reset").disabled = n === 0;
 }
 
+/**
+ * What a shot shows, in the editor's language.
+ *
+ * The engine ranks the pictures against an English vocabulary -- that is the
+ * language the image model was trained in -- and sends the winner as an id.
+ * Only the label is translated, so the same shot reads the same way in both
+ * languages rather than two encoders disagreeing about what it is.
+ *
+ * Falls back to the English text the engine sent alongside the id, so a
+ * descriptor added to the engine before its translation still says something.
+ * @param {{caption?: string, captionId?: string}} c
+ */
+function captionOf(c) {
+  if (!c || !c.caption) return "";
+  return c.captionId ? state.t(`shot.${c.captionId}`, undefined, c.caption) : c.caption;
+}
+
 function renderSlotDetail() {
   const detail = $("slot-detail");
   const alts = $("alts");
@@ -581,7 +598,7 @@ function renderSlotDetail() {
     // strip is asking "what is this", and a filename does not answer it.
     const what = document.createElement("div");
     what.style.cssText = "color:var(--text);font-weight:600;margin-top:2px";
-    what.textContent = slot.caption;
+    what.textContent = captionOf(slot);
     detail.appendChild(what);
   }
   if (slot.sectionId) {
@@ -697,7 +714,7 @@ function renderAlternates(slot) {
     const txt = document.createElement("div");
     txt.className = "txt";
     const title = document.createElement("div");
-    title.textContent = c.caption || candidateName(c);
+    title.textContent = captionOf(c) || candidateName(c);
     for (const [when, key] of [
       [c.current, "swap.current"],
       [!c.current && c.sameGroup, "swap.sameSource"],

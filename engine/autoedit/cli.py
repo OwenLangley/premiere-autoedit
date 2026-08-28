@@ -234,15 +234,19 @@ def _assemble_story(story, story_spans, collected, builder, options, detection, 
         builder.add_warning("story", note("story.noVisualSpans"))
         return collected, {}
 
-    if not describe.available(cache_root):
+    if not describe.prompt_available(cache_root):
         builder.add_warning("story", note("story.noModel"))
         return collected, {}
 
     try:
         vectors, kept = describe.embed_stills_cached(
             [sp[4] for sp in story_spans], cache_root)
-        beat_vectors = describe.embed_texts([b.text for b in story.beats], cache_root)
-        distractors = describe.embed_texts(list(DISTRACTORS), cache_root)
+        # The multilingual tower, because these are the editor's own words and
+        # they are not always English. The distractors go through the same tower
+        # so the competition is like for like -- a beat scored by one encoder
+        # against distractors scored by another compares nothing meaningful.
+        beat_vectors = describe.embed_prompt([b.text for b in story.beats], cache_root)
+        distractors = describe.embed_prompt(list(DISTRACTORS), cache_root)
     except describe.DescribeError as exc:
         builder.add_warning("story", note("story.noModel"))
         print(f"  story: {exc}", file=sys.stderr)
@@ -812,9 +816,10 @@ def cmd_plan(args) -> int:
 
     # Put a word to every shot. One text embedding for the vocabulary and cached
     # image vectors, so this is a fraction of a second on a warm cache.
-    # media id -> [(span start, span end, description)], so a clip can be matched
-    # to its span by containment. A keep's start is not its span's start.
-    captions: dict[str, list[tuple[float, float, str]]] = {}
+    # media id -> [(span start, span end, English text, id)], so a clip can be
+    # matched to its span by containment. A keep's start is not its span's start.
+    # The id is what the panel translates; the text is its fallback.
+    captions: dict[str, list[tuple[float, float, str, str]]] = {}
     described = 0
     if visual_used and story_spans:
         try:
@@ -827,7 +832,8 @@ def cmd_plan(args) -> int:
                     if not text:
                         continue
                     mid_, start, end, *_ = story_spans[index]
-                    captions.setdefault(mid_, []).append((start, end, text))
+                    captions.setdefault(mid_, []).append(
+                        (start, end, text, describe.descriptor_id(text)))
                     described += 1
                 print(f"  describe: {described} shot(s) described", file=sys.stderr)
         except Exception as exc:            # never fail a job over a nicety
@@ -836,9 +842,9 @@ def cmd_plan(args) -> int:
     if captions:
         from .plan import _caption_for
         for cand in builder._candidates:          # noqa: SLF001 - same module's data
-            text = _caption_for(captions, cand["mediaId"], cand["inSeconds"])
-            if text:
-                cand["caption"] = text
+            found = _caption_for(captions, cand["mediaId"], cand["inSeconds"])
+            if found:
+                cand["caption"], cand["captionId"] = found
 
     # A story replaces the running order outright: the beats decide what appears
     # and in what sequence, so the source-by-source assembly above is set aside.

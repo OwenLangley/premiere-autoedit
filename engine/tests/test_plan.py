@@ -275,14 +275,20 @@ def test_a_clip_is_described_by_the_span_that_contains_it():
     tb = Timebase(25, 1)
     b = builder(tb)
     b.add_media(MediaEntry(id="A", rel_path="a.mov", duration=60.0, timebase=tb))
-    captions = {"A": [(0.0, 5.0, "children playing football"),
-                      (5.0, 10.0, "a sports hall")]}
+    captions = {"A": [(0.0, 5.0, "children playing football", "children-playing-football"),
+                      (5.0, 10.0, "a sports hall", "a-sports-hall")]}
     b.append_cuts("A", CutPlan(keeps=[Keep(0.22, 1.0, "shot", 0.9, 0),
                                       Keep(6.4, 7.2, "shot", 0.9, 0)],
                                drops=[], warnings=[]),
                   captions=captions)
-    got = [c.get("caption") for c in b.build()["timeline"]]
+    timeline = b.build()["timeline"]
+    got = [c.get("caption") for c in timeline]
     assert got == ["children playing football", "a sports hall"], got
+    # The id travels with the text: the panel translates the id and falls back
+    # to the text, so a clip carrying one without the other is untranslatable
+    # or unreadable depending on which went missing.
+    assert [c.get("captionId") for c in timeline] == [
+        "children-playing-football", "a-sports-hall"]
 
 
 def test_a_moment_outside_every_span_gets_no_caption():
@@ -292,5 +298,7 @@ def test_a_moment_outside_every_span_gets_no_caption():
     b.add_media(MediaEntry(id="A", rel_path="a.mov", duration=60.0, timebase=tb))
     b.append_cuts("A", CutPlan(keeps=[Keep(40.0, 41.0, "shot", 0.9, 0)],
                                drops=[], warnings=[]),
-                  captions={"A": [(0.0, 5.0, "children playing football")]})
+                  captions={"A": [(0.0, 5.0, "children playing football",
+                                   "children-playing-football")]})
     assert "caption" not in b.build()["timeline"][0]
+    assert "captionId" not in b.build()["timeline"][0]

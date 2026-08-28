@@ -20,6 +20,7 @@ direction depending on where it was set.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -31,6 +32,40 @@ import numpy as np
 MODEL_REPO = "Xenova/clip-vit-base-patch32"
 MODEL_FILE = "onnx/model_quantized.onnx"
 TOKENIZER_FILE = "tokenizer.json"
+
+# The text tower an editor's own words go through.
+#
+# CLIP's own tokenizer accepts Japanese and round-trips it cleanly, which is
+# exactly why the failure was silent: it produces a near-constant vector
+# whatever the sentence says. Measured on the real library, four Japanese
+# phrases meaning quite different things scored 0.219, 0.218, 0.218 and 0.222 --
+# a spread of 0.0016 against English's 0.0370, twenty-three times flatter. That
+# is not a weak signal, it is no signal, and "a plate of food" won two shots of
+# a futsal court on the strength of it.
+#
+# This model is a multilingual text encoder DISTILLED ONTO CLIP ViT-B/32's text
+# space, which is the one property that makes it affordable here: the image
+# tower does not change, so every cached `.vec.npy` stays valid and no library
+# is re-embedded. Fifty languages. Apache 2.0. On the same footage it lifts the
+# Japanese spread to 0.0319 and puts 26 of 29 futsal shots under
+# "サッカーをしている子どもたち", which is the English answer.
+TEXT_REPO = "sentence-transformers/clip-ViT-B-32-multilingual-v1"
+TEXT_TOKENIZER = "tokenizer.json"
+# 768 -> 512, the projection that lands the encoder in CLIP's space. Shipped
+# only as safetensors, which is a header and a block of floats -- read directly
+# rather than adding a dependency to something every colleague has to install.
+TEXT_DENSE = "2_Dense/model.safetensors"
+# Quantized per architecture: 135MB either way, against 539MB for the float
+# build. The arm64 file is not portable to Intel, so the arch picks it.
+TEXT_ONNX = {
+    "arm64": "onnx/model_qint8_arm64.onnx",
+    "aarch64": "onnx/model_qint8_arm64.onnx",
+    "x86_64": "onnx/model_quint8_avx2.onnx",
+}
+TEXT_ONNX_FALLBACK = "onnx/model_quint8_avx2.onnx"
+# What the encoder was trained to read. Longer than CLIP's 77 because this one
+# is a sentence encoder, and a beat is never near either limit.
+TEXT_CONTEXT = 128
 
 # CLIP's fixed input geometry and normalisation. Not tunable -- these are what
 # the weights were trained against.
@@ -99,14 +134,121 @@ def _load(work_dir_str: str):
     return session, tok
 
 
+def _read_safetensors(path: Path) -> dict[str, np.ndarray]:
+    """The safetensors format, which is a length, a JSON header and raw floats.
+
+    Written out rather than pulled in. The whole reader is fifteen lines, and
+    the alternative is another package in setup.sh for every colleague on every
+    machine, to parse a single 1.6MB matrix.
+    """
+    import json
+    import struct
+
+    with open(path, "rb") as fh:
+        length = struct.unpack("<Q", fh.read(8))[0]
+        header = json.loads(fh.read(length))
+        blob = fh.read()
+    out: dict[str, np.ndarray] = {}
+    for name, spec in header.items():
+        if name == "__metadata__":
+            continue
+        start, end = spec["data_offsets"]
+        dtype = {"F32": np.float32, "F16": np.float16}.get(spec["dtype"])
+        if dtype is None:
+            raise DescribeError(f"{path.name}: unsupported dtype {spec['dtype']}")
+        out[name] = np.frombuffer(blob[start:end], dtype).reshape(spec["shape"])
+    return out
+
+
+@lru_cache(maxsize=2)
+def _load_text(work_dir_str: str):
+    """The multilingual text tower, loaded once per process.
+
+    Separate from `_load` and lazy for the same reason: a job that never asks a
+    question about content should not pay for either model, and a job that only
+    describes shots needs this one not at all.
+    """
+    import platform
+
+    try:
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
+        from tokenizers import Tokenizer
+    except ImportError as exc:      # pragma: no cover - install-shaped failure
+        raise DescribeError(
+            f"the vision model needs {exc.name}; re-run ./setup.sh"
+        ) from exc
+
+    cache = model_dir(Path(work_dir_str))
+    cache.mkdir(parents=True, exist_ok=True)
+    which = TEXT_ONNX.get(platform.machine(), TEXT_ONNX_FALLBACK)
+    try:
+        weights = hf_hub_download(TEXT_REPO, which, cache_dir=str(cache))
+        vocab = hf_hub_download(TEXT_REPO, TEXT_TOKENIZER, cache_dir=str(cache))
+        dense = hf_hub_download(TEXT_REPO, TEXT_DENSE, cache_dir=str(cache))
+    except Exception as exc:
+        raise DescribeError(
+            f"could not fetch {TEXT_REPO}: {exc}. It downloads once and needs "
+            f"network; after that this works offline."
+        ) from exc
+
+    session = ort.InferenceSession(weights, providers=["CPUExecutionProvider"])
+    tok = Tokenizer.from_file(vocab)
+    # Padded to the longest phrase in the batch, not to a fixed window: this
+    # encoder mean-pools over the attention mask, so the padding costs time and
+    # nothing else.
+    tok.enable_padding(pad_id=0, pad_token="[PAD]")
+    tok.enable_truncation(TEXT_CONTEXT)
+    projection = _read_safetensors(Path(dense))["linear.weight"].astype(np.float32)
+    return session, tok, projection
+
+
+def embed_prompt(texts: list[str], work_dir: Path) -> np.ndarray:
+    """An editor's own words as unit vectors, in any of fifty languages.
+
+    Lands in the same space as `embed_images`, so a vector from here and a
+    vector from there can be compared directly -- that is what the model was
+    distilled for. Use this for anything a person typed; `embed_texts` stays on
+    CLIP's own tower for the fixed English vocabularies, which it calibrates
+    better because they are its own.
+    """
+    if not texts:
+        return np.zeros((0, 512), np.float32)
+    session, tok, projection = _load_text(str(work_dir))
+    enc = tok.encode_batch(list(texts))
+    ids = np.array([e.ids for e in enc], np.int64)
+    mask = np.array([e.attention_mask for e in enc], np.int64)
+    out = session.run(None, {"input_ids": ids, "attention_mask": mask})[0]
+    # Mean over real tokens only. Pooling over the padding too would drag every
+    # short phrase toward the same vector, which is the failure being fixed.
+    weights = mask[..., None].astype(np.float32)
+    pooled = (out * weights).sum(1) / np.clip(weights.sum(1), 1e-9, None)
+    return _unit(pooled @ projection.T)
+
+
 def available(work_dir: Path) -> bool:
     """Can this machine answer questions about pictures?
 
     False is an ordinary state, not a fault: the model has not been fetched yet,
     or there is no network to fetch it. Callers fall back to the form.
+
+    The image tower only. Describing shots does not need the prompt tower, and
+    checking for both here would mean a machine that failed to fetch the second
+    model silently lost the descriptions on the first -- two features, one
+    switch, and the wrong one flipped.
     """
     try:
         _load(str(work_dir))
+        return True
+    except DescribeError:
+        return False
+
+
+def prompt_available(work_dir: Path) -> bool:
+    """Can this machine read an editor's own words? Both towers are needed."""
+    try:
+        _load(str(work_dir))
+        _load_text(str(work_dir))
         return True
     except DescribeError:
         return False
@@ -225,6 +367,17 @@ DESCRIPTORS: tuple[str, ...] = (
 DESCRIPTOR_FLOOR: tuple[str, ...] = (
     "a photograph", "a video frame", "an indoor scene", "an outdoor scene",
 )
+
+
+def descriptor_id(text: str) -> str:
+    """A descriptor as a stable key: "a goal net" -> `a-goal-net`.
+
+    Derived rather than hand-assigned so the list stays the single place a
+    descriptor is written. The panel translates `shot.<id>`; an id with no
+    translation falls back to this English text, which is why the text travels
+    alongside it in the plan rather than being replaced by it.
+    """
+    return "-".join(w for w in re.split(r"[^a-z0-9]+", text.lower()) if w)
 
 
 def describe_shots(vectors, work_dir: Path) -> list[tuple[str | None, float]]:

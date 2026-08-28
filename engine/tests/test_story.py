@@ -161,8 +161,33 @@ def test_a_japanese_prompt_forms_a_running_order():
     # unusable in half the languages this panel ships in.
     p = parse_prompt("店の外観から始まり、シェフが調理する様子、次にお客様の笑顔")
     assert [b.text for b in p.beats] == [
-        "シェフが調理する様子", "お客様の笑顔",
+        "店の外観", "シェフが調理する様子", "お客様の笑顔",
     ]
+
+
+def test_a_japanese_opener_keeps_the_shot_it_trails():
+    """"店の外観から始まり" is "opens with the shop front" -- the shot comes first.
+
+    English openers LEAD their clause, so everything before one is preamble.
+    The Japanese markers trail it, and treating them the same way threw the
+    opening shot away every time: the editor named 店の外観 and it was silently
+    not in the edit.
+    """
+    assert split_beats("店の外観から始まり、次にシェフが料理をしている") == [
+        "店の外観", "シェフが料理をしている",
+    ]
+    assert split_beats("体育館の引きの画で始まる、次にサッカー") == [
+        "体育館の引きの画", "サッカー",
+    ]
+
+
+def test_a_japanese_preamble_is_still_dropped():
+    # Only the clause the marker trails is a shot. What comes before THAT is
+    # the description of the deliverable, and looking for footage of "15秒の
+    # TikTok動画" would be as absurd in Japanese as in English.
+    assert split_beats(
+        "15秒のTikTok動画、店の外観から始まり、次にシェフが料理をしている"
+    ) == ["店の外観", "シェフが料理をしている"]
 
 
 def test_a_japanese_ideographic_comma_separates_shots():
@@ -420,3 +445,32 @@ def test_settings_match_the_shared_fixtures():
         assert p.aspect == case["aspect"], case["text"]
         assert p.cut_rate == case["cutRate"], case["text"]
         assert p.visual == case["visual"], case["text"]
+
+
+def test_the_descriptor_fixture_matches_the_vocabulary():
+    """The list the panel translates against is the list the engine ranks.
+
+    Shared with the JS suite, which asserts every id has a label in every
+    catalogue. Without this half the pair, a descriptor could be added here and
+    the fixture would quietly describe an older vocabulary.
+    """
+    from autoedit import describe
+
+    import json
+    from pathlib import Path
+
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "shot-descriptors.json").read_text()
+    )
+    assert fixture["ids"] == [describe.descriptor_id(t) for t in describe.DESCRIPTORS]
+
+
+def test_descriptor_ids_are_unique():
+    # Two descriptors sharing an id would give one of them the other's label.
+    from autoedit import describe
+
+    import re
+
+    ids = [describe.descriptor_id(t) for t in describe.DESCRIPTORS]
+    assert len(set(ids)) == len(ids)
+    assert all(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", i) for i in ids)
