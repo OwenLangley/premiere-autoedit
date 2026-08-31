@@ -790,3 +790,67 @@ def test_a_chosen_frame_rate_reaches_the_engine(tmp_path):
     for options in ({"frameRate": "auto"}, {}):
         assert "--fps" not in request_to_argv({**base, "options": options},
                                               tmp_path, tmp_path, tmp_path)
+
+
+def test_a_rooted_media_reference_resolves_to_its_own_drive(tmp_path):
+    """`media2:C0001.MP4` is the second root's file, not the first's.
+
+    Two cards both holding C0001.MP4 is ordinary. Probing the roots in turn
+    would pick whichever came first and be silently wrong about which shoot the
+    editor selected, which is why the reference names its root.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import _media_path
+
+    roots = [Path("/A"), Path("/B")]
+    assert _media_path("C1.MP4", roots) == "/A/C1.MP4"          # no prefix: the first
+    assert _media_path("media:C1.MP4", roots) == "/A/C1.MP4"
+    assert _media_path("media2:day2/C1.MP4", roots) == "/B/day2/C1.MP4"
+    # A root that is not configured any more falls back rather than crashing.
+    assert _media_path("media9:C1.MP4", roots) == "/A/C1.MP4"
+
+
+def test_every_root_reaches_the_engine(tmp_path):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import request_to_argv
+
+    argv = request_to_argv(
+        {"jobId": "j", "recipe": "client-promo", "media": ["a.mp4", "media2:b.mp4"],
+         "options": {}},
+        tmp_path, Path("/A"), tmp_path, None, [Path("/A"), Path("/B")])
+    roots = [argv[i + 1] for i, a in enumerate(argv) if a == "--media-root"]
+    assert roots == ["/A", "/B"], "order is the contract: it names them by position"
+    assert "/A/a.mp4" in argv and "/B/b.mp4" in argv
+
+
+def test_an_unplugged_drive_is_dropped_not_fatal(tmp_path):
+    """An unplugged drive is a Tuesday. The rest of the library keeps working."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import resolve_media_roots, unreachable_media_roots
+
+    here = tmp_path / "here"
+    here.mkdir()
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "config.json").write_text(json.dumps(
+        {"mediaRoots": [str(here), str(tmp_path / "unplugged")]}))
+
+    assert resolve_media_roots(jobs, here) == [here.resolve()]
+    assert unreachable_media_roots(jobs) == [str(tmp_path / "unplugged")]
+
+
+def test_the_old_single_root_setting_still_works(tmp_path):
+    # Every machine already configured has `mediaRoot`, not `mediaRoots`.
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import resolve_media_roots
+
+    here = tmp_path / "here"
+    here.mkdir()
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "config.json").write_text(json.dumps({"mediaRoot": str(here)}))
+    assert resolve_media_roots(jobs, tmp_path) == [here.resolve()]

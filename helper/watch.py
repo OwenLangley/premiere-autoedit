@@ -346,6 +346,46 @@ def iter_media(media_root: Path, max_depth: int = MAX_INDEX_DEPTH,
         queue.extend(folders)
 
 
+def build_media_index_across(roots: list[Path], jobs: Path | None = None,
+                             max_files: int = MAX_INDEX_FILES) -> dict:
+    """One index over several roots, each file tagged with the root it came from.
+
+    `relPath` is per-root, so two drives may both hold `C0001.MP4` without
+    colliding -- they differ by `root`, and the panel resolves each through the
+    folder it was granted for that root. A single flat list keyed by filename
+    would have made the second drive's clips shadow the first's.
+    """
+    merged: dict = {
+        "schemaVersion": "1.0",
+        "mediaRoot": str(roots[0]) if roots else "",
+        "mediaRoots": [str(r) for r in roots],
+        "roots": {},
+        "updatedAt": _now(),
+        "scanDepth": MAX_INDEX_DEPTH,
+        "truncated": False,
+        "evicted": [],
+        "evictedCount": 0,
+        "unreachable": unreachable_media_roots(jobs) if jobs else [],
+        "files": [],
+    }
+    budget = max_files
+    for i, root in enumerate(roots):
+        name = "media" if i == 0 else f"media{i + 1}"
+        merged["roots"][name] = str(root)
+        one = build_media_index(root, max_files=budget)
+        for entry in one["files"]:
+            merged["files"].append({**entry, "root": name})
+        budget -= len(one["files"])
+        merged["truncated"] = merged["truncated"] or one["truncated"]
+        merged["evicted"].extend(one["evicted"])
+        merged["evictedCount"] += one["evictedCount"]
+        if budget <= 0:
+            merged["truncated"] = True
+            break
+    merged["evicted"] = sorted(merged["evicted"])[:20]
+    return merged
+
+
 def build_media_index(media_root: Path, max_files: int = MAX_INDEX_FILES) -> dict:
     """Index the media root so the panel can tell footage from a music bed.
 
@@ -394,6 +434,12 @@ def build_media_index(media_root: Path, max_files: int = MAX_INDEX_FILES) -> dic
 CONFIG_FILE = "config.json"
 LIBRARY_PREFIX = "library:"
 
+# `media2:day2/C0001.MP4` -- which root a requested clip came from. The same
+# explicit-prefix idiom as `library:` above, and for the same reason: two drives
+# may both hold C0001.MP4, and probing the roots in turn would pick whichever
+# came first and be silently wrong about which shoot the editor selected.
+_ROOTED = re.compile(r"^(?P<root>media[0-9]*):(?P<rel>.+)$")
+
 
 def read_config(jobs: Path) -> dict:
     """Panel-owned settings that must not need a helper restart to change.
@@ -406,6 +452,45 @@ def read_config(jobs: Path) -> dict:
         return json.loads((jobs / CONFIG_FILE).read_text())
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def resolve_media_roots(jobs: Path, fallback: Path) -> list[Path]:
+    """Every folder the footage lives in, in order.
+
+    One media root was always a simplification. An editor keeping this shoot on
+    the desktop and last month's on an external drive is the ordinary case, and
+    until now the second folder simply did not exist as far as this tool was
+    concerned.
+
+    A root that is not currently a folder is DROPPED, not fatal: an unplugged
+    drive is a Tuesday, and the rest of the library must keep working. Which
+    ones are missing is reported in the index so the panel can say so rather
+    than quietly showing fewer clips.
+    """
+    config = read_config(jobs)
+    raw = config.get("mediaRoots")
+    if not raw:
+        single = config.get("mediaRoot")
+        raw = [single] if single else []
+    roots: list[Path] = []
+    for item in raw:
+        candidate = Path(str(item)).expanduser()
+        if candidate.is_dir():
+            resolved = candidate.resolve()
+            if resolved not in roots:
+                roots.append(resolved)
+        else:
+            print(f"warning: media root is not reachable: {item}", file=sys.stderr)
+    return roots or [fallback]
+
+
+def unreachable_media_roots(jobs: Path) -> list[str]:
+    """Configured roots that are not folders right now -- usually an unplugged
+    drive. Named so the panel can say which, rather than showing a short list of
+    clips and no reason for it."""
+    config = read_config(jobs)
+    raw = config.get("mediaRoots") or ([config["mediaRoot"]] if config.get("mediaRoot") else [])
+    return [str(x) for x in raw if not Path(str(x)).expanduser().is_dir()]
 
 
 def resolve_media_root(jobs: Path, fallback: Path) -> Path:
@@ -437,6 +522,21 @@ def resolve_music_root(jobs: Path, fallback: Path | None) -> Path | None:
             return candidate.resolve()
         print(f"warning: musicRoot in config.json is not a folder: {raw}", file=sys.stderr)
     return fallback
+
+
+def _media_path(value: str, media_roots: list[Path]) -> str:
+    """A requested clip as an absolute path.
+
+    Plain `C0001.MP4` means the first root, which is what every request written
+    before there was more than one root says. `media2:C0001.MP4` names its root
+    explicitly.
+    """
+    match = _ROOTED.match(str(value))
+    if not match:
+        return str(media_roots[0] / str(value))
+    index = 0 if match.group("root") == "media" else int(match.group("root")[5:]) - 1
+    root = media_roots[index] if 0 <= index < len(media_roots) else media_roots[0]
+    return str(root / match.group("rel"))
 
 
 def resolve_music(value: str, media_root: Path, music_root: Path | None) -> Path | None:
@@ -475,8 +575,9 @@ def write_music_index(jobs: Path, music_root: Path | None) -> None:
     (jobs / "music-index.json").write_text(json.dumps(index, indent=2) + "\n")
 
 
-def write_media_index(jobs: Path, media_root: Path) -> None:
-    index = build_media_index(media_root)
+def write_media_index(jobs: Path, media_root, roots: list[Path] | None = None) -> None:
+    index = (build_media_index_across(roots, jobs) if roots
+             else build_media_index(media_root))
     if index["evictedCount"] and not index["files"]:
         print(
             f"warning: {index['evictedCount']} file(s) under {media_root} are in "
@@ -502,10 +603,11 @@ def _num(value) -> str:
 
 def request_to_argv(
     request: dict, jobs: Path, media_root: Path, work_dir: Path,
-    music_root: Path | None = None,
+    music_root: Path | None = None, media_roots: list[Path] | None = None,
 ) -> list[str]:
     """Map a job request onto engine arguments."""
     job_id = request["jobId"]
+    media_roots = media_roots or [media_root]
     options = request.get("options") or {}
     duration = options.get("duration") or {}
 
@@ -513,10 +615,12 @@ def request_to_argv(
         "plan",
         "--job", job_id,
         "--recipe", request["recipe"],
-        "--media-root", str(media_root),
+        # One per root, in order: the engine names them media, media2, media3
+        # by position, so the order here is the contract.
+        *[arg for r in media_roots for arg in ("--media-root", str(r))],
         "--work-dir", str(work_dir),
         "--out", str(jobs / f"{job_id}.editplan.json"),
-        "--media", *[str(media_root / m) for m in request["media"]],
+        "--media", *[_media_path(m, media_roots) for m in request["media"]],
     ]
 
     aspect = options.get("aspect", "source")
@@ -614,7 +718,8 @@ def validate_request(request: dict) -> list[str]:
 
 
 def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
-            music_root: Path | None = None) -> bool:
+            music_root: Path | None = None,
+            media_roots: list[Path] | None = None) -> bool:
     """Run one request. Returns True when a plan was produced."""
     job_id = path.stem.replace(".request", "")
     try:
@@ -632,7 +737,8 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
     write_status(jobs, job_id, "analysing", "starting", startedAt=_now())
 
     try:
-        argv = request_to_argv(request, jobs, media_root, work_dir, music_root)
+        argv = request_to_argv(request, jobs, media_root, work_dir, music_root,
+                                media_roots)
     except ValueError as exc:
         write_status(jobs, job_id, "failed", str(exc))
         return False
@@ -750,7 +856,8 @@ def run_update(jobs: Path, verbose: bool = True) -> None:
 
 
 def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True,
-             music_root: Path | None = None) -> int:
+             music_root: Path | None = None,
+             media_roots: list[Path] | None = None) -> int:
     if (jobs / REPORT_REQUEST).exists():
         run_report(jobs, verbose)
     if (jobs / UPDATE_REQUEST).exists():
@@ -763,7 +870,7 @@ def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True,
         marker.write_text(_now())
         if verbose:
             print(f"[{_now()}] {path.name}", file=sys.stderr)
-        process(path, jobs, media_root, work_dir, music_root)
+        process(path, jobs, media_root, work_dir, music_root, media_roots)
         handled += 1
     return handled
 
@@ -774,8 +881,9 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
     write_capabilities(jobs)
     # The plist value is only a fallback from here on.
     installed_media_root = media_root
-    media_root = resolve_media_root(jobs, installed_media_root)
-    write_media_index(jobs, media_root)
+    media_roots = resolve_media_roots(jobs, installed_media_root)
+    media_root = media_roots[0]
+    write_media_index(jobs, media_root, media_roots)
     ensure_proxies(media_root, work_dir)
     ensure_library_shots(media_root, work_dir, jobs)
     music_root = resolve_music_root(jobs, music_root)
@@ -795,14 +903,18 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
                 write_music_index(jobs, music_root)
             # The footage can move too, and moving it used to break everything
             # quietly until someone re-ran setup.sh.
-            moved = resolve_media_root(jobs, installed_media_root)
-            if moved != media_root:
-                media_root = moved
-                print(f"  media root: {media_root}", file=sys.stderr)
-                write_media_index(jobs, media_root)
-                ensure_proxies(media_root, work_dir)
-                ensure_library_shots(media_root, work_dir, jobs)
-            run_once(jobs, media_root, work_dir, music_root=music_root)
+            moved = resolve_media_roots(jobs, installed_media_root)
+            if moved != media_roots:
+                media_roots = moved
+                media_root = media_roots[0]
+                print(f"  media roots: {', '.join(str(r) for r in media_roots)}",
+                      file=sys.stderr)
+                write_media_index(jobs, media_root, media_roots)
+                for root in media_roots:
+                    ensure_proxies(root, work_dir)
+                    ensure_library_shots(root, work_dir, jobs)
+            run_once(jobs, media_root, work_dir, music_root=music_root,
+                     media_roots=media_roots)
             # Refresh the index periodically so newly ingested footage appears
             # without restarting the helper.
             ticks += 1

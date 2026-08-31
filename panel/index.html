@@ -282,6 +282,13 @@
         <button id="pick-media" data-i18n="setup.mediaRoot">Media root</button>
         <div class="grow path unset" id="media-path">not set</div>
       </div>
+      <!-- Extra footage folders, one row each, added by the button below. UXP
+           grants access one folder at a time, so a second drive is a second
+           grant rather than a wider version of the first. -->
+      <div id="extra-roots"></div>
+      <div class="row">
+        <button id="add-root" class="quiet" data-i18n="setup.addFolder">Add another footage folder</button>
+      </div>
       <div class="row">
         <button id="pick-jobs" data-i18n="setup.jobsFolder">Jobs folder</button>
         <div class="grow path unset" id="jobs-path">not set</div>

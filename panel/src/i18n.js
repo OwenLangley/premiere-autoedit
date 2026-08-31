@@ -249,6 +249,11 @@ const EN = {
   "edit.frameRate": "Frame rate",
   "edit.frameRateAuto": "Match the footage",
   "edit.groupSpeech": "Speech",
+  "setup.addFolder": "Add another footage folder",
+  "setup.removeFolder": "Remove",
+  "msg.rootAdded": "Footage folder added: {path} — the helper will index it shortly.",
+  "msg.rootAlreadyAdded": "{path} is already one of the footage folders.",
+  "msg.rootsUnreachable": "Not reachable right now: {paths}. If that is an external drive, plug it in — its clips are hidden until you do.",
   "setup.change": "Change",
   "diag.update": "Update to the latest version",
   "diag.updateHint": "Installs the newest fixes, then quit and reopen Premiere.",
@@ -658,6 +663,11 @@ const JA = {
   "edit.frameRate": "フレームレート",
   "edit.frameRateAuto": "素材に合わせる",
   "edit.groupSpeech": "音声",
+  "setup.addFolder": "素材フォルダを追加",
+  "setup.removeFolder": "削除",
+  "msg.rootAdded": "素材フォルダを追加しました: {path}。まもなくヘルパーが解析します。",
+  "msg.rootAlreadyAdded": "{path} はすでに素材フォルダに含まれています。",
+  "msg.rootsUnreachable": "現在アクセスできません: {paths}。外付けドライブの場合は接続してください。接続するまでそのクリップは表示されません。",
   "setup.change": "変更",
   "diag.selfTestHint":
     "このバージョンの Premiere API を検証し、/tmp/autoedit-selftest/report.json に" +

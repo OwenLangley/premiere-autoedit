@@ -157,6 +157,11 @@ class EditPlanBuilder:
     _effects: list[dict] = field(default_factory=list)
     _markers: list[dict] = field(default_factory=list)
     _transcripts: list[dict] = field(default_factory=list)
+    # root id -> absolute path, for every root the plan actually uses. Written
+    # so the plan says what its own names mean: "media3" is not resolvable by
+    # anything that was not there when the job ran, and a plan that cannot be
+    # read on another machine is not portable, only short.
+    _roots: dict = field(default_factory=dict)
     _warnings: list[dict] = field(default_factory=list)
     # Spans the analyser judged usable, whether or not one was placed. The panel
     # offers these as alternates for a slot, so this is deliberately the WHOLE
@@ -263,6 +268,16 @@ class EditPlanBuilder:
             w["mediaId"] = media_id
         if w not in self._warnings:
             self._warnings.append(w)
+        return self
+
+    def set_roots(self, roots: dict) -> "EditPlanBuilder":
+        """Record what each root name means. Only the ones in use are written."""
+        # A missing `root` IS "media": the default is omitted from the entry to
+        # keep plans readable, so reading it back has to put it there again or
+        # the first root goes unrecorded and nothing can resolve it.
+        used = {m.get("root", "media")
+                for m in (e.to_dict() for e in self._media.values())}
+        self._roots = {k: str(v) for k, v in roots.items() if k in used or not used}
         return self
 
     def add_transcript(self, transcript: Transcript) -> "EditPlanBuilder":
@@ -624,6 +639,7 @@ class EditPlanBuilder:
             "jobId": self.job_id,
             "recipe": self.recipe,
             "createdAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            **({"roots": self._roots} if self._roots else {}),
             "generator": {
                 "name": GENERATOR_NAME, "version": GENERATOR_VERSION,
                 **({"commit": generator_commit()} if generator_commit() else {}),

@@ -91,14 +91,14 @@ def test_only_promo_recipes_opt_into_auto_music():
 
 def test_a_track_in_the_music_library_is_recorded_against_it():
     rel, root = _relative_to_root(
-        Path("/Library/Upbeat/drive.mp3"), Path("/Footage"), Path("/Library")
+        Path("/Library/Upbeat/drive.mp3"), [Path("/Footage")], Path("/Library")
     )
     assert (rel, root) == ("Upbeat/drive.mp3", "music")
 
 
 def test_a_track_beside_the_footage_stays_on_the_media_root():
     rel, root = _relative_to_root(
-        Path("/Footage/theme.wav"), Path("/Footage"), Path("/Library")
+        Path("/Footage/theme.wav"), [Path("/Footage")], Path("/Library")
     )
     assert (rel, root) == ("theme.wav", "media")
 
@@ -107,13 +107,13 @@ def test_the_library_wins_when_it_sits_inside_the_media_root():
     # Nesting the library under the footage is a reasonable thing to do, and the
     # more specific root is the one that describes the file.
     rel, root = _relative_to_root(
-        Path("/Footage/Music/drive.mp3"), Path("/Footage"), Path("/Footage/Music")
+        Path("/Footage/Music/drive.mp3"), [Path("/Footage")], Path("/Footage/Music")
     )
     assert (rel, root) == ("drive.mp3", "music")
 
 
 def test_a_track_under_no_root_falls_back_to_its_name():
-    rel, root = _relative_to_root(Path("/tmp/loose.wav"), Path("/Footage"), None)
+    rel, root = _relative_to_root(Path("/tmp/loose.wav"), [Path("/Footage")], None)
     assert (rel, root) == ("loose.wav", "media")
 
 
@@ -391,3 +391,34 @@ def test_no_grid_at_all_changes_nothing():
     b.append_cuts("A", _cuts([(0, 5.472), (10, 10.767)]))
     first = next(c for c in b.build()["timeline"] if c["videoTrack"] >= 0)
     assert first["durationFrames"] == SEQ.to_frames(5.472)
+
+
+def test_footage_on_a_second_drive_gets_its_own_root_name():
+    """An editor with this shoot on the desktop and last month's on a drive.
+
+    Without a name of its own, a file outside the first root fell back to its
+    bare filename -- and the panel, resolving everything against the one root,
+    then could not find it. The bare name is still the last resort; a second
+    root is not.
+    """
+    roots = [Path("/Users/x/Desktop/Footage"), Path("/Volumes/Shoots/June")]
+    assert _relative_to_root(Path("/Users/x/Desktop/Footage/a.mp4"), roots, None) \
+        == ("a.mp4", "media")
+    assert _relative_to_root(Path("/Volumes/Shoots/June/b.mp4"), roots, None) \
+        == ("b.mp4", "media2")
+    assert _relative_to_root(Path("/Volumes/Shoots/June/day2/c.mp4"), roots, None) \
+        == ("day2/c.mp4", "media2")
+
+
+def test_a_root_nested_inside_another_keeps_its_own_files():
+    """Longest root wins, or the outer one swallows the inner one's files.
+
+    Someone adding /Footage and then /Footage/Selects -- which is an ordinary
+    thing to do -- would otherwise find every Selects file recorded against the
+    outer root, and the distinction they made would silently not exist.
+    """
+    roots = [Path("/Footage"), Path("/Footage/Selects")]
+    assert _relative_to_root(Path("/Footage/Selects/hero.mp4"), roots, None) \
+        == ("hero.mp4", "media2")
+    assert _relative_to_root(Path("/Footage/other.mp4"), roots, None) \
+        == ("other.mp4", "media")

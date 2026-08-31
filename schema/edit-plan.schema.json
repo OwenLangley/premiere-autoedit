@@ -61,6 +61,13 @@
         "$ref": "#/definitions/mediaRef"
       }
     },
+    "roots": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Root name to the absolute path it meant when this plan was written. Present so a plan is readable away from the machine that produced it; the panel resolves through its own configured roots and uses this only to say which folder is missing."
+    },
     "sequence": {
       "type": "object",
       "required": [
@@ -227,12 +234,10 @@
           "minLength": 1
         },
         "root": {
-          "enum": [
-            "media",
-            "music"
-          ],
           "default": "media",
-          "description": "Which configured root relPath is relative to. 'music' is a separate library folder outside the footage; still a root and still not an absolute path, so the NAS move stays a settings change."
+          "description": "Which configured root relPath is relative to. 'media' is the first footage root, 'media2' and up are additional folders or drives, and 'music' is the separate music library. Still a name and not an absolute path, so moving a library or remounting a drive stays a settings change. The plan's `roots` says what each name meant when the job ran.",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
         },
         "hash": {
           "type": "string",

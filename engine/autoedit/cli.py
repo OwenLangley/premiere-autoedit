@@ -83,18 +83,37 @@ def _find_music_bed(search_dir: Path, exclude: set[Path]) -> tuple[Path | None, 
     return (candidates[0] if len(candidates) == 1 else None), candidates
 
 
+def root_id(index: int) -> str:
+    """The name a root is known by in the plan.
+
+    `media` for the first, `media2`, `media3`... after it. The first keeps its
+    old name so plans written before there was more than one root still read,
+    and so the common case -- one folder of rushes -- says `media` rather than
+    something with a number in it.
+    """
+    return "media" if index == 0 else f"media{index + 1}"
+
+
 def _relative_to_root(
-    path: Path, media_root: Path | None, music_root: Path | None
+    path: Path, media_roots: "list[Path]", music_root: Path | None
 ) -> tuple[str, str]:
     """Express `path` against whichever configured root contains it.
 
     A music library sits outside the footage tree, so without its own root the
     plan could only record a bare filename -- and the panel, resolving everything
-    against the media root, would then fail to find it. Falling back to the name
-    is kept for the un-rooted case, but it is the lossy branch, not the norm.
+    against the media root, would then fail to find it. The same is now true of
+    footage on a second drive, which is why there is a list here rather than one
+    root: an editor keeping this shoot on the desktop and last month's on an
+    external is the ordinary case, not an exotic one.
+
+    LONGEST root first, so a root nested inside another does not lose its files
+    to the outer one. Falling back to the bare name is kept for the un-rooted
+    case, but it is the lossy branch, not the norm.
     """
-    for root, label in ((music_root, "music"), (media_root, "media")):
-        if root and (root == path.parent or root in path.parents):
+    candidates = [(music_root, "music")] if music_root else []
+    candidates += [(r, root_id(i)) for i, r in enumerate(media_roots) if r]
+    for root, label in sorted(candidates, key=lambda c: -len(str(c[0]))):
+        if root == path.parent or root in path.parents:
             return str(path.relative_to(root)), label
     return path.name, "media"
 
@@ -338,9 +357,26 @@ def _assemble_story(story, story_spans, collected, builder, options, detection, 
     return rebuilt, sections
 
 
-def _media_id(index: int, path: Path) -> str:
+def _media_id(index: int, path: Path, taken: "dict[str, Path] | None" = None) -> str:
+    """A short, safe id for a clip, unique within the plan.
+
+    Derived from the filename because an id shows up in subclip names, warnings
+    and the panel, and `C0001` is recognisable where `M007` is not.
+
+    Uniqueness is not optional once footage can come from several drives. Two
+    cards both holding `C0001.MP4` are ordinary, and without this the second
+    silently replaced the first in the plan -- one media entry, one clip, and
+    the other shoot simply absent with nothing said.
+    """
     stem = "".join(c for c in path.stem if c.isalnum() or c in "_-")[:24]
-    return stem or f"M{index:03d}"
+    base = stem or f"M{index:03d}"
+    if taken is None or taken.get(base) in (None, path):
+        return base
+    for n in range(2, 100):
+        candidate = f"{base}_{n}"
+        if taken.get(candidate) in (None, path):
+            return candidate
+    return f"M{index:03d}"
 
 
 def cmd_recipes(args) -> int:
@@ -412,7 +448,10 @@ def cmd_plan(args) -> int:
             file=sys.stderr,
         )
 
-    media_root = Path(args.media_root).resolve() if args.media_root else None
+    media_roots = [Path(r).resolve() for r in (args.media_root or [])]
+    # The first is still "the" media root wherever one path is wanted -- proxy
+    # search, the fallback for un-rooted files -- and the rest are additions.
+    media_root = media_roots[0] if media_roots else None
     music_root = Path(args.music_root).resolve() if getattr(args, "music_root", None) else None
     provider_name = args.provider or recipe.transcription.get("provider", "sidecar")
     try:
@@ -494,6 +533,9 @@ def cmd_plan(args) -> int:
         audio_tracks=recipe.sequence.audio_tracks,
     )
 
+    # id -> the path it was given to, so a second drive's C0001.MP4 gets its own
+    # id rather than overwriting the first.
+    media_ids: dict[str, Path] = {}
     silent: list[str] = []
     visual_used = False
     # Shots that passed the quality gates, across every file. Distinguishes
@@ -674,8 +716,9 @@ def cmd_plan(args) -> int:
         path = Path(raw).resolve()
         info = probes[i]
 
-        mid = _media_id(i, path)
-        rel = str(path.relative_to(media_root)) if media_root and media_root in path.parents else path.name
+        mid = _media_id(i, path, media_ids)
+        media_ids[mid] = path
+        rel, media_root_name = _relative_to_root(path, media_roots, None)
         role = args.role[i] if args.role and i < len(args.role) else None
 
         # Point at a proxy if one has been built. The helper makes these in the
@@ -691,7 +734,7 @@ def cmd_plan(args) -> int:
                 awaiting_proxy.append(path.name)
 
         builder.add_media(MediaEntry(
-            id=mid, rel_path=rel, duration=info.duration,
+            id=mid, rel_path=rel, root=media_root_name, duration=info.duration,
             hash=content_hash(path), role=role,
             timebase=info.timebase, has_video=info.has_video, has_audio=info.has_audio,
             # Display dimensions, not stored ones: the panel's scale-to-fill maths
@@ -1063,7 +1106,7 @@ def cmd_plan(args) -> int:
     if music_path:
         try:
             music_info = probe(music_path)
-            rel, root = _relative_to_root(music_path, media_root, music_root)
+            rel, root = _relative_to_root(music_path, media_roots, music_root)
             builder.add_media(MediaEntry(
                 id="MUSIC", rel_path=rel, duration=music_info.duration, root=root,
                 hash=content_hash(music_path), role="music",
@@ -1197,6 +1240,12 @@ def cmd_plan(args) -> int:
             )
             print(f"  look: {options.look!r} not in the brand kit -- skipped", file=sys.stderr)
 
+    # What each root name in this plan means, so it can be read on a machine
+    # that was not the one that wrote it.
+    builder.set_roots({
+        **{root_id(i): r for i, r in enumerate(media_roots)},
+        **({"music": music_root} if music_root else {}),
+    })
     plan = builder.build()
 
     # An empty timeline is not success. Exiting 0 with a zero-clip plan means the
@@ -1309,7 +1358,10 @@ def build_parser() -> argparse.ArgumentParser:
         "describe the video in plain text and the beats become the running "
         "order, e.g. \"opens with the storefront, then the chef cooking, then a "
         "happy customer\". Needs --visual: beats are matched against pictures."))
-    pl.add_argument("--media-root", help="paths in the plan are recorded relative to this")
+    pl.add_argument("--media-root", action="append", default=None, metavar="DIR", help=(
+        "paths in the plan are recorded relative to this. Repeatable: give it "
+        "once per folder or drive the footage lives on, and each is recorded "
+        "under its own name so the plan stays free of absolute paths"))
     pl.add_argument("--music-root", help="a music library outside the footage tree. Tracks under it are recorded relative to it, so the plan stays free of absolute paths.")
     pl.add_argument("--provider", help="override the recipe transcription provider")
     pl.add_argument("--model", help="override the transcription model, e.g. small, medium, large-v3")

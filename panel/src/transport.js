@@ -386,17 +386,34 @@ class HttpsTransport {
  * Today the root is a local drive; when it becomes a NAS mount only this
  * setting changes -- which is the whole reason plans never store absolute paths.
  */
-function makeResolver(mediaRootToken, musicRootToken) {
-  const tokens = { media: mediaRootToken, music: musicRootToken };
+/**
+ * Resolve a plan's relative paths through the folders this panel was granted.
+ *
+ * `extraTokens` maps the additional root names -- media2, media3 -- to their own
+ * folder tokens. UXP grants access per folder, so a second drive needs its own
+ * grant; there is no way to widen the first one to cover it.
+ *
+ * @param {string} mediaRootToken @param {string} musicRootToken
+ * @param {Record<string,string>} [extraTokens]
+ */
+function makeResolver(mediaRootToken, musicRootToken, extraTokens) {
+  const tokens = { media: mediaRootToken, music: musicRootToken, ...(extraTokens || {}) };
   const names = { media: "Media root", music: "Music folder" };
   /**
    * @param {string} relPath
    * @param {string} [rootName] which configured root the path hangs off
    */
   return async function resolveAbsolutePath(relPath, rootName) {
-    const which = rootName === "music" ? "music" : "media";
+    const which = tokens[rootName] ? rootName : (rootName === "music" ? "music" : "media");
     const root = await folderFromToken(tokens[which]);
-    if (!root) throw new Error(`${names[which]} is not set or is no longer reachable.`);
+    if (!root) {
+      // Name the root that is missing. "Media root is not set" while the clip
+      // is on a second drive sends someone to re-pick a folder that was never
+      // the problem.
+      throw new Error(
+        `${names[which] || `Folder for "${which}"`} is not set or is no longer ` +
+        `reachable. If the footage is on an external drive, check it is plugged in.`);
+    }
     const parts = String(relPath).normalize("NFC").split("/").filter(Boolean);
     let node = root;
     for (let i = 0; i < parts.length - 1; i++) {

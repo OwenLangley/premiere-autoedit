@@ -294,6 +294,26 @@ iterating.
 **Nothing leaves your machine.** `whisper-local` runs entirely offline. The first
 run downloads the model (~460MB for `small`, ~3GB for `large-v3`), then never again.
 
+## Footage in more than one place
+
+**Setup > Add another footage folder.** Rushes on the desktop and last month's
+on an external drive is the ordinary case, and one media root was always a
+simplification of it.
+
+Each folder is indexed under its own name -- `media`, `media2`, `media3` -- and
+a clip is recorded as that name plus a path inside it. So two cards both holding
+`C0001.MP4` stay two different clips: they differ by root, and the clip picker
+says which folder each came from. Plans stay free of absolute paths, so the
+"move the library and change one setting" promise survives.
+
+**An unplugged drive is not an error.** Its folder is dropped from the scan, the
+rest of the library keeps working, and the panel names what is missing rather
+than showing fewer clips for no stated reason. Plug it in and the clips come
+back.
+
+UXP grants folder access one folder at a time, so each one is its own pick --
+there is no widening the first grant to cover a drive.
+
 ## Frame rate
 
 **Setup > Show settings > Timing > Frame rate.** "Match the footage" is the

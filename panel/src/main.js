@@ -90,6 +90,55 @@ async function showFolder(token, el, fallback) {
 }
 
 /**
+ * Every root this panel can reach, as name -> folder token.
+ *
+ * `extraRoots` is a list of `{ id, token, path }` written by the Add folder
+ * button. UXP grants folder access one folder at a time, so a second drive is a
+ * second grant -- there is no widening the first.
+ */
+/**
+ * How a clip is named everywhere in the panel and in the request.
+ *
+ * `C0001.MP4` for the first root, `media2:C0001.MP4` for any other -- the same
+ * explicit-prefix idiom the engine and helper already use, so the string the
+ * picker holds is the string the request sends.
+ * @param {{relPath?: string, name?: string, root?: string}} file
+ */
+function mediaKey(file) {
+  const rel = file.relPath || file.name || "";
+  return !file.root || file.root === "media" ? rel : `${file.root}:${rel}`;
+}
+
+/**
+ * A root's folder name, for a card. `media2` means nothing to an editor;
+ * "Shoots" is the folder they picked.
+ */
+function rootLabel(id) {
+  const roots = (state.mediaIndexMeta && state.mediaIndexMeta.roots) || {};
+  const path = roots[id];
+  return path ? String(path).split("/").filter(Boolean).pop() : id;
+}
+
+/** Just the filename, for a card label. */
+function mediaLabel(key) {
+  const rel = String(key).replace(/^media[0-9]*:/, "");
+  return rel.split("/").pop() || rel;
+}
+
+function rootTokens() {
+  /** @type {Record<string,string>} */
+  const extra = {};
+  for (const r of state.settings.extraRoots || []) {
+    if (r && r.id && r.token) extra[r.id] = r.token;
+  }
+  return extra;
+}
+
+function resolver() {
+  return makeResolver(state.settings.mediaToken, state.settings.musicToken, rootTokens());
+}
+
+/**
  * Setup is finished work; it should not head the panel forever.
  *
  * Once media and jobs are both chosen there is nothing here to do again, so it
@@ -187,6 +236,7 @@ async function refreshSetup() {
   const jobs = await showFolder(state.settings.jobsToken, $("jobs-path"), state.t("setup.notSet"));
   await showFolder(state.settings.musicToken, $("music-path"), state.t("setup.notSetOptional"));
   showSetup(media, jobs);
+  renderExtraRoots();
   state.transport = state.settings.jobsToken
     ? new LocalFolderTransport(state.settings.jobsToken)
     : null;
@@ -800,7 +850,7 @@ function renderAlternates(slot) {
  * leave eight items in the bin.
  */
 async function previewCandidate(c) {
-  const resolve = makeResolver(state.settings.mediaToken, state.settings.musicToken);
+  const resolve = resolver();
   // A library shot has no media entry yet -- it is a path under the media root,
   // which is exactly what the resolver takes.
   let relPath = c.relPath;
@@ -831,7 +881,7 @@ async function onApply() {
 
   try {
     const report = await applyPlan(plan, {
-      resolveAbsolutePath: makeResolver(state.settings.mediaToken, state.settings.musicToken),
+      resolveAbsolutePath: resolver(),
       brandkit: state.settings.brandkit,
       onProgress: (stage, detail) => log(`  ${stage}: ${detail}`),
     });
@@ -888,13 +938,7 @@ $("pick-media").addEventListener("click", async () => {
   // the path to config is what tells the helper the footage has moved. Without
   // this the picker changed nothing an editor could see, because the clip list
   // comes from the helper's index.
-  if (state.transport) {
-    try {
-      await state.transport.writeConfig({ mediaRoot: picked.path });
-    } catch (err) {
-      log(state.t("msg.mediaRootNotShared", { message: err.message }), "err");
-    }
-  }
+  await pushRootsToHelper();
   await refreshSetup();
   state.selectedMedia.clear();
   await loadMediaList();
@@ -905,7 +949,7 @@ $("pick-media").addEventListener("click", async () => {
 async function chosenTrackPath() {
   const chosen = parseMusicValue($("opt-music").value);
   if (chosen.kind !== "track") throw new AuditionError(state.t("msg.chooseTrackFirst"));
-  const resolve = makeResolver(state.settings.mediaToken, state.settings.musicToken);
+  const resolve = resolver();
   return resolve(chosen.relPath, chosen.root);
 }
 
@@ -1058,10 +1102,20 @@ async function loadMediaList() {
     if (index && Array.isArray(index.files)) {
       // Keyed by relPath, not name: the scan descends into subfolders now, so
       // two `theme.wav` under different folders are different files.
-      state.mediaIndex = new Map(index.files.map((f) => [f.relPath || f.name, f]));
-      state.mediaFiles = index.files.filter((f) => f.hasVideo).map((f) => f.relPath || f.name);
+      // Keyed by ROOT AND relPath. Two drives may both hold C0001.MP4 -- that
+      // is the ordinary case for an editor with a shoot per card -- and keying
+      // on the name alone made the second one shadow the first in the picker
+      // and in the request.
+      state.mediaIndex = new Map(index.files.map((f) => [mediaKey(f), f]));
+      state.mediaFiles = index.files.filter((f) => f.hasVideo).map(mediaKey);
       state.musicFiles = musicChoices(index.files, state.libraryFiles, state.t);
-      if (index.truncated) {
+      const gone = (index && index.unreachable) || [];
+    if (gone.length) {
+      // An unplugged drive shows as fewer clips and no reason. Naming it is the
+      // difference between "plug the drive in" and "why is my footage missing".
+      log(state.t("msg.rootsUnreachable", { paths: gone.join(", ") }), "err");
+    }
+    if (index.truncated) {
         log(state.t("msg.indexTruncated", { count: index.files.length }), "err");
       }
     } else {
@@ -1126,11 +1180,16 @@ async function loadMediaList() {
 
     const text = document.createElement("div");
     text.className = "clip-name";
-    text.textContent = name.split("/").pop() || name;
+    text.textContent = mediaLabel(name);
     const dur = document.createElement("div");
     dur.className = "clip-dur";
-    dur.textContent = meta && meta.durationSeconds
-      ? `${Math.round(meta.durationSeconds)}s` : "";
+    const where = meta && meta.root && meta.root !== "media"
+      ? `${rootLabel(meta.root)} · ` : "";
+    // Which folder a clip came from, when there is more than one. Two cards
+    // reading C0001.MP4 with nothing to tell them apart is worse than no
+    // second folder at all.
+    dur.textContent = where + (meta && meta.durationSeconds
+      ? `${Math.round(meta.durationSeconds)}s` : "");
 
     card.append(cb, shot, text, dur);
     box.appendChild(card);
@@ -1497,6 +1556,75 @@ $("bug-report").addEventListener("click", async () => {
   } finally {
     button.disabled = false;
   }
+});
+
+/**
+ * The extra footage folders, as rows with a way to remove each.
+ *
+ * Ids are positional -- media2, media3 -- and REUSED when one is removed, so a
+ * plan written before the removal names a folder that now means something else.
+ * That is the honest trade: the alternative is ids that grow forever and a
+ * settings file nobody can read. Removing a folder is rare; re-picking it puts
+ * it back in the same place.
+ */
+function renderExtraRoots() {
+  const box = $("extra-roots");
+  box.innerHTML = "";
+  const roots = state.settings.extraRoots || [];
+  roots.forEach((root, i) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    const label = document.createElement("div");
+    label.className = "grow path";
+    label.textContent = root.path || root.id;
+    const remove = document.createElement("button");
+    remove.className = "quiet";
+    remove.textContent = state.t("setup.removeFolder");
+    remove.addEventListener("click", async () => {
+      const next = (state.settings.extraRoots || []).filter((_, n) => n !== i);
+      // Renumber, so the ids stay positional and match what the engine will
+      // call them on the next job.
+      state.settings = saveSettings({
+        extraRoots: next.map((r, n) => ({ ...r, id: `media${n + 2}` })),
+      });
+      await pushRootsToHelper();
+      renderExtraRoots();
+      await loadMediaList();
+    });
+    row.append(label, remove);
+    box.appendChild(row);
+  });
+}
+
+/** Tell the helper every folder to index, in order. */
+async function pushRootsToHelper() {
+  if (!state.transport) return;
+  const first = await folderFromToken(state.settings.mediaToken);
+  const paths = [
+    ...(first ? [first.nativePath] : []),
+    ...(state.settings.extraRoots || []).map((r) => r.path).filter(Boolean),
+  ];
+  try {
+    await state.transport.writeConfig({ mediaRoots: paths });
+  } catch (err) {
+    log(state.t("msg.mediaRootNotShared", { message: err.message }), "err");
+  }
+}
+
+$("add-root").addEventListener("click", async () => {
+  const picked = await pickFolder("footage folder");
+  if (!picked) return;
+  const roots = [...(state.settings.extraRoots || [])];
+  if (roots.some((r) => r.path === picked.path)) {
+    log(state.t("msg.rootAlreadyAdded", { path: picked.path }));
+    return;
+  }
+  roots.push({ id: `media${roots.length + 2}`, path: picked.path, token: picked.token });
+  state.settings = saveSettings({ extraRoots: roots });
+  await pushRootsToHelper();
+  renderExtraRoots();
+  await loadMediaList();
+  log(state.t("msg.rootAdded", { path: picked.path }));
 });
 
 $("setup-edit").addEventListener("click", () => {
