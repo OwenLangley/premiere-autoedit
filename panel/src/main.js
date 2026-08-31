@@ -1596,6 +1596,30 @@ function renderExtraRoots() {
   });
 }
 
+/**
+ * Wait for the helper to finish indexing a folder that was just added.
+ *
+ * The panel writes config and reads the index; the helper sits between them on
+ * a two-second poll and has to walk the new folder before the index mentions
+ * it. Reloading the clip list immediately reads the OLD index and shows nothing
+ * new, which reads exactly like the folder was not added.
+ *
+ * Bounded, and a timeout is not an error: a large or slow drive simply takes
+ * longer than this, and the list refreshes on its own afterwards.
+ * @param {string} path
+ */
+async function waitForIndex(path) {
+  for (let i = 0; i < 15; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      const index = state.transport ? await state.transport.listMediaIndex() : null;
+      const roots = (index && index.mediaRoots) || [];
+      if (roots.some((r) => String(r) === String(path))) return true;
+    } catch { /* keep waiting */ }
+  }
+  return false;
+}
+
 /** Tell the helper every folder to index, in order. */
 async function pushRootsToHelper() {
   if (!state.transport) return;
@@ -1621,10 +1645,14 @@ $("add-root").addEventListener("click", async () => {
   }
   roots.push({ id: `media${roots.length + 2}`, path: picked.path, token: picked.token });
   state.settings = saveSettings({ extraRoots: roots });
-  await pushRootsToHelper();
   renderExtraRoots();
+  await pushRootsToHelper();
+  log(state.t("msg.rootIndexing", { path: picked.path }));
+  const ready = await waitForIndex(picked.path);
   await loadMediaList();
-  log(state.t("msg.rootAdded", { path: picked.path }));
+  log(ready
+    ? state.t("msg.rootAdded", { path: picked.path })
+    : state.t("msg.rootSlow", { path: picked.path }), ready ? "ok" : null);
 });
 
 $("setup-edit").addEventListener("click", () => {

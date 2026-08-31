@@ -854,3 +854,43 @@ def test_the_old_single_root_setting_still_works(tmp_path):
     jobs.mkdir()
     (jobs / "config.json").write_text(json.dumps({"mediaRoot": str(here)}))
     assert resolve_media_roots(jobs, tmp_path) == [here.resolve()]
+
+
+def test_the_index_keeps_every_root_when_it_is_refreshed(tmp_path):
+    """The periodic refresh must not quietly drop back to one root.
+
+    `write_media_index` takes the roots as an optional argument, and two of the
+    four call sites did not pass them. So a second folder appeared, worked, and
+    thirty seconds later vanished when the refresh rewrote the index from the
+    first root alone -- which from outside is indistinguishable from never
+    having worked at all.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    import watch
+
+    a, b, jobs = tmp_path / "a", tmp_path / "b", tmp_path / "jobs"
+    for d in (a, b, jobs):
+        d.mkdir()
+    (a / "one.mp4").write_bytes(b"")
+    (b / "two.mp4").write_bytes(b"")
+
+    watch.write_media_index(jobs, a, [a, b])
+    index = json.loads((jobs / "media-index.json").read_text())
+    assert set(index["roots"]) == {"media", "media2"}
+    assert index["mediaRoots"] == [str(a), str(b)]
+
+
+def test_every_write_media_index_call_passes_its_roots():
+    """Guards the defect directly: the argument is optional and was forgotten.
+
+    Reading the source is crude, but the alternative is a live helper and a
+    forty-second wait, and what went wrong was a call site rather than a
+    behaviour.
+    """
+    source = (Path(__file__).resolve().parents[2] / "helper" / "watch.py").read_text()
+    calls = [line.strip() for line in source.splitlines()
+             if "write_media_index(jobs" in line and "def " not in line]
+    assert calls, "no call sites found -- this test has gone stale"
+    for call in calls:
+        assert "roots" in call, f"call site drops the roots: {call}"

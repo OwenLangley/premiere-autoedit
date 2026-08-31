@@ -919,7 +919,11 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
             # without restarting the helper.
             ticks += 1
             if ticks % 15 == 0:
-                write_media_index(jobs, media_root)
+                # WITH the roots. Without them this rewrote the index from the
+                # first root alone every thirty seconds, so a second folder
+                # appeared, worked, and then silently vanished again -- which
+                # reads exactly like it never worked.
+                write_media_index(jobs, media_root, media_roots)
                 write_music_index(jobs, music_root)
         except Exception:
             traceback.print_exc()
@@ -952,7 +956,8 @@ def main(argv: list[str] | None = None) -> int:
     jobs.mkdir(parents=True, exist_ok=True)
     if args.once:
         write_capabilities(jobs)
-        write_media_index(jobs, media_root)
+        once_roots = resolve_media_roots(jobs, media_root)
+        write_media_index(jobs, media_root, once_roots)
         music_root = resolve_music_root(jobs, music_root)
         write_music_index(jobs, music_root)
         print(
