@@ -894,3 +894,52 @@ def test_every_write_media_index_call_passes_its_roots():
     assert calls, "no call sites found -- this test has gone stale"
     for call in calls:
         assert "roots" in call, f"call site drops the roots: {call}"
+
+
+def test_one_big_folder_cannot_starve_the_others(tmp_path):
+    """A photo library took 395 of a 400-file budget and left five for the
+    folder holding the actual rushes.
+
+    The clips that mattered were simply absent from the picker, with a warning
+    that named the wrong folder.
+    """
+    import shutil
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    import watch
+
+    src = Path(__file__).resolve().parent / "fixtures" / "sample_25fps_1080p.mp4"
+    big, small = tmp_path / "big", tmp_path / "small"
+    big.mkdir(); small.mkdir()
+    for i in range(30):
+        shutil.copy(src, big / f"b{i}.mp4")
+    for i in range(5):
+        shutil.copy(src, small / f"s{i}.mp4")
+
+    from collections import Counter
+    index = watch.build_media_index_across([big, small], tmp_path, max_files=20)
+    counts = Counter(f["root"] for f in index["files"])
+    assert counts["media2"] == 5, "the small folder keeps every file it has"
+    assert counts["media"] == 10, "the big one takes its share and no more"
+    # And the warning names the folder that actually overflowed.
+    assert index["truncatedRoots"] == [str(big)]
+
+
+def test_unused_share_passes_to_later_folders(tmp_path):
+    import shutil
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    import watch
+
+    src = Path(__file__).resolve().parent / "fixtures" / "sample_25fps_1080p.mp4"
+    small, big = tmp_path / "small", tmp_path / "big"
+    small.mkdir(); big.mkdir()
+    for i in range(5):
+        shutil.copy(src, small / f"s{i}.mp4")
+    for i in range(30):
+        shutil.copy(src, big / f"b{i}.mp4")
+
+    from collections import Counter
+    index = watch.build_media_index_across([small, big], tmp_path, max_files=20)
+    counts = Counter(f["root"] for f in index["files"])
+    assert counts["media"] == 5 and counts["media2"] == 15

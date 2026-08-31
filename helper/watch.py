@@ -139,7 +139,14 @@ MEDIA_EXTENSIONS = {
 # on stderr rather than silently truncating: an editor whose track is missing
 # needs to know the scan stopped, not wonder why the dropdown is short.
 MAX_INDEX_DEPTH = 3
-MAX_INDEX_FILES = 400
+# Raised from 400 once footage could come from several folders. A single folder
+# of rushes rarely approaches it; a photo library added as a second root has 414
+# videos in it on its own, and at 400 it took 395 of the budget and left five
+# for the folder with the actual work in it.
+#
+# The cost is index size, which is metadata: a few hundred bytes a file, so 2000
+# files is under half a megabyte and the panel reads it once.
+MAX_INDEX_FILES = 2000
 
 # Probing is an ffprobe spawn each. Flat, that cost was invisible; recursive and
 # repeated every 30s it would not be, so remember results until the file changes.
@@ -368,20 +375,31 @@ def build_media_index_across(roots: list[Path], jobs: Path | None = None,
         "unreachable": unreachable_media_roots(jobs) if jobs else [],
         "files": [],
     }
-    budget = max_files
+    # An equal share each, and whatever a folder does not use passes to the ones
+    # AFTER it. First-come let one large folder take the whole budget and leave
+    # the next with nothing -- which is precisely what happened: a photo library
+    # took 395 of 400 and the folder holding the actual rushes got five.
+    #
+    # A big folder listed first therefore leaves its share unused rather than
+    # reclaiming what a later small one did not need. That is the trade for one
+    # pass: no folder can be starved, which is the property that matters, and
+    # the alternative is scanning twice to find out.
+    share = max(1, max_files // max(1, len(roots)))
+    spare = max_files - share * len(roots)
+    truncated_roots: list[str] = []
     for i, root in enumerate(roots):
         name = "media" if i == 0 else f"media{i + 1}"
         merged["roots"][name] = str(root)
-        one = build_media_index(root, max_files=budget)
+        one = build_media_index(root, max_files=share + spare)
         for entry in one["files"]:
             merged["files"].append({**entry, "root": name})
-        budget -= len(one["files"])
-        merged["truncated"] = merged["truncated"] or one["truncated"]
+        spare = max(0, share + spare - len(one["files"]))
+        if one["truncated"]:
+            merged["truncated"] = True
+            truncated_roots.append(str(root))
         merged["evicted"].extend(one["evicted"])
         merged["evictedCount"] += one["evictedCount"]
-        if budget <= 0:
-            merged["truncated"] = True
-            break
+    merged["truncatedRoots"] = truncated_roots
     merged["evicted"] = sorted(merged["evicted"])[:20]
     return merged
 
@@ -587,9 +605,13 @@ def write_media_index(jobs: Path, media_root, roots: list[Path] | None = None) -
             file=sys.stderr,
         )
     if index["truncated"]:
+        # Name the folder that actually overflowed. This used to name the first
+        # root regardless, so it pointed at the wrong folder the moment there
+        # was more than one.
+        where = ", ".join(index.get("truncatedRoots") or [str(media_root)])
         print(
             f"warning: media index stopped at {MAX_INDEX_FILES} files; "
-            f"some footage or music under {media_root} is not listed in the panel",
+            f"some footage or music under {where} is not listed in the panel",
             file=sys.stderr,
         )
     (jobs / "media-index.json").write_text(json.dumps(index, indent=2) + "\n")
