@@ -94,6 +94,8 @@ const EN = {
   "edit.removeSilenceHint": "Trims the quiet around speech and drops shots where nothing is said.",
   "edit.silenceAllowed": "Silence to leave",
   "edit.noMediaRoot": "Set a media root above.",
+  "edit.scanning": "Scanning {where}",
+  "edit.scanningNote": "Reading every clip once. A large folder takes a few minutes; it is cached after that.",
   "edit.noVideoFiles": "No video files found in {where}",
   "edit.mediaInICloud":
     "{count} file(s) in {where} are in iCloud and have not been downloaded, so nothing can read them. In Finder, select them and choose File > Download Now.",
@@ -515,6 +517,8 @@ const JA = {
   "edit.removeSilenceHint": "発話の前後の静かな部分を詰め、発話のないショットを外します。",
   "edit.silenceAllowed": "残す無音の長さ",
   "edit.noMediaRoot": "上で素材フォルダを設定してください。",
+  "edit.scanning": "{where} を解析中",
+  "edit.scanningNote": "すべてのクリップを一度読み込みます。大きなフォルダーでは数分かかりますが、以降はキャッシュされます。",
   "edit.noVideoFiles": "{where} に動画ファイルが見つかりません",
   "edit.mediaInICloud":
     "{where} 内の {count} 個のファイルは iCloud 上にありダウンロードされていないため読み込めません。Finder で選択し、ファイル > 今すぐダウンロード を実行してください。",

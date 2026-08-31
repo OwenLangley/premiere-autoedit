@@ -1082,6 +1082,7 @@ function fillMusicSelect() {
 }
 
 async function loadMediaList() {
+  stopScanning();
   const box = $("media-list");
   box.innerHTML = "";
   if (!state.settings.mediaToken) {
@@ -1608,6 +1609,42 @@ function renderExtraRoots() {
  * longer than this, and the list refreshes on its own afterwards.
  * @param {string} path
  */
+/**
+ * Say the clip list is being built, in the clip list.
+ *
+ * The scan was reported in the Log, which is at the foot of the panel and is
+ * not where anybody looks when the thing they just did appears to have done
+ * nothing. A cold scan of a few thousand files is minutes of ffprobe, and
+ * minutes of an empty box reads as broken.
+ */
+let scanTimer = null;
+function showScanning(where, note) {
+  const box = $("media-list");
+  box.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "working";
+  const line = document.createElement("div");
+  const sub = document.createElement("div");
+  sub.className = "sub";
+  sub.textContent = note || "";
+  el.append(line, sub);
+  box.appendChild(el);
+
+  let dots = 0;
+  const tick = () => {
+    line.textContent = state.t("edit.scanning", { where }) + ".".repeat(dots % 4);
+    dots += 1;
+  };
+  stopScanning();
+  tick();
+  scanTimer = setInterval(tick, 450);
+}
+
+function stopScanning() {
+  if (scanTimer) clearInterval(scanTimer);
+  scanTimer = null;
+}
+
 async function waitForIndex(path) {
   for (let i = 0; i < 15; i++) {
     await new Promise((r) => setTimeout(r, 1000));
@@ -1647,8 +1684,9 @@ $("add-root").addEventListener("click", async () => {
   state.settings = saveSettings({ extraRoots: roots });
   renderExtraRoots();
   await pushRootsToHelper();
-  log(state.t("msg.rootIndexing", { path: picked.path }));
+  showScanning(mediaLabel(picked.path), state.t("edit.scanningNote"));
   const ready = await waitForIndex(picked.path);
+  stopScanning();
   await loadMediaList();
   log(ready
     ? state.t("msg.rootAdded", { path: picked.path })

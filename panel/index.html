@@ -159,6 +159,13 @@
       #media-list .clip-dur { padding: 0 6px 5px; color: var(--dim); font-size: var(--t-micro);
                               font-variant-numeric: tabular-nums; }
       #media-list .empty { color: var(--dim); padding: 8px; font-size: var(--t-small); flex: 1 1 100%; }
+      /* Scanning, as text rather than a spinner. A CSS-animated spinner needs
+         @keyframes, which appears nowhere else in this panel -- and the failure
+         mode of an unimplemented animation is a shape that sits perfectly still
+         while claiming to be progress. The dots are moved from JS. */
+      #media-list .working { color: var(--text); padding: 8px;
+                             font-size: var(--t-small); flex: 1 1 100%; }
+      #media-list .working .sub { color: var(--dim); margin-top: 2px; }
       /* What the engine is about to be asked for, in the editor's own terms.
          This is the last thing read before pressing the button, so it is not a
          footnote. */

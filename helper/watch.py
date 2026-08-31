@@ -208,11 +208,17 @@ def ensure_proxies(media_root: Path, work_dir: Path) -> None:
 # the per-job cap: this is every file under the media root, not the handful an
 # editor picked, so the total is what has to stay sane.
 MAX_LIBRARY_SPANS = 12
+def root_id_for(index: int) -> str:
+    """The name the engine gives this root, so the shot list agrees with it."""
+    return "media" if index == 0 else f"media{index + 1}"
+
+
 _shots_lock = threading.Lock()
 _shots_started: set = set()
 
 
-def ensure_library_shots(media_root: Path, work_dir: Path, jobs: Path) -> None:
+def ensure_library_shots(media_root: Path, work_dir: Path, jobs: Path,
+                         root_name: str = "media") -> None:
     """Analyse the whole library in the background, so alternates are not limited
     to the clips the editor happened to pick for this job.
 
@@ -249,15 +255,16 @@ def ensure_library_shots(media_root: Path, work_dir: Path, jobs: Path) -> None:
             # that entry needs a length or the panel cannot keep a swap inside
             # the source.
             shots.extend(
-                {**sp, "relPath": rel, "durationSeconds": round(info.duration, 4)}
+                {**sp, "relPath": rel, "root": root_name,
+                 "durationSeconds": round(info.duration, 4)}
                 for sp in spans
             )
             done += 1
             # Written as it goes. A library of 200 clips takes a long time, and
             # a panel that shows nothing until the last one has finished is
             # indistinguishable from one that is broken.
-            _write_shots(jobs, shots, complete=False)
-        _write_shots(jobs, shots, complete=True)
+            _write_shots(jobs, shots, complete=False, root=media_root)
+        _write_shots(jobs, shots, complete=True, root=media_root)
         print(f"  shots: {len(shots)} spans from {done} file(s)", file=sys.stderr)
 
     with _shots_lock:
@@ -304,12 +311,45 @@ def _library_spans(path: Path, info, settings, work_dir: Path) -> list[dict]:
     return out
 
 
-def _write_shots(jobs: Path, shots: list[dict], complete: bool) -> None:
+# root path -> the shots found under it, and whether that scan has finished.
+# The file is the UNION of these. Writing it from one root's worker alone made
+# two roots clobber each other -- whichever finished last won, and half the
+# library's shots simply vanished from the swap list.
+_shots_by_root: dict = {}
+
+
+def _write_shots(jobs: Path, shots: list[dict], complete: bool,
+                 root: Path | None = None) -> None:
+    if root is not None:
+        _shots_by_root[str(root)] = (shots, complete)
+    merged: list[dict] = []
+    for found, _ in _shots_by_root.values():
+        merged.extend(found)
+    if root is None:
+        merged = shots
     (jobs / "library-shots.json").write_text(json.dumps({
         "generatedAt": _now(),
-        "complete": complete,
-        "files": shots,
+        # Complete only when every root has finished. A partial file is usable
+        # and says so; claiming complete while a drive is still being read
+        # would tell the panel there is nothing more coming.
+        "complete": all(done for _, done in _shots_by_root.values()) if root is not None else complete,
+        "files": merged,
     }, indent=2) + "\n")
+
+
+def forget_shots(keep: "list[Path] | None" = None) -> None:
+    """Drop shots for roots that are no longer configured.
+
+    Replacing a folder used to leave its clips in the swap list until the new
+    scan happened to overwrite them -- so an editor saw shots from footage that
+    was no longer part of the job, which is worse than seeing none.
+    """
+    if keep is None:
+        _shots_by_root.clear()
+        return
+    wanted = {str(p) for p in keep}
+    for key in [k for k in _shots_by_root if k not in wanted]:
+        _shots_by_root.pop(key, None)
 
 
 # `.C1367.MP4.icloud` -- what iCloud leaves behind when it evicts a file to
@@ -906,8 +946,9 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
     media_roots = resolve_media_roots(jobs, installed_media_root)
     media_root = media_roots[0]
     write_media_index(jobs, media_root, media_roots)
-    ensure_proxies(media_root, work_dir)
-    ensure_library_shots(media_root, work_dir, jobs)
+    for i, root in enumerate(media_roots):
+        ensure_proxies(root, work_dir)
+        ensure_library_shots(root, work_dir, jobs, root_name=root_id_for(i))
     music_root = resolve_music_root(jobs, music_root)
     write_music_index(jobs, music_root)
     print(f"watching {jobs} (media root {media_root})", file=sys.stderr)
@@ -931,10 +972,16 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
                 media_root = media_roots[0]
                 print(f"  media roots: {', '.join(str(r) for r in media_roots)}",
                       file=sys.stderr)
+                # Forget the folders that are gone BEFORE rewriting anything, or
+                # their clips linger in the swap list looking like part of the
+                # job.
+                forget_shots(keep=media_roots)
+                _write_shots(jobs, [], complete=False)
                 write_media_index(jobs, media_root, media_roots)
-                for root in media_roots:
+                for i, root in enumerate(media_roots):
                     ensure_proxies(root, work_dir)
-                    ensure_library_shots(root, work_dir, jobs)
+                    ensure_library_shots(root, work_dir, jobs,
+                                         root_name=root_id_for(i))
             run_once(jobs, media_root, work_dir, music_root=music_root,
                      media_roots=media_roots)
             # Refresh the index periodically so newly ingested footage appears

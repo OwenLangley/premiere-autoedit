@@ -943,3 +943,62 @@ def test_unused_share_passes_to_later_folders(tmp_path):
     index = watch.build_media_index_across([small, big], tmp_path, max_files=20)
     counts = Counter(f["root"] for f in index["files"])
     assert counts["media"] == 5 and counts["media2"] == 15
+
+
+def test_shots_from_several_roots_are_merged_not_clobbered(tmp_path):
+    """Each root's scan wrote the whole file with only its own shots.
+
+    With two folders, whichever finished last won and half the library's shots
+    vanished from the swap list -- silently, because a shorter list looks like a
+    smaller library.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    import watch
+
+    watch.forget_shots()
+    jobs = tmp_path
+    a, b = tmp_path / "a", tmp_path / "b"
+    watch._write_shots(jobs, [{"relPath": "one.mp4", "root": "media"}],
+                       complete=True, root=a)
+    watch._write_shots(jobs, [{"relPath": "two.mp4", "root": "media2"}],
+                       complete=True, root=b)
+
+    written = json.loads((jobs / "library-shots.json").read_text())
+    assert {f["relPath"] for f in written["files"]} == {"one.mp4", "two.mp4"}
+    assert written["complete"] is True
+
+
+def test_a_partial_scan_does_not_claim_to_be_complete(tmp_path):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    import watch
+
+    watch.forget_shots()
+    watch._write_shots(tmp_path, [{"relPath": "one.mp4"}], complete=True,
+                       root=tmp_path / "a")
+    watch._write_shots(tmp_path, [{"relPath": "two.mp4"}], complete=False,
+                       root=tmp_path / "b")
+    written = json.loads((tmp_path / "library-shots.json").read_text())
+    assert written["complete"] is False, "one root still scanning means not complete"
+
+
+def test_removing_a_folder_takes_its_shots_with_it(tmp_path):
+    """Replacing a folder left its clips in the swap list.
+
+    An editor then saw shots from footage that was no longer part of the job,
+    which is worse than seeing none.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    import watch
+
+    watch.forget_shots()
+    a, b = tmp_path / "a", tmp_path / "b"
+    watch._write_shots(tmp_path, [{"relPath": "old.mp4"}], complete=True, root=a)
+    watch._write_shots(tmp_path, [{"relPath": "new.mp4"}], complete=True, root=b)
+
+    watch.forget_shots(keep=[b])
+    watch._write_shots(tmp_path, [{"relPath": "new.mp4"}], complete=True, root=b)
+    written = json.loads((tmp_path / "library-shots.json").read_text())
+    assert {f["relPath"] for f in written["files"]} == {"new.mp4"}
