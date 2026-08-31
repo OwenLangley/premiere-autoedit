@@ -381,6 +381,23 @@
         <label class="field"><span data-i18n="edit.pacing">Pacing</span><select id="opt-pacing"></select></label>
         <label class="field"><span data-i18n="edit.cutRate">Cut on</span><select id="opt-cut-rate"></select></label>
       </div>
+      <label class="field">
+        <span data-i18n="edit.frameRate">Frame rate</span>
+        <!-- Nothing above 60: Premiere will not create a sequence from a preset
+             faster than that, and offering one would be offering a build that
+             fails. -->
+        <select id="opt-frame-rate">
+          <option value="auto" data-i18n="edit.frameRateAuto">Match the footage</option>
+          <option value="23.976">23.976</option>
+          <option value="24">24</option>
+          <option value="25">25</option>
+          <option value="29.97">29.97</option>
+          <option value="30">30</option>
+          <option value="50">50</option>
+          <option value="59.94">59.94</option>
+          <option value="60">60</option>
+        </select>
+      </label>
 
       <div class="group" data-i18n="edit.groupSpeech">Speech</div>
       <label class="field">

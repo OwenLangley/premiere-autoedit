@@ -33,7 +33,7 @@ from .notes import Note, note
 from .proxy import proxy_path
 from .story import DISTRACTORS, assign_beats, build_story_plans, parse_prompt
 from .thumbs import build_thumb, sample_point, thumb_path
-from .timebase import choose_timebase, holds_exactly
+from .timebase import MAX_SEQUENCE_FPS, Timebase, choose_timebase, holds_exactly
 from .visual import (
     Measurements, VisualError, analyse as analyse_visual, measure as measure_visual,
     measurement_key, plan_visual_cuts,
@@ -447,11 +447,27 @@ def cmd_plan(args) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
 
-    tb, displaced = choose_timebase(
-        recipe.sequence.timebase,
-        [p.timebase for p in probes if p.has_video and p.timebase],
-    )
+    # An editor's own choice is a delivery spec and is not negotiable: when they
+    # say 25 for broadcast, footage that does not land on 25 is a fact to report,
+    # not a reason to hand them 59.94. Without --fps the recipe's rate is a
+    # preference and the footage may still displace it.
+    chosen_fps = getattr(args, "fps", None)
     timebase_notes: list[tuple[Note, str | None]] = []
+    sources = [p.timebase for p in probes if p.has_video and p.timebase]
+    if chosen_fps and chosen_fps != "auto":
+        try:
+            tb = Timebase.parse(str(chosen_fps))
+        except (ValueError, ZeroDivisionError):
+            print(f"error: unusable frame rate {chosen_fps!r}", file=sys.stderr)
+            return 2
+        if tb.fps > MAX_SEQUENCE_FPS + 1e-6:
+            print(f"error: {tb.fps:.3f} fps is above the {MAX_SEQUENCE_FPS:.0f} fps "
+                  f"Premiere will create a sequence at", file=sys.stderr)
+            return 2
+        displaced = None
+        timebase_notes.append((note("timebase.chosen", chosen=f"{tb.fps:.3f}"), None))
+    else:
+        tb, displaced = choose_timebase(recipe.sequence.timebase, sources)
     if displaced is not None:
         print(f"  sequence: {tb} to match the footage (recipe asks {displaced})", file=sys.stderr)
         timebase_notes.append((note(
@@ -1307,6 +1323,10 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--music-length", type=float, default=None, help="seconds of track to use. Omit and the bed follows the picture; set it and that much music is laid even past the last frame.")
     pl.add_argument("--no-music-snap", action="store_true", help="use the start exactly as given instead of moving it to the nearest beat")
     pl.add_argument("--visual", action="store_true", help="cut from the pictures even when the footage has audio")
+    pl.add_argument("--fps", metavar="RATE", help=(
+        "sequence frame rate: 'auto' (default) follows the recipe and the "
+        "footage, or give one -- 25, 29.97, 59.94, 30000/1001. Above 60 is "
+        "refused because Premiere will not create the sequence"))
     pl.add_argument("--protect-speech", action="store_true", help=(
         "do not cut through the middle of what someone is saying. Implied by "
         "--subtitles: an edit worth subtitling is one where the words matter"))

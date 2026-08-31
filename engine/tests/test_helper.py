@@ -771,3 +771,22 @@ def test_a_media_root_that_is_not_a_folder_falls_back(tmp_path):
     installed.mkdir(); jobs.mkdir()
     (jobs / "config.json").write_text(json.dumps({"mediaRoot": str(tmp_path / "gone")}))
     assert resolve_media_root(jobs, installed) == installed
+
+
+def test_a_chosen_frame_rate_reaches_the_engine(tmp_path):
+    """The editor's choice has to survive the trip from panel to argv."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import request_to_argv
+
+    base = {"schemaVersion": "1.0", "jobId": "j", "recipe": "client-promo",
+            "media": ["a.mp4"]}
+    argv = request_to_argv({**base, "options": {"frameRate": "25"}},
+                           tmp_path, tmp_path, tmp_path)
+    assert "--fps" in argv and argv[argv.index("--fps") + 1] == "25"
+
+    # "auto" is the absence of a choice and must not be sent: the engine would
+    # treat it as a delivery spec and stop following the footage.
+    for options in ({"frameRate": "auto"}, {}):
+        assert "--fps" not in request_to_argv({**base, "options": options},
+                                              tmp_path, tmp_path, tmp_path)

@@ -57,6 +57,10 @@
           "default": "source",
           "description": "'source' keeps the footage's own shape and skips reframing entirely."
         },
+        "frameRate": {
+          "type": "string",
+          "description": "Sequence frame rate. 'auto' follows the recipe and the footage; otherwise a rate such as '25', '29.97', '59.94' or '30000/1001'. Above 60 is refused: Premiere will not create the sequence."
+        },
         "duration": {
           "type": "object",
           "required": [

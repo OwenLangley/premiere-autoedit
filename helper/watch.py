@@ -546,6 +546,9 @@ def request_to_argv(
     # happens to recognise.
     if options.get("subtitles"):
         argv += ["--subtitles"]
+    fps = options.get("frameRate")
+    if fps and fps != "auto":
+        argv += ["--fps", str(fps)]
     if options.get("protectSpeech"):
         argv += ["--protect-speech"]
     if options.get("removeSilence"):

@@ -294,6 +294,20 @@ iterating.
 **Nothing leaves your machine.** `whisper-local` runs entirely offline. The first
 run downloads the model (~460MB for `small`, ~3GB for `large-v3`), then never again.
 
+## Frame rate
+
+**Setup > Show settings > Timing > Frame rate.** "Match the footage" is the
+default and does what it always did: the recipe states a rate, and footage that
+cannot land on it exactly displaces it, with a warning saying so.
+
+Choosing a rate makes it a delivery spec instead. It is honoured even when the
+footage does not divide into it -- "25 for broadcast" is a requirement, not a
+preference -- and the mixed-rate warning still names the files that will be
+resampled.
+
+Nothing above 60 is offered or accepted. Premiere will not create a sequence
+from a preset faster than that; see findings 12f.
+
 ## Recipes
 
 Editorial policy lives in `engine/recipes/*.yaml`, not in code, so a producer can

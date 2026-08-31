@@ -246,6 +246,8 @@ const EN = {
     "/tmp/autoedit-selftest/report.json. Run this first on a new machine.",
   "edit.groupFormat": "Format",
   "edit.groupTiming": "Timing",
+  "edit.frameRate": "Frame rate",
+  "edit.frameRateAuto": "Match the footage",
   "edit.groupSpeech": "Speech",
   "setup.change": "Change",
   "diag.update": "Update to the latest version",
@@ -421,6 +423,8 @@ const EN = {
     "the vision model is not available, so the description could not be used — the edit was assembled the ordinary way",
   "warn.story.noVisualSpans":
     "a description needs pictures to match against; turn on “Cut from pictures”",
+  "warn.timebase.chosen":
+    "Sequence set to {chosen} fps because you asked for it.",
   "warn.timebase.mixedRates":
     "{count} clip(s) are not an exact fit for the {chosen}fps sequence, so those cuts can be a frame out — check the joins on {files}",
   "warn.swap.candidatesTruncated":
@@ -651,6 +655,8 @@ const JA = {
   "diag.selfTest": "セルフテスト",
   "edit.groupFormat": "形式",
   "edit.groupTiming": "尺とテンポ",
+  "edit.frameRate": "フレームレート",
+  "edit.frameRateAuto": "素材に合わせる",
   "edit.groupSpeech": "音声",
   "setup.change": "変更",
   "diag.selfTestHint":
@@ -829,6 +835,8 @@ const JA = {
     "画像認識モデルを利用できないため、説明文を使用できませんでした。通常の方法で編集を作成しました",
   "warn.story.noVisualSpans":
     "説明文で編集するには映像の解析が必要です。「映像からカット」を有効にしてください",
+  "warn.timebase.chosen":
+    "指定に従い、シーケンスを {chosen} fps に設定しました。",
   "warn.timebase.mixedRates":
     "{count} 個のクリップが {chosen}fps のシーケンスにぴったり収まらないため、つなぎ目が 1 フレームずれることがあります。{files} の編集点を確認してください",
   "warn.swap.candidatesTruncated":

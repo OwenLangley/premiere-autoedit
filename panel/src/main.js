@@ -1304,6 +1304,7 @@ function currentForm() {
     aspect: $("opt-aspect").value,
     pacing: $("opt-pacing").value,
     cutRate: $("opt-cut-rate").value,
+    frameRate: $("opt-frame-rate").value,
     look: $("opt-look").value || null,
     visual: $("opt-visual").checked,
     subtitles: $("opt-subtitles").checked,

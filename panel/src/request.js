@@ -191,7 +191,7 @@ function jobIdWasChanged(raw) {
  *   jobId: string, recipe: string, media: string[],
  *   aspect?: string, pacing?: string, cutRate?: string|number, look?: string|null,
  *   durationMode?: string, durationSeconds?: number|null,
- *   music?: string, visual?: boolean,
+ *   music?: string, visual?: boolean, frameRate?: string,
  *   subtitles?: boolean, protectSpeech?: boolean,
  *   removeSilence?: boolean, silenceAllowed?: number,
  *   musicStart?: number, musicLength?: number, musicSnap?: boolean, language?: string,
@@ -217,6 +217,9 @@ function buildRequest(form) {
     options.duration = { mode, seconds: Number(form.durationSeconds) };
   }
   if (form.look) options.look = form.look;
+  // Only when chosen. "auto" is the absence of a choice, and sending it would
+  // make the engine treat a default as a delivery spec.
+  if (form.frameRate && form.frameRate !== "auto") options.frameRate = String(form.frameRate);
   if (form.visual) options.visual = true;
   if (form.subtitles) options.subtitles = true;
   // Sent only when asked for. The engine turns it on itself for a subtitled

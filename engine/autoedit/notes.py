@@ -118,6 +118,8 @@ CATALOGUE: dict[str, str] = {
     "timebase.followedFootage":
         "sequence set to {chosen} to match the footage; the recipe asks for {recipe}, "
         "which no whole number of source frames lands on exactly",
+    "timebase.chosen":
+        "sequence set to {chosen} because you asked for it",
     "timebase.mixedRates":
         "{count} clip(s) are not an exact fit for the {chosen} sequence, so those cuts "
         "can be a frame out; check the joins on {files}",
