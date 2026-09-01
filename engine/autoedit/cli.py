@@ -360,6 +360,146 @@ def _assemble_story(story, story_spans, collected, builder, options, detection, 
     return rebuilt, sections
 
 
+def _assemble_reference(
+    reference, story_spans, collected, builder, options, detection, cache_root,
+    match_content: bool = True,
+):
+    """Lay the editor's footage out in the reference video's shape.
+
+    Mirrors `_assemble_story`: same shot pool, same allocator, same reporting.
+    Two things differ, and both come from the reference being a video rather
+    than a sentence.
+
+    **The beats are weighted by the reference's own shot lengths**, so
+    `build_story_plans` reproduces its pacing -- a half-second cut stays a
+    half-second cut. `Beat.weight` has been threaded end to end since the story
+    feature shipped and has been 1.0 every time; this is what it was for.
+
+    **Matching is image to image**, which needs its own floor. The text
+    distractors the story path competes against sit at 0.23 against pictures
+    while image-to-image sits at 0.55 and up, so they lose every comparison and
+    the "not in this footage" answer disappears. See `reference.py` for the
+    measurement.
+
+    Falls back to `collected` untouched whenever the reference cannot be
+    honoured, exactly as the story path does.
+    """
+    from . import describe
+    from .reference import beats_from, match_shots, reference_report
+    from .story import BeatMatch
+
+    if not story_spans:
+        builder.add_warning("reference", note("reference.noVisualSpans"))
+        return collected, {}
+
+    # The IMAGE tower only. `prompt_available` also demands the multilingual text
+    # model, which this path never uses -- requiring it would refuse the job over
+    # a model it does not need.
+    if not describe.available(cache_root):
+        builder.add_warning("reference", note("reference.noModel"))
+        return collected, {}
+
+    beats = beats_from(reference)
+    if not beats:
+        builder.add_warning("reference", note("reference.noShots"))
+        return collected, {}
+
+    try:
+        footage, kept = describe.embed_stills_cached(
+            [sp[4] for sp in story_spans], cache_root)
+        ref_vectors, ref_kept = describe.embed_stills_cached(
+            reference.stills, cache_root) if reference.stills else (None, [])
+    except describe.DescribeError as exc:
+        builder.add_warning("reference", note("reference.noModel"))
+        print(f"  reference: {exc}", file=sys.stderr)
+        return collected, {}
+
+    usable = [story_spans[i] for i in kept]
+    spans = [(mid, start, end, score) for mid, start, end, score, _ in usable]
+    if not spans:
+        builder.add_warning("reference", note("reference.noVisualSpans"))
+        return collected, {}
+
+    # Which reference shot each vector belongs to: a shot whose still would not
+    # build has no vector, and zipping against the wrong list is how the caption
+    # feature once matched 28 candidates and 0 clips.
+    with_stills = [i for i, sh in enumerate(reference.shots) if sh.still]
+    vector_of = {with_stills[row]: row for row in ref_kept} if ref_kept else {}
+
+    matched_by_beat: dict[int, int] = {}
+    report = None
+    if match_content and ref_vectors is not None and len(ref_vectors):
+        found = match_shots(ref_vectors, footage)
+        report = reference_report(found)
+        for beat_index, row in vector_of.items():
+            hit = found[row]
+            if hit.matched:
+                matched_by_beat[beat_index] = hit.footage_index
+
+    # Nothing matched on content: the reference is simply of something else. Its
+    # RHYTHM is still worth copying, and that is the reliable half of this
+    # feature -- so the shots are filled by quality, in order, and the editor is
+    # told that is what happened rather than being handed a short edit.
+    rhythm_only = not matched_by_beat
+    if rhythm_only:
+        by_quality = sorted(range(len(spans)), key=lambda i: -spans[i][3])
+        for n, beat_index in enumerate(range(len(beats))):
+            if by_quality:
+                matched_by_beat[beat_index] = by_quality[n % len(by_quality)]
+
+    matches = [
+        BeatMatch(beat=beat,
+                  shots=[matched_by_beat[i]] if i in matched_by_beat else [])
+        for i, beat in enumerate(beats)
+    ]
+
+    # The reference's own length is the target, so its shot shares come out as
+    # its shot lengths. A tight tolerance because the lengths ARE the thing being
+    # copied -- the story path's loose 0.35 exists for a described running order,
+    # where trimming every beat to the millisecond would cut mid-gesture.
+    plans, unmatched = build_story_plans(
+        matches, spans, reference.duration,
+        min_clip_length=detection.min_clip_length, tolerance=0.08,
+    )
+    for m in unmatched:
+        builder.add_warning("reference", note("reference.shotUnfilled", shot=m.beat.text))
+
+    if not plans:
+        builder.add_warning("reference", note("reference.nothingMatched"))
+        return collected, {}
+
+    tracks = {mid: (v, a) for mid, _, v, a in collected}
+    rebuilt, sections = [], {}
+    for media_id, plan, beat_id in plans:
+        v, a = tracks.get(media_id, (0, 0))
+        rebuilt.append((media_id, plan, v, a))
+        sections[id(plan)] = beat_id
+
+    shots_per_beat = {m.beat.id: len(m.shots) for m in matches}
+    for beat in beats:
+        builder.add_section(beat.id, beat.text, beat.weight, shots_per_beat.get(beat.id, 0))
+
+    for w in reference.warnings:
+        builder.add_warning("reference", w)
+    if rhythm_only:
+        builder.add_warning("reference", note("reference.rhythmOnly"))
+    elif report:
+        # The band, on every job. The floor is absolute and absolute floors do
+        # not transfer between libraries; printing what was actually seen is how
+        # a wrong one becomes visible instead of becoming a quietly ignored
+        # reference.
+        builder.add_warning("reference", note(
+            "reference.matched", matched=report["matched"], shots=report["shots"],
+            best=report["best"], worst=report["worst"], floor=report["floor"]))
+        if report["reused"]:
+            builder.add_warning("reference", note(
+                "reference.reused", count=report["reused"]))
+
+    print(f"  reference: {len(plans)} clip group(s) from {len(beats)} shot(s)"
+          f"{' (rhythm only)' if rhythm_only else ''}", file=sys.stderr)
+    return rebuilt, sections
+
+
 def _media_id(index: int, path: Path, taken: "dict[str, Path] | None" = None) -> str:
     """A short, safe id for a clip, unique within the plan.
 
@@ -548,6 +688,39 @@ def cmd_plan(args) -> int:
     # The editor's sentence, read once. `beats` here would collide with the
     # musical beat grid that is live throughout this function, so the story's
     # units keep their own name everywhere: sections.
+    reference = None
+    if getattr(args, "reference", None):
+        from .reference import ReferenceError, analyse_reference
+
+        print(f"  reference: reading {Path(args.reference).name}", file=sys.stderr)
+        try:
+            reference = analyse_reference(args.reference, Path(args.work_dir or ".autoedit-cache"))
+        except ReferenceError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"  reference: {reference.cut_count} shots in {reference.duration:.1f}s"
+              f"{f', {reference.aspect}' if reference.aspect else ''}", file=sys.stderr)
+        # Matching a reference means matching its pictures, so the picture path
+        # is implied exactly as a description implies it. Requiring the editor to
+        # tick a box as well would accept the reference and silently ignore it.
+        args.visual = True
+
+    # What the reference implies about the film. Applied BEFORE the description,
+    # so a description still wins -- the editor typed that in this session, and
+    # the reference is an example they are borrowing from.
+    if reference is not None:
+        taken = []
+        if reference.aspect and options.aspect == "source":
+            options = replace(options, aspect=reference.aspect)
+            taken.append(reference.aspect)
+        if options.duration_mode == "none":
+            options = replace(options, duration_mode="exactly",
+                              duration_seconds=round(reference.duration, 2))
+            taken.append(f"{reference.duration:.0f}s")
+        if taken:
+            builder.add_warning("reference", note(
+                "reference.settingsTaken", settings=", ".join(taken)))
+
     story = parse_prompt(args.story) if getattr(args, "story", None) else None
     # An edit worth subtitling is one where what is said matters, so cutting
     # through the middle of a sentence is never what was wanted. Checked again
@@ -1016,6 +1189,15 @@ def cmd_plan(args) -> int:
     if story and story.beats:
         collected, story_sections = _assemble_story(
             story, story_spans, collected, builder, options, detection, cache_root)
+    elif reference is not None:
+        # A description and a reference are two ways of saying the same thing,
+        # so the description wins when both are given rather than the two
+        # fighting over the running order.
+        collected, story_sections = _assemble_reference(
+            reference, story_spans, collected, builder, options, detection,
+            cache_root, match_content=not args.reference_rhythm_only)
+    if reference is not None and story and story.beats:
+        builder.add_warning("reference", note("reference.describedInstead"))
 
     # Every boundary is now final except for the beat snapping inside
     # append_cuts, so this is the last place a cut can be moved off a word.
@@ -1380,6 +1562,13 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--music-length", type=float, default=None, help="seconds of track to use. Omit and the bed follows the picture; set it and that much music is laid even past the last frame.")
     pl.add_argument("--no-music-snap", action="store_true", help="use the start exactly as given instead of moving it to the nearest beat")
     pl.add_argument("--visual", action="store_true", help="cut from the pictures even when the footage has audio")
+    pl.add_argument("--reference", metavar="VIDEO", help=(
+        "cut the footage to match this video's structure: its shot count, its "
+        "shot lengths and their order. The reference is measured and discarded "
+        "-- no frame of it reaches the timeline"))
+    pl.add_argument("--reference-rhythm-only", action="store_true", help=(
+        "use the reference for its cutting rhythm alone, without trying to "
+        "match what each shot shows"))
     pl.add_argument("--fps", metavar="RATE", help=(
         "sequence frame rate: 'auto' (default) follows the recipe and the "
         "footage, or give one -- 25, 29.97, 59.94, 30000/1001. Above 60 is "

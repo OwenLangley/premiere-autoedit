@@ -189,7 +189,7 @@ if [ ! -x "$ROOT/.venv/bin/python" ]; then
   "$PY" -m venv "$ROOT/.venv"
 fi
 "$ROOT/.venv/bin/pip" install --quiet --upgrade pip
-"$ROOT/.venv/bin/pip" install --quiet -e "$ROOT/engine" faster-whisper pytest jsonschema PyYAML
+"$ROOT/.venv/bin/pip" install --quiet -e "$ROOT/engine" faster-whisper pytest jsonschema PyYAML yt-dlp
 ok "engine + Whisper"
 
 # --- panel (needs root; Premiere 26 reads /Library only) --------------------

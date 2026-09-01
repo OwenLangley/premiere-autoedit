@@ -584,6 +584,7 @@ def build_story_plans(
     target_seconds: float | None,
     min_clip_length: float = 0.4,
     max_shot: float | None = None,
+    tolerance: float = 0.35,
 ) -> tuple[list[tuple[str, "object", str]], list[BeatMatch]]:
     """Lay matched beats out in the order the editor described them.
 
@@ -592,6 +593,13 @@ def build_story_plans(
 
     Returns the plans to append -- (media_id, CutPlan, beat_id), already in beat
     order -- and the beats that matched nothing, for the caller to report.
+
+    `tolerance` is how far a beat may run over its share before it is trimmed.
+    The default 0.35 is deliberately loose for a described running order, where
+    the beats are a rough intention and trimming every one to the millisecond
+    would cut mid-gesture for no reason anyone asked for. Matching a REFERENCE
+    video is the opposite case -- the shot lengths are the thing being copied --
+    and it passes a tight one.
 
     Runtime is divided by weight across the beats that MATCHED. An unfilled beat
     is excluded from the denominator rather than given a zero share, so the film
@@ -635,7 +643,7 @@ def build_story_plans(
         if share:
             from .options import fit_duration_across
             per_beat = fit_duration_across(
-                per_beat, "about", share, tolerance=0.35,
+                per_beat, "about", share, tolerance=tolerance,
                 min_clip_length=min_clip_length, strategy="worst", max_shot=max_shot,
             )
         out.extend((media_id, plan, m.beat.id) for media_id, plan in per_beat)

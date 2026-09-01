@@ -572,6 +572,113 @@ def resolve_media_root(jobs: Path, fallback: Path) -> Path:
     return fallback
 
 
+def resolve_reference_root(jobs: Path) -> Path | None:
+    """Where reference videos live, if the editor has nominated a folder.
+
+    A folder rather than a file picker: UXP grants folder access and has no file
+    picker this panel has ever used, so a reference is chosen from a folder the
+    editor granted once -- the same shape as the music library.
+    """
+    raw = read_config(jobs).get("referenceRoot")
+    if not raw:
+        return None
+    candidate = Path(str(raw)).expanduser()
+    if candidate.is_dir():
+        return candidate.resolve()
+    print(f"warning: referenceRoot in config.json is not a folder: {raw}", file=sys.stderr)
+    return None
+
+
+# Anything with a scheme is a link to fetch; anything else is a path.
+_URLISH = re.compile(r"^https?://", re.I)
+
+
+def reference_cache_path(url: str, work_dir: Path) -> Path:
+    """Where a downloaded reference lives.
+
+    Keyed on the URL and a version tag, following the convention in `proxy.py`:
+    the recipe of the transform belongs in the key, so changing how references
+    are fetched does not silently reuse what the old rule produced.
+
+    No mtime and no content hash, because neither exists before the download.
+    """
+    key = hashlib.sha256(f"{url.strip()}|v1".encode()).hexdigest()[:20]
+    return work_dir / "reference" / key
+
+
+def download_reference(url: str, work_dir: Path) -> Path:
+    """Fetch a reference video once and keep it. Returns a local path.
+
+    Imported here rather than at module scope: a helper that never sees a URL
+    should not fail to start because a package is missing, and the message when
+    it IS missing has to name the fix.
+
+    As a MODULE, never as the `yt-dlp` binary -- launchd hands this process a
+    bare PATH with no .venv/bin on it, so the console script is not there. The
+    same trap already caught ffmpeg once.
+    """
+    stem = reference_cache_path(url, work_dir)
+    existing = sorted(stem.parent.glob(f"{stem.name}.*")) if stem.parent.exists() else []
+    if existing:
+        return existing[0]
+
+    try:
+        import yt_dlp
+    except ImportError as exc:
+        raise ValueError(
+            "downloading a reference video needs yt-dlp -- press Update in the "
+            f"panel, or re-run ./setup.sh ({exc})"
+        ) from exc
+
+    stem.parent.mkdir(parents=True, exist_ok=True)
+    options = {
+        # 720p is plenty: this is measured for its cutting pattern and then
+        # thrown away, and a 4K download costs minutes for nothing.
+        "format": "bv*[height<=720]+ba/b[height<=720]/b",
+        "outtmpl": f"{stem}.%(ext)s",
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            ydl.download([url])
+    except Exception as exc:
+        raise ValueError(
+            f"could not download the reference video: {exc}"
+        ) from exc
+
+    found = sorted(stem.parent.glob(f"{stem.name}.*"))
+    if not found:
+        raise ValueError("the reference video downloaded but no file appeared")
+    return found[0]
+
+
+def resolve_reference(option: dict, jobs: Path, work_dir: Path,
+                      media_roots: list[Path]) -> Path:
+    """A request's `reference` option as a local path. Raises ValueError."""
+    source = option.get("source")
+    value = str(option.get("value") or "").strip()
+    if not value:
+        raise ValueError("a reference video was asked for but none was named")
+
+    if source == "url" or _URLISH.match(value):
+        return download_reference(value, work_dir)
+
+    candidate = Path(value).expanduser()
+    if candidate.is_absolute() and candidate.exists():
+        return candidate
+    roots = [r for r in [resolve_reference_root(jobs), *media_roots] if r]
+    for root in roots:
+        here = root / value
+        if here.exists():
+            return here
+    raise ValueError(
+        f"could not find the reference video {value!r} -- pick the reference "
+        f"folder in panel settings, or choose it again"
+    )
+
+
 def resolve_music_root(jobs: Path, fallback: Path | None) -> Path | None:
     raw = read_config(jobs).get("musicRoot")
     if raw:
@@ -666,6 +773,7 @@ def _num(value) -> str:
 def request_to_argv(
     request: dict, jobs: Path, media_root: Path, work_dir: Path,
     music_root: Path | None = None, media_roots: list[Path] | None = None,
+    reference: Path | None = None,
 ) -> list[str]:
     """Map a job request onto engine arguments."""
     job_id = request["jobId"]
@@ -712,6 +820,14 @@ def request_to_argv(
     # happens to recognise.
     if options.get("subtitles"):
         argv += ["--subtitles"]
+    # Already a local path by the time it reaches here: acquiring it may mean a
+    # download, which needs to happen where a status can be written, not inside
+    # a pure argv builder.
+    if reference is not None:
+        argv += ["--reference", str(reference)]
+        if (options.get("reference") or {}).get("matchContent") is False:
+            argv += ["--reference-rhythm-only"]
+
     fps = options.get("frameRate")
     if fps and fps != "auto":
         argv += ["--fps", str(fps)]
@@ -799,8 +915,19 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
     write_status(jobs, job_id, "analysing", "starting", startedAt=_now())
 
     try:
+        reference = None
+        option = (request.get("options") or {}).get("reference")
+        if option:
+            # Said out loud before it starts. A download can take a minute and
+            # the panel polls a status file: without this it sits on "starting"
+            # and reads as a job that has hung.
+            write_status(jobs, job_id, "analysing",
+                         "fetching the reference video" if option.get("source") == "url"
+                         else "reading the reference video")
+            reference = resolve_reference(option, jobs, work_dir, media_roots or [media_root])
+
         argv = request_to_argv(request, jobs, media_root, work_dir, music_root,
-                                media_roots)
+                                media_roots, reference)
     except ValueError as exc:
         write_status(jobs, job_id, "failed", str(exc))
         return False

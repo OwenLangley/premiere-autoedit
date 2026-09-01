@@ -378,6 +378,25 @@ const EN = {
     "your cut rate asks for {take}s shots, shorter than this recipe's {minimum}s minimum — the rate was used, since a shot cut to the beat is not a fragment",
   "warn.cut.rateNeedsPictures":
     "a cut rate only applies when cutting from pictures; this edit follows the words, so the rate was not used — pick a montage format or turn on “Cut from pictures”",
+  "warn.reference.settingsTaken": "Taken from the reference video: {settings}",
+  "warn.reference.matched":
+    "{matched} of {shots} reference shots were found in your footage (similarity {worst}–{best}, floor {floor}).",
+  "warn.reference.shotUnfilled":
+    "Nothing in the footage matched {shot} of the reference, so that shot is not in the edit and its time went to the others.",
+  "warn.reference.rhythmOnly":
+    "None of the reference's shots were found in your footage, so it was used for its cutting rhythm alone and the shots were filled by quality.",
+  "warn.reference.reused":
+    "{count} shot(s) appear more than once: the reference has more cuts than your footage has usable moments.",
+  "warn.reference.nothingMatched":
+    "The reference could not be laid out over this footage, so the edit was assembled the ordinary way instead.",
+  "warn.reference.noShots":
+    "No shots were found in the reference video — if it is one continuous take there is no cutting pattern to copy.",
+  "warn.reference.noVisualSpans":
+    "Matching a reference needs pictures to match against; pick footage the analyser can read.",
+  "warn.reference.noModel":
+    "The vision model is not available, so the reference could not be used — the edit was assembled the ordinary way.",
+  "warn.reference.describedInstead":
+    "You gave both a description and a reference video; the description was used for the running order and the reference ignored.",
   "warn.story.settingsApplied": "taken from your description: {settings}",
   "warn.subtitles.borrowedProvider":
     "the {recipe} recipe does not transcribe, so {provider} was used for the subtitles",
@@ -799,6 +818,25 @@ const JA = {
     "指定のカット間隔は {take} 秒のショットになり、このレシピの最小値 {minimum} 秒より短くなります。ビートに合わせたショットは断片ではないため、指定を優先しました",
   "warn.cut.rateNeedsPictures":
     "カット間隔は映像からカットする場合にのみ適用されます。この編集は話に合わせているため、指定は使用されませんでした。モンタージュ形式を選ぶか「映像からカット」を有効にしてください",
+  "warn.reference.settingsTaken": "参考動画から取得: {settings}",
+  "warn.reference.matched":
+    "参考動画の {shots} ショット中 {matched} 件が素材内で見つかりました（類似度 {worst}〜{best}、しきい値 {floor}）。",
+  "warn.reference.shotUnfilled":
+    "参考動画の {shot} に合う素材が見つからなかったため、そのショットは編集に含まれず、時間は他へ配分されました。",
+  "warn.reference.rhythmOnly":
+    "参考動画のショットが素材内に見つからなかったため、カットのリズムのみを使用し、ショットは品質順に割り当てました。",
+  "warn.reference.reused":
+    "{count} 件のショットが複数回使われています。参考動画のカット数に対して使える素材が足りません。",
+  "warn.reference.nothingMatched":
+    "参考動画をこの素材に適用できなかったため、通常の方法で編集を構成しました。",
+  "warn.reference.noShots":
+    "参考動画からショットを検出できませんでした。ワンカットの動画にはコピーできるカット構成がありません。",
+  "warn.reference.noVisualSpans":
+    "参考動画との照合には映像が必要です。解析可能な素材を選んでください。",
+  "warn.reference.noModel":
+    "画像モデルが利用できないため参考動画を使用できませんでした。通常の方法で編集を構成しました。",
+  "warn.reference.describedInstead":
+    "説明文と参考動画の両方が指定されています。順序は説明文を使用し、参考動画は無視しました。",
   "warn.story.settingsApplied": "説明文から適用した設定: {settings}",
   "warn.subtitles.borrowedProvider":
     "{recipe} レシピは文字起こしを行わないため、字幕には {provider} を使用しました",

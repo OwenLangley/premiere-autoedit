@@ -196,6 +196,37 @@ CATALOGUE: dict[str, str] = {
     "subtitles.none":
         "no subtitles were written: nothing in the finished edit has a transcript",
 
+    # --- cutting to a reference video ---------------------------------------
+    "reference.settingsTaken":
+        "taken from the reference video: {settings}",
+    "reference.matched":
+        "{matched} of {shots} reference shots were found in your footage "
+        "(similarity {worst}-{best}, floor {floor})",
+    "reference.shotUnfilled":
+        "nothing in the footage matched {shot} of the reference, so that shot is "
+        "not in the edit and its time went to the others",
+    "reference.rhythmOnly":
+        "none of the reference's shots were found in your footage, so it was "
+        "used for its cutting rhythm alone and the shots were filled by quality",
+    "reference.reused":
+        "{count} shot(s) appear more than once: the reference has more cuts than "
+        "your footage has usable moments",
+    "reference.nothingMatched":
+        "the reference could not be laid out over this footage, so the edit was "
+        "assembled the ordinary way instead",
+    "reference.noShots":
+        "no shots were found in the reference video -- if it is one continuous "
+        "take there is no cutting pattern to copy",
+    "reference.noVisualSpans":
+        "matching a reference needs pictures to match against; pick footage the "
+        "analyser can read",
+    "reference.noModel":
+        "the vision model is not available, so the reference could not be used "
+        "-- the edit was assembled the ordinary way",
+    "reference.describedInstead":
+        "you gave both a description and a reference video; the description was "
+        "used for the running order and the reference ignored",
+
     # --- language ----------------------------------------------------------
     "language.uncertain":
         "{file}: only {confidence:.0%} sure this is {language} -- set the language in the "

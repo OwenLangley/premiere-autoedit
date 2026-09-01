@@ -3,7 +3,7 @@ name = "autoedit-engine"
 version = "0.1.0"
 description = "Analysis engine that turns rushes into an EditPlan for Premiere Pro"
 requires-python = ">=3.11"
-dependencies = ["PyYAML>=6.0", "jsonschema>=4.0"]
+dependencies = ["PyYAML>=6.0", "jsonschema>=4.0", "yt-dlp>=2024.1.1"]
 
 [project.optional-dependencies]
 whisper = ["faster-whisper>=1.0"]

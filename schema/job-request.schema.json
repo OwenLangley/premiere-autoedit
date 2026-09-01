@@ -162,6 +162,34 @@
           "maxLength": 2000,
           "description": "The video described in plain text. Its beats become the running order, matched against what is actually in the footage. Implies visual cutting: beats are matched against pictures, so there is nothing to match without them. A beat nothing matches is left out and named in a warning rather than filled with the nearest thing."
         },
+        "reference": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "value"
+          ],
+          "description": "Cut the footage to match this video's structure -- its shot count, its shot lengths and their order. The reference is measured and discarded; no frame of it reaches the timeline. A description, when one is given, wins over it.",
+          "properties": {
+            "source": {
+              "enum": [
+                "file",
+                "url"
+              ],
+              "description": "'file' is a path relative to the reference folder; 'url' is a link the helper downloads once and caches."
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "matchContent": {
+              "type": "boolean",
+              "default": true,
+              "description": "Also try to match what each reference shot shows, not only how long it runs. When nothing matches, the rhythm is used on its own and that is reported."
+            }
+          }
+        },
         "model": {
           "type": "string",
           "description": "Transcription model override, e.g. small or large-v3."
