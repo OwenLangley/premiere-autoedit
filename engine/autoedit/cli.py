@@ -340,6 +340,9 @@ def _assemble_story(story, story_spans, collected, builder, options, detection, 
     for media_id, plan, beat_id in plans:
         v, a = tracks.get(media_id, (0, 0))
         rebuilt.append((media_id, plan, v, a))
+        # The plan already carries its own section (build_story_plans sets it).
+        # This map is kept only for the caller's signature; the id() keying it
+        # used to rely on did not survive duration fitting or speech protection.
         sections[id(plan)] = beat_id
 
     # Record every described shot, in order, including the ones nothing served.
@@ -1063,7 +1066,9 @@ def cmd_plan(args) -> int:
         # speech and ignored the song entirely.
         builder.append_cuts(
             mid, cuts, video_track=v_track, audio_track=a_track,
-            section_id=story_sections.get(id(cuts)),
+            # From the plan itself. Reading it out of a map keyed on id(cuts)
+            # lost every section as soon as anything rebuilt the CutPlan.
+            section_id=cuts.section_id or story_sections.get(id(cuts)),
             crossfade_seconds=recipe.sequence.crossfade_seconds,
             # Speech wins over the metronome on a clip whose boundaries were
             # just moved to keep a sentence whole. Snapping it back to the grid

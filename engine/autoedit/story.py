@@ -629,7 +629,8 @@ def build_story_plans(
                 Keep(start, end, f"{m.beat.text} ({score:.2f})", round(min(1.0, score + 0.2), 4), 0)
                 for start, end, score in sorted(items)
             ]
-            per_beat.append((media_id, CutPlan(keeps=keeps, drops=[], warnings=[])))
+            per_beat.append((media_id, CutPlan(keeps=keeps, drops=[], warnings=[],
+                                              section_id=m.beat.id)))
 
         if share:
             from .options import fit_duration_across

@@ -242,7 +242,7 @@ def fit_duration(
         if total <= upper:
             if total < seconds * (1 - tolerance):
                 warnings.append(note("length.shortOfAbout", total=total, seconds=seconds))
-            return CutPlan(keeps, plan.drops, warnings)
+            return CutPlan(keeps, plan.drops, warnings, plan.section_id)
         target = seconds
     else:
         target = seconds
@@ -252,7 +252,7 @@ def fit_duration(
             warnings.append(
                 note("length.shortOfTarget", total=total, seconds=seconds)
             )
-        return CutPlan(keeps, plan.drops, warnings)
+        return CutPlan(keeps, plan.drops, warnings, plan.section_id)
 
     if strategy == "worst":
         # Drop weakest first, then restore chronological order for the timeline.
@@ -295,7 +295,7 @@ def fit_duration(
     if not kept:
         warnings.append(note("length.nothingFits", seconds=seconds))
 
-    return CutPlan(kept, plan.drops, warnings)
+    return CutPlan(kept, plan.drops, warnings, plan.section_id)
 
 
 def _spread_across_sources(
@@ -583,7 +583,8 @@ def fit_duration_across(
                 kept.append(Keep(k.start, k.start + limit, k.reason, k.confidence, k.word_count))
             else:
                 kept.append(k)
-        out.append((media_id, CutPlan(kept, plan.drops, list(plan.warnings))))
+        out.append((media_id, CutPlan(kept, plan.drops, list(plan.warnings),
+                                      plan.section_id)))
 
     running = sum(k.duration for _, p in out for k in p.keeps)
 

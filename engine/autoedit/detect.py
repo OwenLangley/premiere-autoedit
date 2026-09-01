@@ -175,6 +175,12 @@ class CutPlan:
     keeps: list[Keep] = field(default_factory=list)
     drops: list[Drop] = field(default_factory=list)
     warnings: list["Note | str"] = field(default_factory=list)
+    # Which section of the running order this plan belongs to, when it belongs
+    # to one. It travels ON the plan rather than in a map beside it: duration
+    # fitting and speech protection both build fresh CutPlan objects, so a map
+    # keyed on `id(plan)` lost every section the moment either of them ran --
+    # silently, because a missing sectionId reads as "not part of a story".
+    section_id: str | None = None
 
     @property
     def kept_duration(self) -> float:

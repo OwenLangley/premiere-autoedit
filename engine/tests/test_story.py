@@ -475,3 +475,30 @@ def test_descriptor_ids_are_unique():
     ids = [describe.descriptor_id(t) for t in describe.DESCRIPTORS]
     assert len(set(ids)) == len(ids)
     assert all(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", i) for i in ids)
+
+
+def test_a_section_survives_being_refitted():
+    """The section id must ride on the CutPlan, not on a map keyed by id().
+
+    `_assemble_story` recorded sections in `{id(plan): beat_id}`. Duration
+    fitting and speech protection both build FRESH CutPlan objects, so the
+    identity the map was keyed on stops existing and every sectionId is silently
+    lost -- the strip loses its colours and the plan loses the running order,
+    with no warning anywhere.
+    """
+    from autoedit.options import fit_duration_across
+    from autoedit.story import Beat, BeatMatch, build_story_plans
+
+    matches = [
+        BeatMatch(beat=Beat(id="b1-first", text="first"), shots=[0]),
+        BeatMatch(beat=Beat(id="b2-second", text="second"), shots=[1]),
+    ]
+    spans = [("A", 0.0, 4.0, 0.9), ("A", 5.0, 9.0, 0.8)]
+    plans, _ = build_story_plans(matches, spans, target_seconds=None)
+    assert [p.section_id for _, p, _ in plans] == ["b1-first", "b2-second"]
+
+    # The trip that used to lose it.
+    refitted = fit_duration_across(
+        [(mid, plan) for mid, plan, _ in plans], "exactly", 3.0,
+        min_clip_length=0.4, strategy="worst")
+    assert [p.section_id for _, p in refitted if p.keeps], "sections vanished in the refit"
