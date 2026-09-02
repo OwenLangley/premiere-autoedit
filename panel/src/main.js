@@ -235,8 +235,11 @@ async function refreshSetup() {
   const media = await showFolder(state.settings.mediaToken, $("media-path"), state.t("setup.notSet"));
   const jobs = await showFolder(state.settings.jobsToken, $("jobs-path"), state.t("setup.notSet"));
   await showFolder(state.settings.musicToken, $("music-path"), state.t("setup.notSetOptional"));
+  await showFolder(state.settings.referenceToken, $("reference-path"),
+                   state.t("setup.notSetOptional"));
   showSetup(media, jobs);
   renderExtraRoots();
+  await loadReferenceList();
   state.transport = state.settings.jobsToken
     ? new LocalFolderTransport(state.settings.jobsToken)
     : null;
@@ -1010,6 +1013,45 @@ $("pick-music").addEventListener("click", async () => {
   await loadMediaList();
 });
 
+$("pick-reference").addEventListener("click", async () => {
+  const picked = await pickFolder("reference folder");
+  if (!picked) return;
+  state.settings = saveSettings({ referenceToken: picked.token });
+  await refreshSetup();
+  // The helper resolves a chosen reference against this path; the token is the
+  // panel's alone and means nothing on the other side.
+  if (state.transport) {
+    try {
+      await state.transport.writeConfig({ referenceRoot: picked.path });
+    } catch (err) {
+      log(state.t("msg.mediaRootNotShared", { message: err.message }), "err");
+    }
+  }
+  await loadReferenceList();
+  log(state.t("msg.referenceFolderSet", { path: picked.path }));
+});
+
+/**
+ * The videos in the reference folder, as a dropdown.
+ *
+ * Listed straight off the folder rather than through the helper's index: a
+ * reference folder is a handful of files an editor dropped there, not a library
+ * worth walking in the background, and the panel already knows how to list one.
+ */
+async function loadReferenceList() {
+  const select = $("opt-reference");
+  const chosen = select.value;
+  let names = [];
+  try {
+    if (state.settings.referenceToken) {
+      names = await listMediaFiles(state.settings.referenceToken, isVideoFile);
+    }
+  } catch { /* an unreachable folder is an empty list, not a broken panel */ }
+  fillSelect("opt-reference", ["", ...names],
+             [state.t("edit.referenceNone"), ...names]);
+  if (["", ...names].includes(chosen)) select.value = chosen;
+}
+
 $("pick-jobs").addEventListener("click", async () => {
   const picked = await pickFolder("jobs folder");
   if (picked) {
@@ -1372,6 +1414,9 @@ function currentForm() {
     removeSilence: $("opt-remove-silence").checked,
     silenceAllowed: Number($("opt-silence-allowed").value),
     story: $("opt-story").value,
+    reference: $("opt-reference").value,
+    referenceUrl: $("opt-reference-url").value,
+    referenceRhythmOnly: $("opt-reference-rhythm").checked,
     durationMode: $("opt-duration-mode").value,
     durationSeconds: Number.isFinite(seconds) ? seconds : null,
     language: $("opt-language").value || "auto",
@@ -1752,7 +1797,9 @@ for (const id of ["opt-subtitles", "opt-protect-speech", "opt-remove-silence",
   $(id).addEventListener("change", () => { syncSpeechFields(); renderSummary_(); });
 }
 syncSpeechFields();
-for (const id of ["job-name", "opt-story", "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut-rate",
+for (const id of ["job-name", "opt-story", "opt-reference", "opt-reference-url",
+                  "opt-reference-rhythm",
+                  "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut-rate",
                   "opt-look", "opt-duration-mode", "opt-duration-seconds",
                   "opt-music", "opt-music-start", "opt-music-length"]) {
   $(id).addEventListener("change", renderSummary_);

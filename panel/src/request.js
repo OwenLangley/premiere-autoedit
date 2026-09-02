@@ -193,6 +193,7 @@ function jobIdWasChanged(raw) {
  *   durationMode?: string, durationSeconds?: number|null,
  *   music?: string, visual?: boolean, frameRate?: string,
  *   subtitles?: boolean, protectSpeech?: boolean,
+ *   reference?: string, referenceUrl?: string, referenceRhythmOnly?: boolean,
  *   removeSilence?: boolean, silenceAllowed?: number,
  *   musicStart?: number, musicLength?: number, musicSnap?: boolean, language?: string,
  *   story?: string,
@@ -220,6 +221,18 @@ function buildRequest(form) {
   // Only when chosen. "auto" is the absence of a choice, and sending it would
   // make the engine treat a default as a delivery spec.
   if (form.frameRate && form.frameRate !== "auto") options.frameRate = String(form.frameRate);
+  // A link beats a picked file: an editor who has just pasted one has said what
+  // they want more recently than the dropdown has. Sent only when one of them is
+  // actually set, so an untouched control is not a decision.
+  const link = String(form.referenceUrl || "").trim();
+  const picked = String(form.reference || "").trim();
+  if (link || picked) {
+    options.reference = {
+      source: link ? "url" : "file",
+      value: link || picked,
+      ...(form.referenceRhythmOnly ? { matchContent: false } : {}),
+    };
+  }
   if (form.visual) options.visual = true;
   if (form.subtitles) options.subtitles = true;
   // Sent only when asked for. The engine turns it on itself for a subtitled

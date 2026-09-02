@@ -294,6 +294,51 @@ iterating.
 **Nothing leaves your machine.** `whisper-local` runs entirely offline. The first
 run downloads the model (~460MB for `small`, ~3GB for `large-v3`), then never again.
 
+## Cut it like this one
+
+**New edit > Cut it like.** Pick a reference video, or paste a link to one, and
+the edit takes its shot count, its shot lengths and their order. The reference is
+measured and discarded -- no frame of it reaches the timeline.
+
+Verified against a reference built to 0.50 / 3.00 / 0.50 / 2.00 seconds: the edit
+came out 0.50 / 2.99 / 0.50 / 2.00, six seconds against six.
+
+Two things are copied and one is not:
+
+- **Rhythm**, always. This is the reliable half.
+- **What each shot shows**, when the footage can serve it. Measured on this
+  repo's own library: a reference from the same shoot scored 0.842-0.918 against
+  the footage and three unrelated videos scored 0.547-0.649, so the floor sits at
+  0.75. The band actually seen rides on every job as a warning, because an
+  absolute floor is the weak part of this and a wrong one should be visible
+  rather than silent.
+- **Not the reference's music.** Its cutting rhythm already encodes its tempo,
+  and applying that tempo to a different track would be matching the wrong
+  thing.
+
+When none of the reference's shots are found in the footage -- which is the
+ordinary case for a reference of a different subject -- the rhythm is used on its
+own, the shots are filled by quality, and the panel says so. **Rhythm only** asks
+for that outright.
+
+A reference with no cuts in it is refused, because there is no pattern to copy.
+Both causes are named: a genuine single take, or transitions too soft to detect.
+
+### Reference folders and links
+
+**Setup > Reference folder** nominates where reference videos live, the same way
+the music folder does. There is no file picker: UXP has never given this panel
+one, and `getEntryWithUrl` on an arbitrary path is documented as refusable.
+
+A pasted link is downloaded by the helper -- not the panel, which has no network
+permission at all -- cached under the jobs folder by URL, and fetched at 720p
+because the file is measured and thrown away.
+
+**Downloading from YouTube, TikTok or Instagram is generally against their terms
+of service**, and `yt-dlp`'s extractors break whenever those sites change, so
+this part needs occasional updating. The output is your own footage either way;
+whether to use the link field is your call.
+
 ## Footage in more than one place
 
 **Setup > Add another footage folder.** Rushes on the desktop and last month's

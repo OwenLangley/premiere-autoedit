@@ -304,6 +304,10 @@
         <button id="pick-music" data-i18n="setup.musicFolder">Music folder</button>
         <div class="grow path unset" id="music-path">not set (optional)</div>
       </div>
+      <div class="row">
+        <button id="pick-reference" data-i18n="setup.referenceFolder">Reference folder</button>
+        <div class="grow path unset" id="reference-path">not set (optional)</div>
+      </div>
       <label class="field">
         <span data-i18n="setup.language">Panel language</span>
         <select id="opt-ui-language"></select>
@@ -334,6 +338,31 @@
       <div class="hint" style="margin:-4px 0 10px" data-i18n="edit.describeHint">
         Each shot you describe becomes a section of the edit, in the order you write
         them. Anything the footage cannot serve is left out and said so.
+      </div>
+
+      <!-- A reference is a top-level intent like the description, not a setting
+           that overrides one, so it sits out here rather than behind the
+           disclosure. -->
+      <div class="group" data-i18n="edit.groupReference">Cut it like</div>
+      <select id="opt-reference"></select>
+      <label class="field" style="margin-top:var(--s2)">
+        <span data-i18n="edit.referenceUrl">…or paste a link</span>
+        <!-- Not translated: a URL example reads the same in every language, and
+             a key whose two values are identical trips the check that catches
+             entries somebody forgot to translate. -->
+        <input type="text" id="opt-reference-url"
+               placeholder="https://www.tiktok.com/@someone/video/123" />
+      </label>
+      <label class="check" id="reference-rhythm-field">
+        <input type="checkbox" id="opt-reference-rhythm" />
+        <span>
+          <span data-i18n="edit.referenceRhythm">Rhythm only</span>
+          <span class="hint" data-i18n="edit.referenceRhythmHint">Copy the cutting pattern without trying to match what each shot shows.</span>
+        </span>
+      </label>
+      <div class="hint" style="margin:-4px 0 10px" data-i18n="edit.referenceHint">
+        The edit takes its shot lengths and order from this video. It is measured
+        and discarded — none of it reaches your timeline.
       </div>
 
       <div class="group"><span data-i18n="edit.clips">Clips</span>

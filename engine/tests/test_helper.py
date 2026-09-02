@@ -1002,3 +1002,90 @@ def test_removing_a_folder_takes_its_shots_with_it(tmp_path):
     watch._write_shots(tmp_path, [{"relPath": "new.mp4"}], complete=True, root=b)
     written = json.loads((tmp_path / "library-shots.json").read_text())
     assert {f["relPath"] for f in written["files"]} == {"new.mp4"}
+
+
+def test_a_reference_reaches_the_engine_as_a_path(tmp_path):
+    """The helper resolves it; the engine only ever sees a local file.
+
+    Acquisition may mean a download, which needs somewhere a status can be
+    written. request_to_argv is pure and synchronous, so the path arrives
+    already resolved.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import request_to_argv
+
+    base = {"jobId": "j", "recipe": "promo-silent", "media": ["a.mp4"]}
+    argv = request_to_argv(
+        {**base, "options": {"reference": {"source": "file", "value": "r.mp4"}}},
+        tmp_path, Path("/A"), tmp_path, None, [Path("/A")], Path("/refs/r.mp4"))
+    assert argv[argv.index("--reference") + 1] == "/refs/r.mp4"
+    assert "--reference-rhythm-only" not in argv
+
+    rhythm = request_to_argv(
+        {**base, "options": {"reference": {"source": "file", "value": "r.mp4",
+                                           "matchContent": False}}},
+        tmp_path, Path("/A"), tmp_path, None, [Path("/A")], Path("/refs/r.mp4"))
+    assert "--reference-rhythm-only" in rhythm
+
+    # Not asked for, not passed. A default that travels stops meaning "unchanged".
+    assert "--reference" not in request_to_argv(
+        {**base, "options": {}}, tmp_path, Path("/A"), tmp_path, None, [Path("/A")])
+
+
+def test_a_reference_file_is_found_in_the_reference_folder(tmp_path):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import resolve_reference
+
+    jobs, refs = tmp_path / "jobs", tmp_path / "refs"
+    jobs.mkdir(); refs.mkdir()
+    (refs / "look.mp4").write_bytes(b"")
+    (jobs / "config.json").write_text(json.dumps({"referenceRoot": str(refs)}))
+
+    got = resolve_reference({"source": "file", "value": "look.mp4"}, jobs, tmp_path, [])
+    assert got == refs / "look.mp4"
+
+
+def test_a_missing_reference_says_what_to_do(tmp_path):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import resolve_reference
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    with pytest.raises(ValueError, match="reference folder"):
+        resolve_reference({"source": "file", "value": "gone.mp4"}, jobs, tmp_path, [])
+
+
+def test_a_downloaded_reference_is_cached_by_its_url(tmp_path):
+    """Keyed on the URL and a version tag: there is no mtime or content hash to
+    key on before the file exists."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    from watch import reference_cache_path
+
+    a = reference_cache_path("https://x/y", tmp_path)
+    b = reference_cache_path("  https://x/y  ", tmp_path)
+    c = reference_cache_path("https://x/z", tmp_path)
+    assert a == b, "surrounding whitespace is not a different video"
+    assert a != c
+    assert a.parent.name == "reference"
+
+
+def test_a_bare_url_is_treated_as_one_even_when_labelled_a_file(tmp_path):
+    # The panel labels it, but a link pasted into the file field is still a link
+    # and joining it to a folder path would produce nonsense.
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
+    import watch
+
+    calls = []
+    original = watch.download_reference
+    watch.download_reference = lambda url, work: calls.append(url) or Path("/tmp/x.mp4")
+    try:
+        watch.resolve_reference({"source": "file", "value": "https://x/y"},
+                                tmp_path, tmp_path, [])
+    finally:
+        watch.download_reference = original
+    assert calls == ["https://x/y"]

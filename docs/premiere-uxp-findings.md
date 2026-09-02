@@ -770,6 +770,29 @@ it is refusing. And **a build that throws now writes a failure receipt** -- unti
 this, the absence of a receipt was the only evidence a build had been attempted,
 so a bug report could show what the plan was and never what went wrong with it.
 
+## 14. A scene detector barely sees red cut to green
+
+Not a UXP finding, but it cost an hour and would cost it again.
+
+Building a fixture to prove a reference video's rhythm was copied, the obvious
+construction is coloured cards of known length concatenated together. It reported
+three shots where there were four, at every scene threshold from 0.30 down to
+0.05, and reordering the cards moved which cut went missing.
+
+The missing one was always the **red-to-green** transition. ffmpeg's `scene`
+score is computed on a downscaled, chroma-subsampled frame, and two flat
+saturated colours of similar luma barely register as a change. Real footage cuts
+differ in structure, not only in hue, so nothing about this affects real
+references -- but it made the tool look broken for an hour and produced a
+plausible wrong conclusion ("a cut near the start is missed") that survived two
+follow-up experiments.
+
+`smptebars`, `mandelbrot`, `rgbtestsrc` and `testsrc2` are visually complex and
+detect exactly. That is what `test_a_real_reference_is_read_exactly` uses.
+
+**The general lesson:** a synthetic fixture can fail in ways the real input never
+does, and a detector that works on structure needs a fixture that has some.
+
 ## 13. What works
 
 - Panel loads, renders, and is interactive
