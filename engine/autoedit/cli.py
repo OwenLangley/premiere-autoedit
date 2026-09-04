@@ -694,7 +694,9 @@ def cmd_plan(args) -> int:
 
         print(f"  reference: reading {Path(args.reference).name}", file=sys.stderr)
         try:
-            reference = analyse_reference(args.reference, Path(args.work_dir or ".autoedit-cache"))
+            reference = analyse_reference(
+                args.reference, Path(args.work_dir or ".autoedit-cache"),
+                no_cache=getattr(args, "no_cache", False))
         except ReferenceError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2

@@ -23,13 +23,18 @@ which has been threaded end to end since the story feature shipped and has been
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .probe import ProbeError, probe
+from .probe import ProbeError, content_hash, probe
 from .story import Beat
 from .thumbs import build_thumb, sample_point, thumb_path
-from .visual import VisualError, VisualSettings, analyse, measure
+from .visual import (
+    Measurements, VisualError, VisualSettings, analyse, measure, measurement_key,
+)
 
 # A reference with more cuts than this is not a rhythm anyone can match with a
 # handful of clips; it is a montage of its own. Past this point the tool would be
@@ -97,11 +102,52 @@ def aspect_of(width: int, height: int) -> str | None:
     return None
 
 
+def _cached_measure(
+    path: Path, duration: float, settings: VisualSettings,
+    work_dir: Path, no_cache: bool,
+) -> Measurements:
+    """`measure`, but only once per file per setting.
+
+    Reading a reference is the slowest thing in a reference job -- `measure`
+    decodes the whole video three times, and a four-minute one is minutes of
+    work. It ran on every attempt, so changing a length or a recipe and pressing
+    Create again paid the whole cost a second time for a file that had not
+    changed.
+
+    The footage path has cached this since it shipped (`cli.py`); the reference
+    path called `measure` directly. Same key shape, same directory, so a file
+    used as both is measured once for each set of settings and no more.
+
+    Only the decode is cached. Scoring is recomputed every run, which is what
+    keeps re-tuning instant.
+    """
+    key = hashlib.sha256(
+        json.dumps([content_hash(path), measurement_key(settings), None],
+                   sort_keys=True).encode()
+    ).hexdigest()[:24]
+    cached = work_dir / "visual" / f"{key}.json"
+    if cached.exists() and not no_cache:
+        try:
+            return Measurements.from_dict(json.loads(cached.read_text()))
+        except (OSError, ValueError, KeyError):
+            # A truncated cache file is not a reason to fail a job. Measure again
+            # and overwrite it.
+            pass
+    measured = measure(str(path), duration, settings, None)
+    try:
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_text(json.dumps(measured.to_dict()))
+    except OSError:
+        pass          # an unwritable cache is slow, not broken
+    return measured
+
+
 def analyse_reference(
     path: Path | str,
     work_dir: Path,
     settings: VisualSettings | None = None,
     max_shots: int = MAX_REFERENCE_SHOTS,
+    no_cache: bool = False,
 ) -> Reference:
     """Read a reference video's structure.
 
@@ -133,7 +179,7 @@ def analyse_reference(
         max_shot=float(max(30.0, MAX_REFERENCE_SHOTS)),
     )
     try:
-        measured = measure(str(path), info.duration, settings, None)
+        measured = _cached_measure(path, info.duration, settings, work_dir, no_cache)
         analysis = analyse(str(path), info.duration, settings, measured)
     except VisualError as exc:
         raise ReferenceError(f"could not analyse the reference video: {exc}") from exc

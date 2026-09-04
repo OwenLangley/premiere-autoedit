@@ -183,3 +183,68 @@ def test_slivers_are_not_counted_as_shots():
     # A detection artefact is not a beat of anyone's edit.
     tiny = ref(MIN_REFERENCE_SHOT / 2, 2.0)
     assert tiny.shots[0].duration < MIN_REFERENCE_SHOT
+
+
+def _two_shot_reference(tmp_path):
+    """A reference with a real cut in it. Flat colour cards do not work here --
+    ffmpeg's scene score barely registers red against green at similar luma, a
+    fixture mistake that once cost an hour and a confident wrong conclusion."""
+    import subprocess
+    lines = []
+    for src, dur in [("smptebars", 1.0), ("mandelbrot", 1.0)]:
+        out = tmp_path / f"{src}.mp4"
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"{src}=s=320x240:r=30",
+             "-t", str(dur), "-c:v", "libx264", "-preset", "ultrafast",
+             "-pix_fmt", "yuv420p", str(out)], check=True)
+        lines.append(f"file '{out.name}'")
+    (tmp_path / "list.txt").write_text("\n".join(lines) + "\n")
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", "list.txt",
+         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-g", "15",
+         "ref.mp4"], cwd=tmp_path, check=True)
+    return tmp_path / "ref.mp4"
+
+
+def test_a_reference_is_measured_once_however_many_times_it_is_used(tmp_path, monkeypatch):
+    """Reading a reference is the slowest part of a reference job -- `measure`
+    decodes the whole video three times. It ran again on every attempt, so
+    changing a length and pressing Create paid the cost twice for a file that
+    had not changed. The footage path has cached this since it shipped.
+    """
+    from autoedit import reference as refmod
+
+    src = _two_shot_reference(tmp_path)
+    calls = []
+    real = refmod.measure
+    monkeypatch.setattr(refmod, "measure",
+                        lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+
+    cache = tmp_path / "cache"
+    first = refmod.analyse_reference(src, cache)
+    assert calls == [1], "the first run has to measure"
+
+    second = refmod.analyse_reference(src, cache)
+    assert calls == [1], "the second run must come from the cache"
+    assert [round(x.duration, 3) for x in second.shots] == \
+           [round(x.duration, 3) for x in first.shots]
+    assert second.duration == first.duration
+    assert second.aspect == first.aspect
+
+    # --no-cache still means what it says.
+    refmod.analyse_reference(src, cache, no_cache=True)
+    assert calls == [1, 1]
+
+
+def test_a_damaged_cache_file_is_measured_again_rather_than_failing(tmp_path):
+    """An interrupted write must not make a reference permanently unreadable."""
+    from autoedit.reference import analyse_reference
+
+    src = _two_shot_reference(tmp_path)
+    cache = tmp_path / "cache"
+    first = analyse_reference(src, cache)
+    for f in (cache / "visual").glob("*.json"):
+        f.write_text("{ truncated")
+
+    again = analyse_reference(src, cache)
+    assert again.cut_count == first.cut_count
