@@ -26,6 +26,7 @@ const {
 const { audition, playheadSeconds, AuditionError } = require("./audition");
 const { readPromptSettings } = require("./prompt");
 const { runSelfTest } = require("./selftest");
+const { updateOutcome } = require("./update");
 const { LANGUAGES, makeTranslator } = require("./i18n");
 
 /** @type {(id: string) => any} document.getElementById is typed HTMLElement; the
@@ -1580,6 +1581,14 @@ function watchJob(jobId) {
   }, 2000);
 }
 
+// How long to wait for the updater to finish. The old sixty seconds was fine
+// for the update itself -- a real pull of four commits takes about five -- and
+// far too short for the wait BEFORE it, which is however long the helper is
+// busy with whatever it was already doing.
+const UPDATE_WAIT_SECONDS = 300;
+// When to admit the request has not been read yet.
+const UPDATE_HEARD_SECONDS = 15;
+
 $("update").addEventListener("click", async () => {
   const button = $("update");
   button.disabled = true;
@@ -1591,21 +1600,34 @@ $("update").addEventListener("click", async () => {
     await state.transport.requestUpdate();
     // The updater restarts the helper on its way past, so this waits on a file
     // rather than on the helper answering.
+    //
+    // Two different waits, because they are two different failures. The helper
+    // runs one job at a time: while it is analysing footage or indexing a
+    // library it cannot look at its folder at all, so a request can sit unread
+    // for minutes. Sixty seconds of that used to be reported as the helper not
+    // running, which sent an editor to `setup.sh --check` for a helper that was
+    // working perfectly and simply busy.
     let result = null;
-    for (let i = 0; i < 60 && !result; i++) {
+    let pickedUp = false;
+    let said = false;
+    for (let i = 0; i < UPDATE_WAIT_SECONDS && !result; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       result = await state.transport.readUpdateResult();
+      if (result) break;
+      if (!pickedUp) {
+        pickedUp = !(await state.transport.updateRequestPending());
+        if (pickedUp) log(state.t("msg.updateStarted"));
+      }
+      // Nothing has read the request yet. Say so once, truthfully, and keep
+      // waiting -- being busy is the ordinary reason and it resolves itself.
+      if (!pickedUp && !said && i >= UPDATE_HEARD_SECONDS) {
+        said = true;
+        log(state.t("msg.updateNotHeard"));
+      }
     }
-    if (!result) {
-      log(state.t("msg.reportNoHelper"), "err");
-    } else if (result.status === "updated") {
-      log(state.t("msg.updateDone", { detail: result.detail || "" }), "ok");
-      log(state.t("msg.updateRestart"), "ok");
-    } else if (result.status === "current") {
-      log(state.t("msg.updateCurrent", { detail: result.detail || "" }), "ok");
-    } else {
-      log(state.t("msg.updateFailed", { detail: result.detail || result.status }), "err");
-    }
+    const outcome = updateOutcome({ result, pickedUp, waited: true });
+    if (outcome.key) log(state.t(outcome.key, { detail: outcome.detail || "" }), outcome.kind);
+    if (result && result.status === "updated") log(state.t("msg.updateRestart"), "ok");
   } catch (err) {
     log(`${err && err.message ? err.message : String(err)}`, "err");
   } finally {

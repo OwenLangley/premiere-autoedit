@@ -276,6 +276,13 @@ const EN = {
   "msg.updateCurrent": "Already up to date ({detail}).",
   "msg.updateRestart": "  Quit Premiere and reopen it — the panel only loads at startup.",
   "msg.updateFailed": "Update did not complete: {detail}",
+  "msg.updateStarted": "  The helper picked it up — updating...",
+  "msg.updateNotHeard":
+    "  The helper has not read the request yet. It handles one thing at a time, so it is probably busy analysing footage — still waiting.",
+  "msg.updateNeverHeard":
+    "The background helper never read the request. It is either busy with a long job, or not running — run ./setup.sh --check in Terminal.",
+  "msg.updateStillRunning":
+    "The update started but has not finished yet. Give it a moment, then press Update again to see how it went.",
   "diag.report": "Collect a report to send",
   "diag.reportHint": "A report gathers the logs and your recent jobs into one zip on your Desktop — send it to whoever maintains this.",
   "msg.mediaRootSet": "Media root: {path} — the background helper will re-index it shortly.",
@@ -728,6 +735,13 @@ const JA = {
   "msg.updateCurrent": "すでに最新です（{detail}）。",
   "msg.updateRestart": "  Premiere を終了して再度開いてください。パネルは起動時にのみ読み込まれます。",
   "msg.updateFailed": "更新を完了できませんでした: {detail}",
+  "msg.updateStarted": "  ヘルパーが受け付けました。更新しています...",
+  "msg.updateNotHeard":
+    "  ヘルパーはまだ要求を読んでいません。一度に一つの処理しか行わないため、映像の解析中の可能性があります。このまま待機します。",
+  "msg.updateNeverHeard":
+    "バックグラウンドヘルパーが要求を読み取れませんでした。長い処理の実行中か、起動していない可能性があります。ターミナルで ./setup.sh --check を実行してください。",
+  "msg.updateStillRunning":
+    "更新は開始しましたが、まだ完了していません。しばらく待ってから、もう一度「更新」を押して結果を確認してください。",
   "diag.report": "送信用のレポートを作成",
   "diag.reportHint": "ログ・最近のジョブ・この PC の設定をまとめた zip をデスクトップに作成します。管理者に送ってください。",
   "msg.mediaRootSet": "素材フォルダ: {path}。バックグラウンドヘルパーがまもなく再スキャンします。",

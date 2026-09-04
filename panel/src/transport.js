@@ -309,6 +309,25 @@ class LocalFolderTransport {
     await file.write(new Date().toISOString());
   }
 
+  /**
+   * True while `update.request` is still sitting there unread.
+   *
+   * The helper deletes the marker the moment it picks the request up, so this
+   * separates "the helper has not heard me" from "the update is running" --
+   * which the panel previously could not tell apart, and reported both as the
+   * helper not running.
+   */
+  async updateRequestPending() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return false;
+    try {
+      await folder.getEntry("update.request");
+      return true;
+    } catch {
+      return false;               // picked up, or never written
+    }
+  }
+
   /** How the update went, or null while it is still running. */
   async readUpdateResult() {
     const folder = await folderFromToken(this.jobsToken);
