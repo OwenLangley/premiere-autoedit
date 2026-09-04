@@ -5,6 +5,8 @@ that should work is written down here, and anything not here is a shape nobody
 has claimed works.
 """
 
+import pytest
+
 from autoedit.story import (
     MIN_BEAT_CHARS, find_duration, find_platform, parse_prompt, split_beats,
 )
@@ -502,3 +504,47 @@ def test_a_section_survives_being_refitted():
         [(mid, plan) for mid, plan, _ in plans], "exactly", 3.0,
         min_clip_length=0.4, strategy="worst")
     assert [p.section_id for _, p in refitted if p.keeps], "sections vanished in the refit"
+
+
+def test_a_long_target_is_reached_when_a_beat_may_hold_more_than_four_spans():
+    """Four spans per beat is right for a described beat and wrong for a
+    reference section.
+
+    A 28-minute reference edit came out at 2m46s. The footage was cut into ~5s
+    spans, so (beats) x (4 spans) x (5s) was the ceiling on the entire film --
+    and it reported "not enough usable material" while sitting on 62 minutes of
+    it.
+    """
+    from autoedit.story import Beat, BeatMatch, build_story_plans
+
+    target = 600.0
+    beats = [Beat(id=f"r{i+1}", text=str(i), weight=1.0) for i in range(20)]
+    spans = [(f"m{i // 5}", 0.0, 5.0, 0.9) for i in range(400)]
+    matches = [BeatMatch(beat=b, shots=[i * 20 + k for k in range(20)])
+               for i, b in enumerate(beats)]
+
+    def total(cap):
+        plans, _ = build_story_plans(matches, spans, target, tolerance=0.08,
+                                     max_shots_per_beat=cap)
+        return sum(k.duration for _, plan, _ in plans for k in plan.keeps)
+
+    # The ceiling is exactly (beats) x (cap) x (span length), whatever was asked
+    # for: 20 x 4 x 5s. That is the arithmetic that produced 2m46s.
+    capped = total(4)
+    assert capped == pytest.approx(20 * 4 * 5.0, rel=0.02), capped
+    assert capped < target, "the ceiling has to bite below the target"
+
+    lifted = total(20)
+    assert lifted == pytest.approx(target, rel=0.05), lifted
+
+
+def test_the_default_beat_cap_is_unchanged_for_a_described_story():
+    """Raising it for references must not turn a story beat into a montage."""
+    from autoedit.story import MAX_SHOTS_PER_BEAT, Beat, BeatMatch, build_story_plans
+
+    assert MAX_SHOTS_PER_BEAT == 4
+    beats = [Beat(id="b1", text="the storefront", weight=1.0)]
+    spans = [(f"m{i}", 0.0, 5.0, 0.9 - i * 0.01) for i in range(20)]
+    plans, _ = build_story_plans(
+        [BeatMatch(beat=beats[0], shots=list(range(20)))], spans, None)
+    assert sum(len(p.keeps) for _, p, _ in plans) == 4

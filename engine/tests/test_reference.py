@@ -248,3 +248,40 @@ def test_a_damaged_cache_file_is_measured_again_rather_than_failing(tmp_path):
 
     again = analyse_reference(src, cache)
     assert again.cut_count == first.cut_count
+
+
+def test_a_matched_shot_also_reports_what_else_resembled_it():
+    """A section longer than one span needs somewhere to draw the rest from."""
+    ref = np.array([[1.0, 0.0]])
+    footage = np.array([[1.0, 0.0], [0.99, 0.141], [0.98, 0.199], [0.0, 1.0]])
+    got = match_shots(ref, footage, floor=0.9)
+
+    assert got[0].footage_index == 0
+    assert got[0].alternates == [1, 2], got[0].alternates
+    assert 3 not in got[0].alternates, "below the floor is still below the floor"
+
+
+def test_an_unmatched_shot_offers_no_alternates():
+    ref = np.array([[1.0, 0.0]])
+    footage = np.array([[0.0, 1.0]])
+    got = match_shots(ref, footage, floor=0.75)
+    assert not got[0].matched
+    assert got[0].alternates == []
+
+
+def test_truncating_a_long_reference_moves_the_target_with_it(tmp_path):
+    """Keeping a prefix of the shots while still targeting the whole video's
+    length stretched every section by the ratio between them -- 6.8x on a real
+    27-minute reference, silently, because both numbers were right on their own.
+    """
+    from autoedit.reference import analyse_reference
+
+    src = _two_shot_reference(tmp_path)
+    whole = analyse_reference(src, tmp_path / "c1")
+    assert whole.cut_count == 2
+
+    clipped = analyse_reference(src, tmp_path / "c2", max_shots=1)
+    assert clipped.cut_count == 1
+    assert clipped.duration == pytest.approx(clipped.shots[-1].end)
+    assert clipped.duration < whole.duration
+    assert any("were used" in w for w in clipped.warnings), clipped.warnings

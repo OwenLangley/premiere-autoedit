@@ -585,6 +585,7 @@ def build_story_plans(
     min_clip_length: float = 0.4,
     max_shot: float | None = None,
     tolerance: float = 0.35,
+    max_shots_per_beat: int = MAX_SHOTS_PER_BEAT,
 ) -> tuple[list[tuple[str, "object", str]], list[BeatMatch]]:
     """Lay matched beats out in the order the editor described them.
 
@@ -593,6 +594,12 @@ def build_story_plans(
 
     Returns the plans to append -- (media_id, CutPlan, beat_id), already in beat
     order -- and the beats that matched nothing, for the caller to report.
+
+    `max_shots_per_beat` caps how many spans one beat may hold. Four is right for
+    a described story beat -- a moment, not a montage of everything that
+    resembled it. A reference SECTION is a different thing: it has to hold for as
+    long as the reference held it, so the reference path raises this and lets
+    `fit_duration_across` trim back to the share.
 
     `tolerance` is how far a beat may run over its share before it is trimmed.
     The default 0.35 is deliberately loose for a described running order, where
@@ -621,7 +628,7 @@ def build_story_plans(
 
         # Strongest first, then capped: a beat is a moment in the story, not a
         # montage of everything that resembled it.
-        chosen = sorted(m.shots, key=lambda i: -spans[i][3])[:MAX_SHOTS_PER_BEAT]
+        chosen = sorted(m.shots, key=lambda i: -spans[i][3])[:max_shots_per_beat]
 
         by_media: dict[str, list[tuple[float, float, float]]] = {}
         for i in chosen:

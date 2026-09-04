@@ -36,16 +36,38 @@ from .visual import (
     Measurements, VisualError, VisualSettings, analyse, measure, measurement_key,
 )
 
-# A reference with more cuts than this is not a rhythm anyone can match with a
-# handful of clips; it is a montage of its own. Past this point the tool would be
-# asking the footage for eighty distinct shots and reporting seventy-four
-# failures, which helps nobody.
-MAX_REFERENCE_SHOTS = 40
+# A safety limit, not an editorial one.
+#
+# This was 40, chosen for social-video references against a handful of clips.
+# It was wrong for long form in a way that was invisible: a 27-minute YouTube
+# reference has 239 shots, the first 40 of which cover 244s. Keeping those 40
+# and still targeting the full 1652s stretched every section 6.8x -- a shot the
+# reference held for 36s was asked to hold for 245s -- so the "rhythm" being
+# copied was one no editor had cut.
+#
+# 400 is high enough that no ordinary reference is truncated (239 here, and a
+# fast 60s TikTok has perhaps 80), and low enough to bound the still and
+# embedding work if someone points this at a two-hour film. When it IS hit, the
+# target is scaled to the shots actually kept rather than left at the whole
+# video's length, so the pacing stays the pacing that was measured.
+MAX_REFERENCE_SHOTS = 400
 
 # Below this a "shot" is a flash frame or a detection artefact, not a beat of the
 # edit. `visual.min_shot` already merges short detections, but a reference cut on
 # frames rather than on story can still leave slivers.
 MIN_REFERENCE_SHOT = 0.25
+
+# The longest hold read as ONE shot. Above this the detector subdivides, which
+# for a reference would invent cuts it does not contain -- so it is set well
+# past any real hold rather than at the 6s the footage path uses to decide how
+# long to sit on a clip. An interview take runs minutes and is still one shot.
+MAX_REFERENCE_HOLD = 600.0
+
+# How many extra spans a single reference shot may pull in to fill a long
+# section. Bounded because the list is per reference shot and a long reference
+# has hundreds of them; 60 spans of even 3s is three minutes, longer than any
+# single section of a sane edit.
+MAX_ALTERNATES = 60
 
 
 class ReferenceError(RuntimeError):
@@ -174,9 +196,13 @@ def analyse_reference(
     # deciding how long to hold a shot. Here it would invent cuts the reference
     # does not contain -- a ten-second hold is one shot, and splitting it into
     # two fives copies a rhythm that was never there.
+    # `max_shot` is a hold length, not a count. It was derived from
+    # MAX_REFERENCE_SHOTS, which happened to give 40s while that constant meant
+    # "at most 40 shots"; raising the cap to 400 would have turned it into a
+    # 400-second ceiling that subdivides nothing. They were never the same idea.
     settings = settings or VisualSettings(
         min_shot=MIN_REFERENCE_SHOT,
-        max_shot=float(max(30.0, MAX_REFERENCE_SHOTS)),
+        max_shot=MAX_REFERENCE_HOLD,
     )
     try:
         measured = _cached_measure(path, info.duration, settings, work_dir, no_cache)
@@ -205,12 +231,18 @@ def analyse_reference(
             f"transitions may be too soft to detect"
         )
 
+    full_duration = info.duration
     if len(spans) > max_shots:
-        warnings.append(
-            f"the reference has {len(spans)} shots; only the first {max_shots} "
-            f"were used"
-        )
         spans = spans[:max_shots]
+        # The target follows the shots, or the rhythm stops being the rhythm.
+        # Keeping the whole video's length while using a prefix of its shots
+        # stretched every section by the ratio between them -- silently, since
+        # both numbers were individually correct.
+        full_duration = spans[-1].end
+        warnings.append(
+            f"the reference has more than {max_shots} shots; the first "
+            f"{max_shots} were used, up to {full_duration:.0f}s of it"
+        )
 
     shots = []
     for span in spans:
@@ -229,7 +261,7 @@ def analyse_reference(
 
     return Reference(
         path=path,
-        duration=info.duration,
+        duration=full_duration,
         shots=shots,
         aspect=aspect_of(info.display_width, info.display_height),
         width=info.display_width,
@@ -294,6 +326,9 @@ class ShotMatch:
     footage_index: int | None = None
     score: float = 0.0
     reused: bool = False
+    # Further spans that also resemble this reference shot, best first, for when
+    # its section is longer than one span can fill. Empty is the ordinary case.
+    alternates: list[int] = field(default_factory=list)
 
     @property
     def matched(self) -> bool:
@@ -342,8 +377,15 @@ def match_shots(
         if score < floor:
             out.append(ShotMatch(reference_index=i, score=score))
             continue
+        # Everything else that clears the floor, best first. A section that has
+        # to hold longer than one span runs is filled from these rather than
+        # coming up short: one span per reference shot put a hard ceiling on the
+        # whole edit at (number of shots) x (longest span), which is why a
+        # 28-minute target came out at 2m46s.
+        spare = [int(j) for j in order[1:] if row[j] >= floor and int(j) != pick]
         out.append(ShotMatch(reference_index=i, footage_index=int(pick),
-                             score=score, reused=pick in used))
+                             score=score, reused=pick in used,
+                             alternates=spare[:MAX_ALTERNATES]))
         used.add(int(pick))
     return out
 

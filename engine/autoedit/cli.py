@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -386,7 +387,7 @@ def _assemble_reference(
     """
     from . import describe
     from .reference import beats_from, match_shots, reference_report
-    from .story import BeatMatch
+    from .story import MAX_SHOTS_PER_BEAT, BeatMatch
 
     if not story_spans:
         builder.add_warning("reference", note("reference.noVisualSpans"))
@@ -427,6 +428,7 @@ def _assemble_reference(
     vector_of = {with_stills[row]: row for row in ref_kept} if ref_kept else {}
 
     matched_by_beat: dict[int, int] = {}
+    alternates_by_beat: dict[int, list[int]] = {}
     report = None
     if match_content and ref_vectors is not None and len(ref_vectors):
         found = match_shots(ref_vectors, footage)
@@ -435,6 +437,7 @@ def _assemble_reference(
             hit = found[row]
             if hit.matched:
                 matched_by_beat[beat_index] = hit.footage_index
+                alternates_by_beat[beat_index] = list(hit.alternates)
 
     # Nothing matched on content: the reference is simply of something else. Its
     # RHYTHM is still worth copying, and that is the reliable half of this
@@ -447,19 +450,45 @@ def _assemble_reference(
             if by_quality:
                 matched_by_beat[beat_index] = by_quality[n % len(by_quality)]
 
-    matches = [
-        BeatMatch(beat=beat,
-                  shots=[matched_by_beat[i]] if i in matched_by_beat else [])
-        for i, beat in enumerate(beats)
-    ]
+    # How many spans each section needs to hold for as long as its reference
+    # shot did. One span per shot was a hard ceiling on the whole edit at
+    # (shots) x (longest span): with the footage cut into ~5s spans, a
+    # 28-minute reference could not produce more than a few minutes of picture,
+    # and reported "not enough usable material" while sitting on 62 minutes of
+    # it. The extra spans are the ones that also resemble that reference shot;
+    # `fit_duration_across` trims back to the share, so over-providing is safe
+    # and under-providing is not.
+    # The length the EDITOR asked for, not the reference's own. They are the
+    # same number whenever no length was chosen -- the reference block above
+    # adopts its duration as the default -- but when someone asks for 28
+    # minutes against a 4-minute reference, this path used to lay out four
+    # minutes and the reference silently overrode the form.
+    target = (options.duration_seconds
+              if options.duration_mode != "none" and options.duration_seconds
+              else reference.duration)
+
+    total_weight = sum(b.weight for b in beats) or 1.0
+    mean_span = (sum(e - st for _, st, e, _ in spans) / len(spans)) if spans else 1.0
+    per_beat_cap = MAX_SHOTS_PER_BEAT
+    matches = []
+    for i, beat in enumerate(beats):
+        if i not in matched_by_beat:
+            matches.append(BeatMatch(beat=beat, shots=[]))
+            continue
+        share = target * beat.weight / total_weight
+        need = max(1, math.ceil(share / max(0.5, mean_span)))
+        chosen = [matched_by_beat[i]] + alternates_by_beat.get(i, [])[:need - 1]
+        per_beat_cap = max(per_beat_cap, len(chosen))
+        matches.append(BeatMatch(beat=beat, shots=chosen))
 
     # The reference's own length is the target, so its shot shares come out as
     # its shot lengths. A tight tolerance because the lengths ARE the thing being
     # copied -- the story path's loose 0.35 exists for a described running order,
     # where trimming every beat to the millisecond would cut mid-gesture.
     plans, unmatched = build_story_plans(
-        matches, spans, reference.duration,
+        matches, spans, target,
         min_clip_length=detection.min_clip_length, tolerance=0.08,
+        max_shots_per_beat=per_beat_cap,
     )
     for m in unmatched:
         builder.add_warning("reference", note("reference.shotUnfilled", shot=m.beat.text))
