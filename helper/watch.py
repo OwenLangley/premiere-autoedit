@@ -56,6 +56,25 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+# Characters a filename cannot hold on macOS or Windows, plus control codes.
+# Everything else -- including every script on earth -- is allowed through.
+# Kept in step with UNSAFE_IN_FILENAME in panel/src/request.js and with the
+# jobId pattern in schema/job-request.schema.json.
+UNSAFE_IN_FILENAME = re.compile(r'[/\\:*?"<>|\x00-\x1f]')
+
+
+def safe_job_id(job_id: str) -> bool:
+    """True when this id can become a filename inside the jobs folder, and only there.
+
+    The schema enforces the same rule, but a request that FAILS the schema still
+    has to be reported -- and it is reported by writing `<jobId>.status.json`.
+    So the id reaches a path before it has been validated, and the guard cannot
+    live in the schema alone.
+    """
+    return bool(job_id) and not UNSAFE_IN_FILENAME.search(job_id) \
+        and re.match(r"[.\s]", job_id) is None
+
+
 def write_status(jobs: Path, job_id: str, state: str, message: str = "", **extra) -> None:
     payload = {
         "schemaVersion": "1.0",
@@ -512,6 +531,14 @@ def read_config(jobs: Path) -> dict:
         return {}
 
 
+# Roots already reported as missing. The watch loop re-resolves every poll, so
+# without this an unplugged drive writes a warning every 2 seconds: one report
+# arrived 6063 lines long, 6049 of them the same sentence about the same LaCie.
+# The log is what gets sent back when something goes wrong, so burying the four
+# interesting lines is not a cosmetic problem.
+_WARNED_UNREACHABLE: set[str] = set()
+
+
 def resolve_media_roots(jobs: Path, fallback: Path) -> list[Path]:
     """Every folder the footage lives in, in order.
 
@@ -538,7 +565,13 @@ def resolve_media_roots(jobs: Path, fallback: Path) -> list[Path]:
             if resolved not in roots:
                 roots.append(resolved)
         else:
-            print(f"warning: media root is not reachable: {item}", file=sys.stderr)
+            # Warn on the change, not on the condition. Reachable again clears
+            # the flag, so unplugging the same drive tomorrow is reported again.
+            if str(item) not in _WARNED_UNREACHABLE:
+                _WARNED_UNREACHABLE.add(str(item))
+                print(f"warning: media root is not reachable: {item}", file=sys.stderr)
+            continue
+        _WARNED_UNREACHABLE.discard(str(item))
     return roots or [fallback]
 
 
@@ -886,13 +919,33 @@ def validate_request(request: dict) -> list[str]:
         problems.append("media must be a list of paths")
     try:
         import jsonschema
-        schema_file = Path(__file__).resolve().parents[1] / "schema" / "job-request.schema.json"
-        jsonschema.Draft7Validator(json.loads(schema_file.read_text())).validate(request)
     except ImportError:
-        pass
+        return problems
+    schema_file = Path(__file__).resolve().parents[1] / "schema" / "job-request.schema.json"
+    try:
+        jsonschema.Draft7Validator(json.loads(schema_file.read_text())).validate(request)
+    except jsonschema.ValidationError as exc:
+        problems.append(_readable_schema_error(exc))
     except Exception as exc:
         problems.append(str(exc).split("\n")[0])
     return problems
+
+
+def _readable_schema_error(error) -> str:
+    """jsonschema's own wording, except where it would show an editor a regex.
+
+    Most of its messages are already fine -- "'widescreen' is not one of
+    [...]" says what to do. A failed `pattern` does not: an editor whose
+    Japanese job name was rejected was told it "does not match
+    '^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$'", which is true and useless.
+    """
+    field = ".".join(str(p) for p in error.absolute_path) or "request"
+    if error.validator != "pattern":
+        return str(error.message).split("\n")[0]
+    if field == "jobId":
+        return ("the name can be in any language, but not contain / \\ : * ? \" < > | "
+                "and not start with a dot or a space")
+    return f"{field}: {error.instance!r} is not in the expected form"
 
 
 def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
@@ -906,7 +959,11 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
         write_status(jobs, job_id, "failed", f"request is not valid JSON: {exc}")
         return False
 
-    job_id = request.get("jobId") or job_id
+    # The file is already named for the job, so the stem is safe by construction;
+    # the id inside the request is not, and it is about to become a path.
+    requested = str(request.get("jobId") or "")
+    if requested and safe_job_id(requested):
+        job_id = requested
     problems = validate_request(request)
     if problems:
         write_status(jobs, job_id, "failed", "; ".join(problems))

@@ -13,8 +13,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "helper"))
 
 from watch import (  # noqa: E402
-    build_media_index, iter_media, read_config, request_to_argv, resolve_music,
-    resolve_music_root, validate_request, write_capabilities, write_music_index,
+    build_media_index, iter_media, process, read_config, request_to_argv,
+    resolve_media_roots, resolve_music, resolve_music_root, safe_job_id,
+    validate_request, write_capabilities, write_music_index,
 )
 
 
@@ -88,6 +89,76 @@ def test_bad_requests_are_rejected_with_a_reason(mutate, expected):
     r.update(mutate)
     problems = validate_request(r)
     assert problems and any(expected in p for p in problems)
+
+
+NAME_VECTORS = json.loads(
+    (Path(__file__).resolve().parents[2] / "schema" / "job-name-vectors.json").read_text()
+)
+
+
+@pytest.mark.parametrize("case", NAME_VECTORS["accept"], ids=lambda c: c["name"] or "empty")
+def test_a_job_name_the_panel_accepts_is_accepted_here(case):
+    """The panel and this schema must agree, and for months they did not.
+
+    `normaliseJobId` was widened for Japanese; the jobId pattern was left as
+    `^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$`. So the panel wrote a request it
+    considered perfectly valid and the helper refused it -- showing a video
+    editor a regex. panel/test/conformance.test.js reads the same vectors.
+    """
+    assert validate_request({**request(), "jobId": case["name"]}) == [], case["why"]
+
+
+@pytest.mark.parametrize("case", NAME_VECTORS["reject"], ids=lambda c: c["name"] or "empty")
+def test_a_job_name_that_is_unsafe_as_a_filename_is_refused(case):
+    """Widening the rule by script must not widen it by structure."""
+    assert validate_request({**request(), "jobId": case["name"]}), case["why"]
+
+
+def test_the_name_rule_is_explained_without_showing_a_regex():
+    problems = validate_request({**request(), "jobId": "a/b"})
+    assert problems and "does not match" not in problems[0], problems
+    assert "any language" in problems[0], problems
+
+
+def test_an_unplugged_drive_is_reported_once_not_every_poll(tmp_path, capsys):
+    """The watch loop re-resolves every 2 seconds. One report came back 6063
+    lines long with 6049 of them naming the same missing drive, which buried the
+    four lines that actually said what went wrong."""
+    import watch
+    watch._WARNED_UNREACHABLE.clear()
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    gone = tmp_path / "unplugged"
+    (jobs / "config.json").write_text(json.dumps({"mediaRoots": [str(gone)]}))
+
+    for _ in range(10):
+        resolve_media_roots(jobs, tmp_path)
+    warnings = [l for l in capsys.readouterr().err.splitlines() if "not reachable" in l]
+    assert len(warnings) == 1, warnings
+
+    # Plugged back in, then pulled again: that is news, and is reported again.
+    gone.mkdir()
+    resolve_media_roots(jobs, tmp_path)
+    gone.rmdir()
+    resolve_media_roots(jobs, tmp_path)
+    assert len([l for l in capsys.readouterr().err.splitlines()
+                if "not reachable" in l]) == 1
+
+
+@pytest.mark.parametrize("job_id", ["../../../oops", "a/b", ".hidden", ""])
+def test_an_unsafe_id_never_names_a_status_file(tmp_path, job_id):
+    """A request that fails the schema is still reported -- by writing
+    `<jobId>.status.json`. So the id becomes a path BEFORE it is validated, and
+    the schema cannot be the only guard."""
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "safe-name.request.json").write_text(json.dumps({**request(), "jobId": job_id}))
+
+    process(jobs / "safe-name.request.json", jobs, tmp_path, tmp_path)
+
+    written = sorted(f.name for f in jobs.rglob("*.status.json"))
+    assert written == ["safe-name.status.json"], written
+    assert not list(tmp_path.glob("*.status.json"))
 
 
 def test_unknown_option_is_rejected_not_ignored():

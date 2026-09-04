@@ -17,8 +17,8 @@
     },
     "jobId": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$",
-      "description": "Also used for the sequence name and the output filename, so it must be filesystem-safe."
+      "pattern": "^[^.\\s/\\\\:*?\"<>|\\u0000-\\u001f][^/\\\\:*?\"<>|\\u0000-\\u001f]{0,63}$",
+      "description": "Also used for the sequence name and the output filename, so it is constrained by what is structurally unsafe -- path separators, the characters macOS and Windows reject, control codes, a leading dot or space -- rather than by script. The old ^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$ rejected every Japanese job name, which is how a real edit named in Japanese failed at the gate while the panel that produced it considered the name perfectly valid. Kept in step with normaliseJobId and validateRequest in panel/src/request.js."
     },
     "recipe": {
       "type": "string",

@@ -1,0 +1,115 @@
+{
+  "$comment": "Job names the panel and the request schema must agree about. The panel's normaliseJobId was widened for Japanese and the schema's jobId pattern was not, so for months the panel produced names it considered perfectly valid and the helper rejected them at the gate -- with a raw regex, to a video editor. Nothing in either suite noticed, because neither suite knew about the other. Read by engine/tests/test_helper.py and panel/test/conformance.test.js.",
+  "accept": [
+    {
+      "name": "EP001",
+      "why": "the ordinary case"
+    },
+    {
+      "name": "client promo v2",
+      "why": "spaces are allowed; editors name jobs like this"
+    },
+    {
+      "name": "清田悠悟_小麦生まれ麺育ちテスト",
+      "why": "the name a real edit failed on, 2026-09-04"
+    },
+    {
+      "name": "test２",
+      "why": "a full-width digit, from the same editor a week earlier"
+    },
+    {
+      "name": "エピソード1",
+      "why": "used to arrive as '1' after stripping, and was accepted silently"
+    },
+    {
+      "name": "ダンス動画",
+      "why": "used to arrive empty, reported as 'give the job a name' to someone who just had"
+    },
+    {
+      "name": "한국어",
+      "why": "widening by script would only have failed on the next language"
+    },
+    {
+      "name": "Ünïcode-náme",
+      "why": "Latin with diacritics is not ASCII either"
+    },
+    {
+      "name": "a",
+      "why": "one character is a name"
+    },
+    {
+      "name": "recut.final",
+      "why": "a dot inside the name is fine; only a leading one hides the file"
+    }
+  ],
+  "reject": [
+    {
+      "name": "",
+      "why": "no name"
+    },
+    {
+      "name": ".hidden",
+      "why": "a leading dot hides the request from the helper's glob"
+    },
+    {
+      "name": " leading",
+      "why": "a leading space makes a filename nobody can see is different"
+    },
+    {
+      "name": "　leading",
+      "why": "an ideographic space is a space -- easy to type on a JP keyboard"
+    },
+    {
+      "name": "../../etc/passwd",
+      "why": "the id becomes a path"
+    },
+    {
+      "name": "a/b",
+      "why": "path separator"
+    },
+    {
+      "name": "a\\b",
+      "why": "path separator on the other platform"
+    },
+    {
+      "name": "a:b",
+      "why": "reserved on macOS"
+    },
+    {
+      "name": "a*b",
+      "why": "reserved on Windows"
+    },
+    {
+      "name": "a?b",
+      "why": "reserved on Windows"
+    },
+    {
+      "name": "a\"b",
+      "why": "reserved on Windows"
+    },
+    {
+      "name": "a<b",
+      "why": "reserved on Windows"
+    },
+    {
+      "name": "a>b",
+      "why": "reserved on Windows"
+    },
+    {
+      "name": "a|b",
+      "why": "reserved on Windows"
+    },
+    {
+      "name": "a\tb",
+      "why": "control code"
+    },
+    {
+      "name": "a\nb",
+      "why": "control code"
+    },
+    {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "why": "65 characters, one over the cap"
+    }
+  ]
+}
