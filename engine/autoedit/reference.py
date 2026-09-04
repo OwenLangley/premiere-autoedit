@@ -69,6 +69,60 @@ MAX_REFERENCE_HOLD = 600.0
 # single section of a sane edit.
 MAX_ALTERNATES = 60
 
+# --------------------------------------------------------------- shot roles
+#
+# What a reference shot is FOR, read off its own shape. A reference has audio,
+# but transcribing someone else's 27-minute video to learn something its cutting
+# already says would be minutes of Whisper for an answer that is free: an
+# opening, an ending and a sit-down interview are all HOLDS, and b-roll is not.
+ROLE_OPENING = "opening"
+ROLE_ENDING = "ending"
+ROLE_INTERVIEW = "interview"
+ROLE_CUT = "cut"
+
+# The roles that want someone talking on screen. Kept as a set rather than a
+# test on the name so a role can be added without hunting for comparisons.
+SPOKEN_ROLES = frozenset({ROLE_OPENING, ROLE_ENDING, ROLE_INTERVIEW})
+
+# A shot is a hold when it runs at least twice the median AND at least this many
+# seconds. Both are needed: the ratio alone calls a 1.2s shot a hold in a video
+# cut at 0.6s, and the floor alone calls everything a hold in a slow film.
+HOLD_FACTOR = 2.0
+HOLD_MIN = 4.0
+
+# How near an end a hold has to be to be that end's bookend, as a fraction of
+# the reference's running time.
+BOOKEND_FRACTION = 0.10
+
+
+def classify_roles(shots: list["ReferenceShot"], duration: float) -> None:
+    """Label each reference shot with what it is doing, in place.
+
+    Deliberately shape-only. A long hold early is an opening, a long hold late
+    is an ending, a long hold anywhere else is someone talking to camera, and
+    everything short is a cut. That is a coarse reading and it is meant to be:
+    it costs nothing, it is right about the thing that matters for length --
+    which sections have to hold -- and when it is wrong the result is an
+    ordinary visual match rather than a failure.
+    """
+    if not shots:
+        return
+    ordered = sorted(sh.duration for sh in shots)
+    median = ordered[len(ordered) // 2] or 0.0
+    threshold = max(HOLD_MIN, median * HOLD_FACTOR)
+    head = duration * BOOKEND_FRACTION
+    tail = duration * (1.0 - BOOKEND_FRACTION)
+
+    for sh in shots:
+        if sh.duration < threshold:
+            sh.role = ROLE_CUT
+        elif sh.start <= head:
+            sh.role = ROLE_OPENING
+        elif sh.end >= tail:
+            sh.role = ROLE_ENDING
+        else:
+            sh.role = ROLE_INTERVIEW
+
 
 class ReferenceError(RuntimeError):
     """The reference could not be read or understood."""
@@ -81,6 +135,9 @@ class ReferenceShot:
     start: float
     end: float
     still: Path | None = None
+    # What this shot is doing -- see `classify_roles`. Defaults to a plain cut so
+    # a shot built by hand (every test fixture) needs no ceremony.
+    role: str = "cut"
 
     @property
     def duration(self) -> float:
@@ -253,6 +310,14 @@ def analyse_reference(
             still=tp if build_thumb(path, tp, at) else None,
         ))
 
+    classify_roles(shots, full_duration)
+    holds = [s for s in shots if s.role in SPOKEN_ROLES]
+    if holds:
+        warnings.append(
+            f"read {len(holds)} shot(s) as someone talking: "
+            + ", ".join(sorted({s.role for s in holds}))
+        )
+
     missing = sum(1 for s in shots if s.still is None)
     if missing:
         # Not fatal: a shot with no still can still contribute its LENGTH to the
@@ -335,10 +400,20 @@ class ShotMatch:
         return self.footage_index is not None
 
 
+# How hard a role agreement pulls. The image-to-image band that matters runs
+# about 0.55-0.99, so 0.05 reorders spans that are genuinely close without
+# letting a role override what the picture says. It biases the ORDER only --
+# the floor is still tested against the raw similarity, or "the footage does not
+# contain this" would quietly start depending on who was talking.
+ROLE_BONUS = 0.05
+
+
 def match_shots(
     reference_vectors,
     footage_vectors,
     floor: float = REFERENCE_MATCH_FLOOR,
+    wants_speech: list[bool] | None = None,
+    is_spoken: list[bool] | None = None,
 ) -> list[ShotMatch]:
     """Pick a footage span for each reference shot, best first.
 
@@ -366,9 +441,21 @@ def match_shots(
         return [ShotMatch(reference_index=i) for i in range(len(reference_vectors))]
 
     sims = np.asarray(reference_vectors) @ np.asarray(footage_vectors).T
+
+    # A reference shot that holds on someone talking should be served by footage
+    # of someone talking, and a two-second cut should not be. Applied to the
+    # ranking, never to the floor.
+    spoken = np.asarray(is_spoken, dtype=bool) if is_spoken is not None else None
+    if spoken is not None and len(spoken) != sims.shape[1]:
+        spoken = None                       # lengths disagree: ignore, do not guess
+
     used: set[int] = set()
     for i, row in enumerate(sims):
-        order = np.argsort(-row)
+        rank = row
+        if spoken is not None and wants_speech is not None and i < len(wants_speech):
+            agrees = spoken if wants_speech[i] else ~spoken
+            rank = row + np.where(agrees, ROLE_BONUS, 0.0)
+        order = np.argsort(-rank)
         fresh = [j for j in order if j not in used]
         # Prefer a span nothing has taken yet; fall back to the whole pool once
         # they are gone. Both are still subject to the floor.

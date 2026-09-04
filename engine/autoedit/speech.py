@@ -86,6 +86,25 @@ def _speech_in(spans: list[tuple[float, float]], start: float, end: float) -> fl
     return sum(max(0.0, min(end, e) - max(start, s)) for s, e in spans)
 
 
+# What fraction of a span has to be speech before the span counts as someone
+# talking. Two thirds, not "any": a b-roll shot of a kitchen with one shouted
+# word over it is not an interview, and a sit-down answer has pauses in it.
+SPOKEN_COVERAGE = 0.66
+
+
+def is_spoken(transcript: Transcript, start: float, end: float,
+              coverage: float = SPOKEN_COVERAGE) -> bool:
+    """True when this span is mostly someone talking.
+
+    Used to tell an interview take apart from b-roll, so a reference shot that
+    holds on a person is served by footage of a person. Reads the transcript the
+    job already made -- nothing is decoded or transcribed for this.
+    """
+    if end <= start:
+        return False
+    return _speech_in(utterances(transcript), start, end) / (end - start) >= coverage
+
+
 def silences(transcript: Transcript, media_duration: float) -> list[tuple[float, float]]:
     """The quiet between one word and the next, including before and after.
 

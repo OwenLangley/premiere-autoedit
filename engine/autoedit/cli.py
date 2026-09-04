@@ -363,7 +363,7 @@ def _assemble_story(story, story_spans, collected, builder, options, detection, 
 
 def _assemble_reference(
     reference, story_spans, collected, builder, options, detection, cache_root,
-    match_content: bool = True,
+    match_content: bool = True, heard_by_media: dict | None = None,
 ):
     """Lay the editor's footage out in the reference video's shape.
 
@@ -386,7 +386,7 @@ def _assemble_reference(
     honoured, exactly as the story path does.
     """
     from . import describe
-    from .reference import beats_from, match_shots, reference_report
+    from .reference import SPOKEN_ROLES, beats_from, match_shots, reference_report
     from .story import MAX_SHOTS_PER_BEAT, BeatMatch
 
     if not story_spans:
@@ -427,11 +427,39 @@ def _assemble_reference(
     with_stills = [i for i, sh in enumerate(reference.shots) if sh.still]
     vector_of = {with_stills[row]: row for row in ref_kept} if ref_kept else {}
 
+    # Which reference shots hold on someone talking, and which footage spans
+    # are someone talking. The first is free -- it is read off the reference's
+    # own cutting. The second needs a transcript, which exists only when the job
+    # was already going to make one (subtitles, protect-speech). No transcript
+    # means no bias, an ordinary visual match, and nothing said about it:
+    # transcribing 62 minutes of footage is not something to start behind
+    # somebody's back.
+    # `with_stills` and `ref_kept` are the same indirection `vector_of` uses
+    # above: ref_vectors[k] is the still of reference.shots[with_stills[ref_kept[k]]].
+    # Getting this wrong is how the caption feature once matched 28 candidates
+    # and 0 clips, so it is spelled out rather than re-derived.
+    wants_speech = [reference.shots[with_stills[row]].role in SPOKEN_ROLES
+                    for row in ref_kept] if ref_kept else []
+
+    spoken_spans: list[bool] | None = None
+    if heard_by_media:
+        from .speech import is_spoken
+        spoken_spans = [
+            bool(heard_by_media.get(mid) and is_spoken(heard_by_media[mid], st, en))
+            for mid, st, en, _ in spans
+        ]
+        talking = sum(spoken_spans)
+        builder.add_warning("reference", note(
+            "reference.roles",
+            holds=sum(1 for x in wants_speech if x), talking=talking))
+
     matched_by_beat: dict[int, int] = {}
     alternates_by_beat: dict[int, list[int]] = {}
     report = None
     if match_content and ref_vectors is not None and len(ref_vectors):
-        found = match_shots(ref_vectors, footage)
+        found = match_shots(ref_vectors, footage,
+                            wants_speech=wants_speech or None,
+                            is_spoken=spoken_spans)
         report = reference_report(found)
         for beat_index, row in vector_of.items():
             hit = found[row]
@@ -1226,7 +1254,8 @@ def cmd_plan(args) -> int:
         # fighting over the running order.
         collected, story_sections = _assemble_reference(
             reference, story_spans, collected, builder, options, detection,
-            cache_root, match_content=not args.reference_rhythm_only)
+            cache_root, match_content=not args.reference_rhythm_only,
+            heard_by_media=heard_by_media)
     if reference is not None and story and story.beats:
         builder.add_warning("reference", note("reference.describedInstead"))
 

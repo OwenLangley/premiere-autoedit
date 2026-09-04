@@ -8,8 +8,9 @@ import numpy as np
 import pytest
 
 from autoedit.reference import (
-    MIN_REFERENCE_SHOT, REFERENCE_MATCH_FLOOR, Reference, ReferenceShot,
-    aspect_of, beats_from, match_shots, reference_report,
+    MIN_REFERENCE_SHOT, REFERENCE_MATCH_FLOOR, ROLE_CUT, ROLE_ENDING,
+    ROLE_INTERVIEW, ROLE_OPENING, Reference, ReferenceShot, aspect_of,
+    beats_from, classify_roles, match_shots, reference_report,
 )
 
 
@@ -285,3 +286,93 @@ def test_truncating_a_long_reference_moves_the_target_with_it(tmp_path):
     assert clipped.duration == pytest.approx(clipped.shots[-1].end)
     assert clipped.duration < whole.duration
     assert any("were used" in w for w in clipped.warnings), clipped.warnings
+
+
+# ------------------------------------------------------------------- roles
+
+
+def _shots(*durations):
+    out, at = [], 0.0
+    for d in durations:
+        out.append(ReferenceShot(start=at, end=at + d))
+        at += d
+    return out, at
+
+
+def test_a_long_hold_early_is_an_opening_and_late_is_an_ending():
+    """Read off the reference's own cutting. A reference has audio, but
+    transcribing someone else's 27-minute video to learn what its shot lengths
+    already say would be minutes of Whisper for a free answer."""
+    shots, total = _shots(22.0, 3.0, 2.5, 4.0, 3.0, 45.0, 2.0, 3.5, 2.0, 18.0)
+    classify_roles(shots, total)
+    assert [sh.role for sh in shots] == [
+        ROLE_OPENING, ROLE_CUT, ROLE_CUT, ROLE_CUT, ROLE_CUT,
+        ROLE_INTERVIEW, ROLE_CUT, ROLE_CUT, ROLE_CUT, ROLE_ENDING,
+    ]
+
+
+def test_a_fast_cut_reference_has_no_holds_at_all():
+    """A TikTok opens on a 0.5s hook, not a piece to camera. The absolute floor
+    is what stops the ratio calling the longest of a run of short shots a hold."""
+    shots, total = _shots(0.5, 0.6, 0.4, 1.2, 0.5, 0.7, 0.5)
+    classify_roles(shots, total)
+    assert {sh.role for sh in shots} == {ROLE_CUT}
+
+
+def test_a_slow_film_does_not_become_all_interview():
+    """And the ratio is what stops the floor calling every shot a hold when the
+    whole film is unhurried."""
+    shots, total = _shots(8.0, 9.0, 7.5, 8.5, 9.5, 8.0)
+    classify_roles(shots, total)
+    assert {sh.role for sh in shots} == {ROLE_CUT}
+
+
+def test_footage_of_someone_talking_is_preferred_for_a_shot_that_holds():
+    """The bias reorders spans the picture cannot separate; it never overrules
+    the picture, and it never touches the floor."""
+    ref = np.array([[1.0, 0.0]])
+    # Two spans the vision model rates almost identically.
+    footage = np.array([[0.99, 0.141], [0.995, 0.0999]])
+
+    quiet_first = match_shots(ref, footage, floor=0.75,
+                              wants_speech=[True], is_spoken=[False, True])
+    assert quiet_first[0].footage_index == 1, "the talking span should win"
+
+    flipped = match_shots(ref, footage, floor=0.75,
+                          wants_speech=[True], is_spoken=[True, False])
+    assert flipped[0].footage_index == 0
+
+
+def test_a_cut_prefers_footage_that_is_not_someone_talking():
+    """Set up so the bias has to overturn the picture's own order: the talking
+    span scores HIGHER, and a two-second cut should still take the other one."""
+    ref = np.array([[1.0, 0.0]])
+    footage = np.array([[0.995, 0.0999],     # 0 -- better match, someone talking
+                        [0.99, 0.141]])      # 1 -- slightly worse, quiet
+    assert float(ref[0] @ footage[0]) > float(ref[0] @ footage[1])
+
+    got = match_shots(ref, footage, floor=0.75,
+                      wants_speech=[False], is_spoken=[True, False])
+    assert got[0].footage_index == 1, "b-roll should not be served by an interview"
+
+    # And with no roles supplied at all, the picture decides as it always did.
+    plain = match_shots(ref, footage, floor=0.75)
+    assert plain[0].footage_index == 0
+
+
+def test_the_role_bias_never_lifts_a_span_over_the_floor():
+    """Or "the footage does not contain this" would quietly start depending on
+    who happened to be talking."""
+    ref = np.array([[1.0, 0.0]])
+    below = np.array([[0.73, 0.683]])         # 0.73 similarity, under a 0.75 floor
+    got = match_shots(ref, below, floor=0.75,
+                      wants_speech=[True], is_spoken=[True])
+    assert not got[0].matched, "a role bonus is not evidence the shot is there"
+
+
+def test_mismatched_lengths_are_ignored_rather_than_guessed():
+    ref = np.array([[1.0, 0.0]])
+    footage = np.array([[1.0, 0.0], [0.99, 0.141]])
+    got = match_shots(ref, footage, floor=0.75,
+                      wants_speech=[True], is_spoken=[True])   # 1 flag, 2 spans
+    assert got[0].matched

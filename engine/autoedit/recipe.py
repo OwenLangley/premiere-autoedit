@@ -116,7 +116,7 @@ class Recipe:
 # Aspect names the engine accepts. Imported lazily inside the validator to keep
 # recipe.py free of an options.py import at module scope.
 _FORMAT_KEYS = {"label", "aspect", "duration", "duration_mode", "cut_rate",
-                "visual", "keywords", "order"}
+                "visual", "protect_speech", "keywords", "order"}
 _DURATION_MODES = {"none", "upTo", "exactly", "about"}
 
 
@@ -164,6 +164,13 @@ def _coerce_format(raw: Any, where: str) -> dict[str, Any]:
     # cutting only happens on the visual path.
     if raw.get("visual"):
         out["visual"] = True
+    # Whether this deliverable is one where a cut through a word is a defect.
+    # Same argument as `visual`: a long-form card that quietly cuts mid-sentence
+    # is a promise the request cannot keep. It also decides whether a transcript
+    # exists at all, which is what lets a reference's talking sections be
+    # matched to footage of someone talking.
+    if raw.get("protect_speech"):
+        out["protect_speech"] = True
     words = raw.get("keywords") or []
     if not isinstance(words, list) or any(not isinstance(w, str) for w in words):
         raise RecipeError(f"{where}: format keywords must be a list of strings")

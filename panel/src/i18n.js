@@ -407,6 +407,8 @@ const EN = {
     "The vision model is not available, so the reference could not be used — the edit was assembled the ordinary way.",
   "warn.reference.describedInstead":
     "You gave both a description and a reference video; the description was used for the running order and the reference ignored.",
+  "warn.reference.roles":
+    "The reference holds on someone talking in {holds} shot(s); {talking} of your spans are someone talking, and those were preferred for them.",
   "warn.story.settingsApplied": "taken from your description: {settings}",
   "warn.subtitles.borrowedProvider":
     "the {recipe} recipe does not transcribe, so {provider} was used for the subtitles",
@@ -857,6 +859,8 @@ const JA = {
     "画像モデルが利用できないため参考動画を使用できませんでした。通常の方法で編集を構成しました。",
   "warn.reference.describedInstead":
     "説明文と参考動画の両方が指定されています。順序は説明文を使用し、参考動画は無視しました。",
+  "warn.reference.roles":
+    "参考動画では {holds} 個のショットが人物の発話を長く映しています。素材側で発話とみなされたのは {talking} 個で、それらを優先的に割り当てました。",
   "warn.story.settingsApplied": "説明文から適用した設定: {settings}",
   "warn.subtitles.borrowedProvider":
     "{recipe} レシピは文字起こしを行わないため、字幕には {provider} を使用しました",

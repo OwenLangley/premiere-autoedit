@@ -168,3 +168,18 @@ def test_a_recipe_that_does_not_transcribe_still_names_a_listening_fallback():
         "the premise: this recipe cannot transcribe on its own"
     )
     assert "whisper-local" in LISTENS
+
+
+def test_no_two_recipes_claim_the_same_keyword():
+    """A word owned by two recipes selects whichever the matcher reaches first,
+    which is not a choice anybody made. `vlog` was owned by social-short and
+    long-form at once -- a 15-second vertical and a 20-minute documentary."""
+    import collections
+    from autoedit.recipe import list_recipes, load_recipe
+
+    owner = collections.defaultdict(list)
+    for name in list_recipes():
+        for word in load_recipe(name).format.get("keywords", []):
+            owner[word].append(name)
+    clashes = {w: v for w, v in owner.items() if len(v) > 1}
+    assert not clashes, clashes

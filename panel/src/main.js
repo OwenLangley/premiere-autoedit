@@ -1378,6 +1378,11 @@ function applyPromptSettings() {
         box.checked = true;
         box.dispatchEvent(new Event("change"));
       }
+      const speech = $("opt-protect-speech");
+      if (speech && fmt.protect_speech && !speech.checked) {
+        speech.checked = true;
+        speech.dispatchEvent(new Event("change"));
+      }
       if (got.cutRate === null && fmt.cut_rate && $("opt-visual").checked) {
         push("opt-cut-rate", String(fmt.cut_rate));
       }

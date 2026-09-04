@@ -1,0 +1,96 @@
+name: long-form
+description: >
+  A YouTube video, documentary or vlog -- something watched for twenty minutes
+  rather than scrolled past in twenty seconds. Cuts are long: a piece to camera
+  or a sit-down answer is one shot that holds, not a montage of six-second
+  fragments. Pair it with a reference video and the reference's own pacing is
+  reproduced, including which sections hold on someone talking.
+
+format:
+  label: Long form — YouTube, documentary
+  aspect: landscape
+  duration: 900
+  duration_mode: about
+  # Cutting a talking video means knowing where the talking is.
+  visual: true
+  protect_speech: true
+  keywords:
+    # Deliberately none of `vlog`, `interview` or `episode`: social-short and
+    # podcast-2cam already claim those, and a word owned by two recipes picks
+    # whichever the matcher reaches first -- which is not a choice anyone made.
+    - youtube
+    - long form
+    - longform
+    - documentary
+    - feature
+    - mini doc
+    - minidoc
+    - ドキュメンタリー
+    - 長尺
+    - ロングフォーム
+  order: 5
+
+sequence:
+  timebase: "25"
+  video_tracks: 4          # V1 interview, V2 b-roll, V3 graphics, V4 titles
+  audio_tracks: 4
+  name_template: "{job}_longform_v1"
+  crossfade_frames: 2
+
+visual:
+  scene_threshold: 0.30
+
+  # The whole point of this recipe.
+  #
+  # Every other recipe subdivides at 6s, which is right when the tool is
+  # choosing how long to sit on a b-roll shot. Applied to a three-minute
+  # interview take it produces thirty fragments, and then the assembly can only
+  # place a handful of them -- which is how a 28-minute edit came out at 2m46s
+  # while sitting on an hour of usable material.
+  #
+  # 90s holds any answer anyone gives to a question and still subdivides the
+  # ten-minute locked-off wide that somebody left running.
+  max_shot: 90.0
+  min_shot: 0.80           # a fragment shorter than this is a mistake here
+
+  drop_black: true
+  min_brightness: 16.0
+  min_sharpness: 0.40
+  min_motion: 0.02         # a talking head is nearly still, and that is not a fault
+  max_motion: 30.0
+
+  lead_trim: 0.20
+  tail_trim: 0.15
+
+  shot_duration: 6.00      # nominal hold with no reference and no music
+  min_clip_length: 1.20    # nothing in a long film wants to be shorter
+  snap_to_beats: false     # a documentary is not cut to a grid
+
+detection:
+  min_silence: 0.80        # people pause when they think; that is not dead air
+  lead_in: 0.25
+  tail: 0.25
+  trim_head_tail: true
+
+  filler_mode: conservative
+  remove_stutters: true
+  stutter_max_gap: 0.60
+
+  min_clip_length: 1.20
+  min_confidence: 0.55
+  protect_margin: 0.40     # cutting a word in half is worse here than a long take
+
+music:
+  # The words are the film. A bed sits under them and never moves a cut.
+  beat_priority: speech
+
+transcription:
+  provider: whisper-local
+  model: large-v3
+  language: auto
+  word_timestamps: true
+
+roles:
+  interview: { video_track: 0, audio_track: 0 }
+  broll:     { video_track: 1, audio_track: -1 }
+  music:     { video_track: -1, audio_track: 2 }

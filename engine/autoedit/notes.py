@@ -226,6 +226,9 @@ CATALOGUE: dict[str, str] = {
     "reference.describedInstead":
         "you gave both a description and a reference video; the description was "
         "used for the running order and the reference ignored",
+    "reference.roles":
+        "the reference holds on someone talking in {holds} shot(s); {talking} of "
+        "your spans are someone talking, and those were preferred for them",
 
     # --- language ----------------------------------------------------------
     "language.uncertain":
