@@ -646,7 +646,7 @@ def reference_cache_path(url: str, work_dir: Path) -> Path:
 
     No mtime and no content hash, because neither exists before the download.
     """
-    key = hashlib.sha256(f"{url.strip()}|v2".encode()).hexdigest()[:20]
+    key = hashlib.sha256(f"{url.strip()}|v3".encode()).hexdigest()[:20]
     return work_dir / "reference" / key
 
 
