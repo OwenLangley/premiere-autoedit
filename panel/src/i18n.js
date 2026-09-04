@@ -50,6 +50,8 @@ const EN = {
   "setup.referenceFolder": "Reference folder",
   "edit.groupReference": "Cut it like",
   "edit.referenceNone": "No reference",
+  "msg.referenceFolderUnreachable":
+    "The reference folder cannot be reached -- it may have been moved, renamed, or be on a drive that is not plugged in. Set it again in Setup.",
   "edit.referenceUrl": "…or paste a link",
   "edit.referenceRhythm": "Rhythm only",
   "edit.referenceRhythmHint": "Copy the cutting pattern without trying to match what each shot shows.",
@@ -501,6 +503,8 @@ const JA = {
   "setup.referenceFolder": "参考動画フォルダ",
   "edit.groupReference": "この動画のように",
   "edit.referenceNone": "参考動画なし",
+  "msg.referenceFolderUnreachable":
+    "参考動画フォルダーにアクセスできません。移動または名前が変更されたか、ドライブが接続されていない可能性があります。設定でもう一度指定してください。",
   "edit.referenceUrl": "…またはリンクを貼り付け",
   "edit.referenceRhythm": "リズムのみ",
   "edit.referenceRhythmHint": "各ショットの内容は合わせず、カットの間隔だけを真似します。",

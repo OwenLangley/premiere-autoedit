@@ -68,6 +68,27 @@ function trackName(relPath) {
  * @param {any[]} [libraryFiles]
  * @param {any} [translator]
  */
+/**
+ * The reference folder's videos, as dropdown choices.
+ *
+ * Shaped like `musicChoices` because `fillSelect` takes `{value, label}` and
+ * nothing else. It shipped taking bare filenames, so every option was built
+ * with `value === undefined` and no text: the dropdown listed three blank rows
+ * whatever was in the folder, and an editor who had just put an mp4 there was
+ * told nothing. `tsc` could not see it because `fillSelect` was untyped.
+ *
+ * @param {string[]} names
+ * @param {(key: string, vars?: object, fallback?: string) => string} [translator]
+ */
+function referenceChoices(names, translator) {
+  const t = translator || makeTranslator("en");
+  return [
+    { value: "", label: t("edit.referenceNone") },
+    ...(names || []).map((n) => ({ value: n, label: n })),
+  ];
+}
+
+
 function musicChoices(files, libraryFiles, translator) {
   const t = translator || makeTranslator("en");
   const asChoice = (prefix, suffix) => (f) => {
@@ -391,6 +412,7 @@ module.exports = {
   parseSeconds,
   trackName,
   musicChoices,
+  referenceChoices,
   normaliseJobId,
   jobIdWasChanged,
   buildRequest,

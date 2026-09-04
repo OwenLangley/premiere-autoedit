@@ -20,7 +20,7 @@ const {
 } = require("./transport");
 const {
   isVideoFile, buildRequest, validateRequest, requestFileName, describeRequest,
-  musicChoices, parseMusicValue, parseTimecode, formatTimecode, parseSeconds,
+  musicChoices, referenceChoices, parseMusicValue, parseTimecode, formatTimecode, parseSeconds,
   normaliseJobId, jobIdWasChanged,
 } = require("./request");
 const { audition, playheadSeconds, AuditionError } = require("./audition");
@@ -55,6 +55,10 @@ const state = {
   // "restart Premiere to read the label you cannot read" is not an instruction.
   t: makeTranslator("en"),
   selectedMedia: new Set(),
+  // What the reference dropdown is currently showing, so the timer that keeps
+  // it current can leave the DOM alone when nothing has changed.
+  referenceListKey: null,
+  referenceWatch: null,
   // Shot swaps the editor has made, keyed by the slot's atFrame. Panel memory
   // only, deliberately: nothing is written back to the jobs folder, so closing
   // the panel discards them. The editor is told that, and warned before the one
@@ -1039,17 +1043,45 @@ $("pick-reference").addEventListener("click", async () => {
  * worth walking in the background, and the panel already knows how to list one.
  */
 async function loadReferenceList() {
-  const select = $("opt-reference");
-  const chosen = select.value;
+  /** @type {string[]} */
   let names = [];
+  let reachable = true;
   try {
     if (state.settings.referenceToken) {
       names = await listMediaFiles(state.settings.referenceToken, isVideoFile);
     }
-  } catch { /* an unreachable folder is an empty list, not a broken panel */ }
-  fillSelect("opt-reference", ["", ...names],
-             [state.t("edit.referenceNone"), ...names]);
-  if (["", ...names].includes(chosen)) select.value = chosen;
+  } catch {
+    // A folder that has moved is an empty list, not a broken panel -- but it
+    // must not be silent, or it looks exactly like an empty folder.
+    reachable = false;
+  }
+
+  // Only touch the DOM when the folder's contents actually changed. This runs
+  // on a timer, and rebuilding a select under an editor who has it open would
+  // shut it.
+  const key = (reachable ? "" : "!") + names.join("\u0000");
+  if (key !== state.referenceListKey) {
+    state.referenceListKey = key;
+    const choices = referenceChoices(names, state.t);
+    fillSelect("opt-reference", choices, choices);
+    if (!reachable && state.settings.referenceToken) {
+      log(state.t("msg.referenceFolderUnreachable"), "err");
+    }
+  }
+}
+
+/**
+ * Re-list the reference folder while the panel is open.
+ *
+ * The list was built once at startup and once when the folder was picked, so
+ * the ordinary way of using this feature -- pick the folder, then drop a video
+ * into it -- left the dropdown empty until Premiere was restarted. The clip
+ * list has a Reload button for the same reason; a reference folder holds a
+ * handful of files, so it can simply keep itself current.
+ */
+function watchReferenceFolder() {
+  if (state.referenceWatch) clearInterval(state.referenceWatch);
+  state.referenceWatch = setInterval(() => { loadReferenceList(); }, 3000);
 }
 
 $("pick-jobs").addEventListener("click", async () => {
@@ -1068,6 +1100,11 @@ $("pick-jobs").addEventListener("click", async () => {
 // --------------------------------------------------------------- new edit form
 
 /** Fill a <select> from a capabilities list, keeping any current choice. */
+/**
+ * @param {string} id
+ * @param {{value: string, label: string}[]} entries
+ * @param {{value: string, label: string}[]} fallback
+ */
 function fillSelect(id, entries, fallback) {
   const el = $(id);
   const previous = el.value;
@@ -1853,6 +1890,7 @@ $("plan-list").addEventListener("change", (e) => {
     await refreshPlans();
     await loadCapabilities();
     await loadMediaList();
+    watchReferenceFolder();
     applyTranslations();
     log("Panel ready.");
   } catch (err) {

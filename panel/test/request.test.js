@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const {
   isVideoFile, normaliseJobId, buildRequest, validateRequest, describeRequest,
-  musicChoices, formatDuration, parseMusicValue, parseTimecode, formatTimecode, parseSeconds,
+  musicChoices, referenceChoices, formatDuration, parseMusicValue, parseTimecode, formatTimecode, parseSeconds,
 } = require("../src/request");
 
 const form = (over = {}) => ({
@@ -330,4 +330,35 @@ test("the summary names the rate the editor picked", () => {
   const caps = { cutRates: [{ value: "4", label: "Every bar" }] };
   const r = buildRequest({ jobId: "EP1", recipe: "social-short", media: ["a.mp4"], cutRate: "4" });
   assert.match(describeRequest(r, caps), /Every bar/);
+});
+
+
+// -------------------------------------------------- the reference dropdown
+
+test("reference choices are shaped the way fillSelect needs them", () => {
+  // It shipped passing bare filenames, so `fillSelect` built every option with
+  // `value === undefined` and no text: the dropdown showed blank rows whatever
+  // was in the folder, and an editor who had just put an mp4 there was told
+  // nothing. Every other call site passes {value, label}; this one did not.
+  const choices = referenceChoices(["tiktok-ref.mp4", "client-promo.mov"]);
+  for (const c of choices) {
+    assert.strictEqual(typeof c.value, "string", JSON.stringify(c));
+    assert.strictEqual(typeof c.label, "string", JSON.stringify(c));
+    assert.ok(c.label.length > 0, "an option with no text is an invisible option");
+  }
+});
+
+test("the reference dropdown offers None first, then the folder in order", () => {
+  const choices = referenceChoices(["a.mp4", "b.mov"]);
+  assert.strictEqual(choices[0].value, "", "None must carry the empty value");
+  assert.deepStrictEqual(choices.slice(1).map((c) => c.value), ["a.mp4", "b.mov"]);
+  assert.deepStrictEqual(choices.slice(1).map((c) => c.label), ["a.mp4", "b.mov"]);
+});
+
+test("an empty or missing reference folder still offers None", () => {
+  for (const names of [[], null, undefined]) {
+    const choices = referenceChoices(names);
+    assert.strictEqual(choices.length, 1);
+    assert.strictEqual(choices[0].value, "");
+  }
 });
