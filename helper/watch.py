@@ -632,6 +632,9 @@ _URLISH = re.compile(r"^https?://", re.I)
 SUBTITLE_LANGUAGES = ["ja", "en"]
 SUBTITLE_SUFFIXES = frozenset({".vtt", ".srt", ".ass", ".ssa", ".json3", ".srv1",
                                ".srv2", ".srv3", ".ttml"})
+# `.captions-tried` marks a reference asked twice with nothing to show for it.
+# Not a subtitle suffix, so `_downloaded_video` would otherwise return it.
+SUBTITLE_SUFFIXES = SUBTITLE_SUFFIXES | {".captions-tried"}
 
 
 def reference_cache_path(url: str, work_dir: Path) -> Path:
@@ -669,13 +672,38 @@ def _fetch_captions(yt_dlp, url: str, stem: Path) -> None:
         "outtmpl": f"{stem}.%(ext)s",
         "quiet": True, "no_warnings": True, "noprogress": True,
     }
+    tried = stem.parent / f"{stem.name}.captions-tried"
+    if tried.exists():
+        return          # asked twice already; this video simply has none
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
             ydl.download([url])
     except Exception as exc:
-        # Not even a warning in the job: the reference still works without them,
-        # and the engine says so when it falls back to reading shot lengths.
-        print(f"  reference: no captions available ({exc})", file=sys.stderr)
+        # Reported, not raised: the reference still works without captions, and
+        # the engine says so when it falls back to reading shot lengths.
+        #
+        # Checked afterwards rather than assumed, because a failure here is
+        # usually PARTIAL. A real 429 on the English track raised while the
+        # Japanese one had already landed -- announcing "no captions available"
+        # would have been flatly untrue about the track the tool then used.
+        if not _has_captions(stem):
+            print(f"  reference: no captions available ({exc})", file=sys.stderr)
+        else:
+            print(f"  reference: some caption tracks unavailable ({exc})",
+                  file=sys.stderr)
+    if not _has_captions(stem):
+        # Marked only when the attempt produced nothing, so a video with no
+        # captions is asked twice and then left alone rather than fetched at
+        # every job for the rest of its life.
+        try:
+            tried.write_text("")
+        except OSError:
+            pass
+
+
+def _has_captions(stem: Path) -> bool:
+    return any(stem.parent.glob(f"{stem.name}*{suffix}")
+               for suffix in SUBTITLE_SUFFIXES) if stem.parent.exists() else False
 
 
 def _downloaded_video(stem: Path) -> Path | None:
@@ -706,6 +734,14 @@ def download_reference(url: str, work_dir: Path) -> Path:
     stem = reference_cache_path(url, work_dir)
     existing = _downloaded_video(stem)
     if existing:
+        # The video is cached, but the captions beside it may not be: a 429 on
+        # the caption fetch is ordinary and does not stop the video arriving.
+        # Without this the whole feature is disabled permanently by one
+        # transient failure, silently, because captions are otherwise only ever
+        # attempted while downloading.
+        if not _has_captions(stem):
+            import yt_dlp                                    # noqa: PLC0415
+            _fetch_captions(yt_dlp, url, stem)
         return existing
 
     try:
@@ -720,7 +756,16 @@ def download_reference(url: str, work_dir: Path) -> Path:
     options = {
         # 720p is plenty: this is measured for its cutting pattern and then
         # thrown away, and a 4K download costs minutes for nothing.
-        "format": "bv*[height<=720]+ba/b[height<=720]/b",
+        #
+        # H.264 by preference, falling back to whatever exists. YouTube serves
+        # AV1 at this size by default, and the engine decodes in software --
+        # measured, AV1 costs 15.3s to decode 120s where the same content in
+        # H.264 costs 4.1s. A slightly larger download buys back several minutes
+        # of scanning on a long reference.
+        "format": (
+            "bv*[height<=720][vcodec^=avc1]+ba/b[height<=720][vcodec^=avc1]/"
+            "bv*[height<=720]+ba/b[height<=720]/b"
+        ),
         "outtmpl": f"{stem}.%(ext)s",
         "quiet": True,
         "no_warnings": True,
