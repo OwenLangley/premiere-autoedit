@@ -135,12 +135,31 @@ def _ffmpeg() -> str:
     return exe
 
 
-def _run(args: list[str], timeout: int = 1800, hwaccel: bool = True) -> str:
-    # VideoToolbox roughly halves CPU on HEVC, which is what modern cameras shoot.
-    # Harmless when unavailable: ffmpeg falls back to software silently.
-    prefix = ["-hwaccel", "videotoolbox"] if hwaccel else []
+def _run(args: list[str], timeout: int = 1800) -> str:
+    """Software decoding, deliberately.
+
+    This used to pass `-hwaccel videotoolbox`, on the reasoning that VideoToolbox
+    roughly halves CPU on the HEVC modern cameras shoot. It does reduce CPU. It
+    also made every pass here several times SLOWER in wall-clock time, which is
+    the number an editor waits on. Measured on this machine, one structure pass:
+
+        file            hwaccel   software
+        480p  H.264      21.35s      2.31s     9.2x
+        1080p H.264       8.15s      1.43s     5.7x
+        1080p HEVC        5.02s      0.99s     5.1x     <- the case it was for
+        4K    H.264      15.18s      2.19s     6.9x
+
+    Software wins everywhere, including the two cases the flag existed to serve.
+    The reason is what happens straight after the decode: every filter here runs
+    on the CPU, starting with a downscale to 640px, so each frame has to be read
+    back out of GPU memory -- and that readback costs far more than decoding a
+    small frame in the first place. Hardware decoding pays off when the frames
+    stay on the GPU. Here they never do.
+
+    A 27-minute 480p reference went from about 13 minutes to under two.
+    """
     result = subprocess.run(
-        [_ffmpeg(), *prefix, *args], capture_output=True, text=True, timeout=timeout
+        [_ffmpeg(), *args], capture_output=True, text=True, timeout=timeout
     )
     # Filters split their output between the two streams: showinfo and
     # blackdetect log to stderr, while `metadata=print:file=-` writes to stdout.
