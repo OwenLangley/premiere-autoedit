@@ -1160,3 +1160,25 @@ def test_a_bare_url_is_treated_as_one_even_when_labelled_a_file(tmp_path):
     finally:
         watch.download_reference = original
     assert calls == ["https://x/y"]
+
+
+def test_a_caption_file_is_never_mistaken_for_the_reference_video(tmp_path):
+    """The caption tracks share the video's stem -- `<key>.mp4` and
+    `<key>.ja.vtt` -- and `.en.vtt` sorts BEFORE `.mp4`. Taking the first match
+    of `<key>.*` handed back a subtitle file and called it the reference."""
+    from watch import _downloaded_video
+
+    stem = tmp_path / "abc123"
+    for name in ("abc123.en.vtt", "abc123.ja.vtt", "abc123.mp4"):
+        (tmp_path / name).write_text("x")
+    assert _downloaded_video(stem).name == "abc123.mp4"
+
+
+def test_captions_alone_do_not_count_as_a_downloaded_reference(tmp_path):
+    """Or a re-run would skip the download and hand the engine a .vtt."""
+    from watch import _downloaded_video
+
+    stem = tmp_path / "abc123"
+    (tmp_path / "abc123.ja.vtt").write_text("x")
+    assert _downloaded_video(stem) is None
+    assert _downloaded_video(tmp_path / "nothing" / "abc123") is None

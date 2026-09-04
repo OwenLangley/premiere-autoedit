@@ -626,6 +626,14 @@ def resolve_reference_root(jobs: Path) -> Path | None:
 _URLISH = re.compile(r"^https?://", re.I)
 
 
+# Caption tracks worth asking for. The video's own language comes back under
+# whatever code the platform uses, so these are the ones this tool can read
+# cues in; anything else still yields timings, which is most of the value.
+SUBTITLE_LANGUAGES = ["ja", "en"]
+SUBTITLE_SUFFIXES = frozenset({".vtt", ".srt", ".ass", ".ssa", ".json3", ".srv1",
+                               ".srv2", ".srv3", ".ttml"})
+
+
 def reference_cache_path(url: str, work_dir: Path) -> Path:
     """Where a downloaded reference lives.
 
@@ -635,8 +643,53 @@ def reference_cache_path(url: str, work_dir: Path) -> Path:
 
     No mtime and no content hash, because neither exists before the download.
     """
-    key = hashlib.sha256(f"{url.strip()}|v1".encode()).hexdigest()[:20]
+    key = hashlib.sha256(f"{url.strip()}|v2".encode()).hexdigest()[:20]
     return work_dir / "reference" / key
+
+
+def _fetch_captions(yt_dlp, url: str, stem: Path) -> None:
+    """The platform's own captions, beside the video. Best effort, always.
+
+    A SECOND pass rather than options on the first, because the two have
+    different stakes. The video is the job; captions are a bonus that says where
+    someone is speaking -- seconds of work against the minutes Whisper would
+    spend on the same file.
+
+    Asking for both in one call is not the same thing. Measured: a 429 on the
+    second language aborted the item and left NO video at all, and yt-dlp's own
+    `ignoreerrors: "only_download"` reported the failure without preventing it.
+    Rate limits on captions are ordinary; losing the reference over one is not.
+    """
+    options = {
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": SUBTITLE_LANGUAGES,
+        "subtitlesformat": "vtt",
+        "outtmpl": f"{stem}.%(ext)s",
+        "quiet": True, "no_warnings": True, "noprogress": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            ydl.download([url])
+    except Exception as exc:
+        # Not even a warning in the job: the reference still works without them,
+        # and the engine says so when it falls back to reading shot lengths.
+        print(f"  reference: no captions available ({exc})", file=sys.stderr)
+
+
+def _downloaded_video(stem: Path) -> Path | None:
+    """The video beside a cache stem, ignoring the caption tracks next to it.
+
+    The caption files share the stem -- `<key>.mp4` and `<key>.ja.vtt` -- and
+    `.ja.vtt` sorts BEFORE `.mp4`, so taking the first match of `<key>.*` would
+    hand back a subtitle file and call it the reference.
+    """
+    if not stem.parent.exists():
+        return None
+    found = [f for f in sorted(stem.parent.glob(f"{stem.name}.*"))
+             if f.suffix.lower() not in SUBTITLE_SUFFIXES]
+    return found[0] if found else None
 
 
 def download_reference(url: str, work_dir: Path) -> Path:
@@ -651,9 +704,9 @@ def download_reference(url: str, work_dir: Path) -> Path:
     same trap already caught ffmpeg once.
     """
     stem = reference_cache_path(url, work_dir)
-    existing = sorted(stem.parent.glob(f"{stem.name}.*")) if stem.parent.exists() else []
+    existing = _downloaded_video(stem)
     if existing:
-        return existing[0]
+        return existing
 
     try:
         import yt_dlp
@@ -681,10 +734,12 @@ def download_reference(url: str, work_dir: Path) -> Path:
             f"could not download the reference video: {exc}"
         ) from exc
 
-    found = sorted(stem.parent.glob(f"{stem.name}.*"))
+    _fetch_captions(yt_dlp, url, stem)
+
+    found = _downloaded_video(stem)
     if not found:
         raise ValueError("the reference video downloaded but no file appeared")
-    return found[0]
+    return found
 
 
 def resolve_reference(option: dict, jobs: Path, work_dir: Path,

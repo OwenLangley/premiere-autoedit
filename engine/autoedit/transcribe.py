@@ -16,6 +16,8 @@ clip syllables, and the failure looks like a bug in the cutter.
 
 from __future__ import annotations
 
+import re
+
 import json
 import subprocess
 import shutil
@@ -185,6 +187,76 @@ def parse_transcript_json(data: Any, media_id: str) -> Transcript:
         return Transcript(media_id, [_loose_word(w) for w in data])
 
     raise TranscriptionError("unrecognised transcript JSON shape")
+
+
+# --------------------------------------------------------------------- WebVTT
+
+_VTT_TIME = re.compile(
+    r"(?:(\d+):)?(\d{1,2}):(\d{2}[.,]\d{1,3})\s*-->\s*"
+    r"(?:(\d+):)?(\d{1,2}):(\d{2}[.,]\d{1,3})"
+)
+# Caption-track annotations, not speech: [音楽], [Music], [APPLAUSE]. They arrive
+# both as a whole line and glued inside one ("海外での[音楽]挑戦は").
+_VTT_BRACKETED = re.compile(r"^\[[^\]]*\]$")
+_VTT_MARKER = re.compile(r"\[[^\]]*\]")
+_VTT_TAG = re.compile(r"<[^>]+>")
+
+
+def _vtt_seconds(hours, minutes, seconds) -> float:
+    return (int(hours or 0) * 3600 + int(minutes) * 60
+            + float(str(seconds).replace(",", ".")))
+
+
+def parse_vtt(text: str, media_id: str, language: str = "en") -> Transcript:
+    """A WebVTT or SRT caption track as a Transcript.
+
+    For reading a REFERENCE video, which is measured and thrown away. Captions
+    are cue-level, so every `Word` here spans a whole cue rather than a word --
+    fine for asking where speech is, useless for cutting to it. Never hand one
+    of these to anything that needs word timings.
+
+    YouTube's automatic captions roll up: each cue repeats the line before it and
+    appends the new one, so the raw file says everything two or three times. Left
+    alone, a 27-minute video parsed to 1035 cues covering far more than its own
+    runtime. De-duplicated it is 480.
+    """
+    cues: list[tuple[float, float, str]] = []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        stamp = _VTT_TIME.search(lines[i])
+        if not stamp:
+            i += 1
+            continue
+        start = _vtt_seconds(*stamp.group(1, 2, 3))
+        end = _vtt_seconds(*stamp.group(4, 5, 6))
+        i += 1
+        body = []
+        while i < len(lines) and lines[i].strip() and not _VTT_TIME.search(lines[i]):
+            line = _VTT_MARKER.sub("", _VTT_TAG.sub("", lines[i])).strip()
+            # Dropped per LINE, not per cue. A roll-up cue carries the previous
+            # line and the new one together, so "[音楽]" arrives glued to real
+            # speech -- and leaving it attached breaks the de-duplication below,
+            # because the next cue no longer starts with what this one said.
+            if line and not _VTT_BRACKETED.match(line):
+                body.append(line)
+            i += 1
+        said = " ".join(body).strip()
+        if said and end > start:
+            cues.append((start, end, said))
+
+    words: list[Word] = []
+    for start, end, said in cues:
+        if words:
+            previous = words[-1].text
+            if said == previous:
+                continue
+            if said.startswith(previous):
+                said = said[len(previous):].strip()
+                if not said:
+                    continue
+        words.append(Word(said, start, end))
+    return Transcript(media_id, words, language)
 
 
 def _loose_word(w: dict) -> Word:

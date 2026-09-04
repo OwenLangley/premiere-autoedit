@@ -376,3 +376,102 @@ def test_mismatched_lengths_are_ignored_rather_than_guessed():
     got = match_shots(ref, footage, floor=0.75,
                       wants_speech=[True], is_spoken=[True])   # 1 flag, 2 spans
     assert got[0].matched
+
+
+# ------------------------------------------------- roles, read with captions
+
+
+def _spoken(*spans):
+    """A cue-level transcript, the shape `parse_vtt` returns."""
+    from autoedit.transcript import Transcript, Word
+    return Transcript("reference", [Word("...", s, e) for s, e in spans], "ja")
+
+
+def test_a_long_silent_hold_is_b_roll_not_an_interview():
+    """The correction a transcript buys. Measured on a real reference: 19% of
+    its runtime sat in 23 silent stretches of four seconds or more, the longest
+    60s -- and shape alone calls every one of them a hold and labels it
+    `interview`."""
+    # Padded so the long shot sits in the middle, where position says nothing
+    # and only its length is speaking for it.
+    plan = (3.0, 3.0, 3.0, 3.0, 60.0, 3.0, 3.0, 3.0, 3.0)
+    shots, total = _shots(*plan)
+    classify_roles(shots, total, _spoken((0.0, 12.0), (72.0, total)))
+    assert shots[4].role == ROLE_CUT, "nobody is speaking over it"
+
+    # And without the captions, the same shot reads as an interview.
+    again, total = _shots(*plan)
+    classify_roles(again, total)
+    assert again[4].role == ROLE_INTERVIEW
+
+
+def test_a_fast_cut_cold_open_is_still_the_opening():
+    """Position decides what a shot is; length only decides in the middle. A
+    cold open is cut fast and is still the opening -- shape alone missed it
+    entirely, because every shot in it is under the four-second floor."""
+    shots, total = _shots(2.0, 2.0, 2.0, 30.0, 30.0, 30.0, 2.0)
+    classify_roles(shots, total, _spoken((0.0, total)))
+    assert shots[0].role == ROLE_OPENING
+    assert shots[-1].role == ROLE_ENDING
+
+
+def test_a_greeting_in_the_middle_is_not_an_opening():
+    """`こんにちは` appears three times in the real reference, all at eighteen
+    minutes, greeting customers. Position is what stops it moving the opening
+    into the middle of the film."""
+    shots, total = _shots(*([10.0] * 20))
+    classify_roles(shots, total, _spoken((0.0, total)))
+    middle = [sh.role for sh in shots[5:15]]
+    assert ROLE_OPENING not in middle, middle
+    assert ROLE_ENDING not in middle, middle
+
+
+def test_a_learned_ending_phrase_moves_the_boundary_outwards():
+    """A tenth is a guess. The phrase that starts the sign-off is evidence, so
+    it may widen the bookend -- but never past a third of the film."""
+    from autoedit.cues import CueStore
+    from autoedit.transcript import Transcript, Word
+
+    store = CueStore()
+    for ref in ("one", "two"):
+        store.observe("ja", head="", tail="チャンネル登録おねがいします",
+                      middle="", reference_id=ref)
+
+    shots, total = _shots(*([10.0] * 10))          # 100s
+    heard = Transcript("reference", [
+        Word("ふつうのはなし", 0.0, 74.0),
+        Word("チャンネル登録おねがいします", 75.0, 100.0),   # at 75%, before the 90% mark
+    ], "ja")
+    # Shot 7 runs 70-80s: inside the learned boundary at 75, outside the fixed
+    # one at 90.
+    classify_roles(shots, total, heard, store)
+    assert shots[7].role == ROLE_ENDING, [sh.role for sh in shots]
+
+    plain, total = _shots(*([10.0] * 10))
+    classify_roles(plain, total, heard)
+    assert plain[7].role != ROLE_ENDING, "the fixed boundary should still be at 90%"
+
+
+def test_captions_beside_a_reference_are_found_and_read(tmp_path):
+    from autoedit.reference import captions_beside
+
+    video = tmp_path / "abc123.webm"
+    video.write_bytes(b"not really a video")
+    (tmp_path / "abc123.ja.vtt").write_text(
+        "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nこんにちは\n", encoding="utf8")
+
+    got = captions_beside(video)
+    assert got is not None
+    assert got.language == "ja"
+    assert [w.text for w in got.words] == ["こんにちは"]
+
+
+def test_no_captions_beside_a_reference_is_not_an_error(tmp_path):
+    from autoedit.reference import captions_beside
+
+    video = tmp_path / "abc123.webm"
+    video.write_bytes(b"not really a video")
+    assert captions_beside(video) is None
+
+    (tmp_path / "abc123.ja.vtt").write_bytes(b"\xff\xfe not valid utf8 or vtt")
+    assert captions_beside(video) is None

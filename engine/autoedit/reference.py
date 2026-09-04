@@ -91,19 +91,108 @@ HOLD_FACTOR = 2.0
 HOLD_MIN = 4.0
 
 # How near an end a hold has to be to be that end's bookend, as a fraction of
-# the reference's running time.
+# the reference's running time. A MINIMUM: learned cues can push it outwards,
+# because a tenth is a guess and the phrase that actually starts the sign-off is
+# evidence.
 BOOKEND_FRACTION = 0.10
 
+# How far learned evidence may push it. Past a third, "the ending" has stopped
+# being an ending -- and a store that has learned something too common would
+# otherwise swallow the film.
+BOOKEND_LIMIT = 0.35
 
-def classify_roles(shots: list["ReferenceShot"], duration: float) -> None:
+
+# Below this fraction of speech, a shot is nobody talking. Not 0.0: a caption
+# cue overhanging a cut by a few frames should not make a silent shot spoken.
+QUIET_COVERAGE = 0.15
+
+# Caption tracks read beside a reference. The helper writes these next to a
+# downloaded video; for a local file an editor can drop one there by hand, the
+# same "look beside the media" convention `transcribe.SidecarProvider` already
+# uses for footage.
+CAPTION_SUFFIXES = (".vtt", ".srt")
+
+
+def _ends_of(transcript, duration: float) -> tuple[str, str, str]:
+    """What was said in the first tenth, the last tenth, and everything between.
+
+    The middle is returned because it is the negative set: a phrase that also
+    appears mid-video is not a cue. That rule is what disqualifies `こんにちは`
+    on a reference where the only three occurrences are at eighteen minutes.
+    """
+    head_end = duration * BOOKEND_FRACTION
+    tail_start = duration * (1.0 - BOOKEND_FRACTION)
+    head, tail, middle = [], [], []
+    for w in transcript.words:
+        if w.end <= head_end:
+            head.append(w.text)
+        elif w.start >= tail_start:
+            tail.append(w.text)
+        else:
+            middle.append(w.text)
+    return "".join(head), "".join(tail), "".join(middle)
+
+
+def captions_beside(path: Path):
+    """The reference's own caption track, if one is sitting next to it.
+
+    Returns a cue-level `Transcript` or None. Cue-level is the point: it says
+    WHERE someone is speaking, which is all a reference is read for, and it
+    costs seconds against the minutes Whisper would spend on the same file.
+    Never give one to anything that needs word timings.
+    """
+    from .transcribe import parse_vtt
+
+    found = sorted(
+        f for suffix in CAPTION_SUFFIXES
+        for f in path.parent.glob(f"{path.stem}*{suffix}")
+    )
+    best = None
+    for track in found:
+        # `<stem>.ja.vtt` -> "ja"; a bare `<stem>.vtt` -> unknown, call it en.
+        middle = track.name[len(path.stem):-len(track.suffix)].strip(".")
+        language = middle.split("-")[0] if middle else "en"
+        try:
+            heard = parse_vtt(track.read_text(encoding="utf8", errors="replace"),
+                              "reference", language or "en")
+        except (OSError, ValueError):
+            continue          # an unreadable track is no track, not a failure
+        if not heard.words:
+            continue
+        # The one that says the most, not the one that sorts first. YouTube
+        # ships auto-translations alongside the original, and `.en.vtt` sorts
+        # before `.ja.vtt` -- on a Japanese reference that quietly picked a
+        # machine translation and then learned English phrases from it. The
+        # original is the denser track: 467 cues against 393 here.
+        covered = sum(w.end - w.start for w in heard.words)
+        if best is None or covered > best[0]:
+            best = (covered, heard)
+    return best[1] if best else None
+
+
+def classify_roles(shots: list["ReferenceShot"], duration: float,
+                   transcript=None, store=None) -> None:
     """Label each reference shot with what it is doing, in place.
 
-    Deliberately shape-only. A long hold early is an opening, a long hold late
-    is an ending, a long hold anywhere else is someone talking to camera, and
-    everything short is a cut. That is a coarse reading and it is meant to be:
-    it costs nothing, it is right about the thing that matters for length --
-    which sections have to hold -- and when it is wrong the result is an
-    ordinary visual match rather than a failure.
+    **Position does most of the work, and that is the point.** An opening is at
+    the opening. Searching the whole video for something that says "intro"
+    invents problems: measured on a real 27-minute reference, `こんにちは` --
+    the most obvious greeting in the language -- appears three times, all of
+    them at 18 minutes, where someone is greeting customers. Read as a cue it
+    would have moved the opening to the middle of the film. Restricted to the
+    first and last tenth, it never fires at all, which is correct.
+
+    **A transcript refines this by its SILENCE, not its speech.** On a finished
+    video 74% of the runtime had someone talking, spread evenly, never below 29%
+    in any two-minute window -- because voiceover plays over b-roll. So "has
+    speech" separates nothing. Its absence does: 19% of that reference sat in 23
+    silent stretches of four seconds or more, and those are exactly the shots
+    shape alone calls a hold and labels `interview`.
+
+    Raw footage is the other way round -- narration is not in it yet -- which is
+    why `speech.is_spoken` works on that side and this one reads the quiet.
+
+    Without a transcript the shape-only reading runs unchanged.
     """
     if not shots:
         return
@@ -113,15 +202,53 @@ def classify_roles(shots: list["ReferenceShot"], duration: float) -> None:
     head = duration * BOOKEND_FRACTION
     tail = duration * (1.0 - BOOKEND_FRACTION)
 
+    spans: list[tuple[float, float]] = []
+    if transcript is not None and getattr(transcript, "words", None):
+        from .speech import utterances
+        spans = utterances(transcript)
+
+    # Learned phrases move the boundary rather than labelling a shot. Position
+    # already decides WHAT a shot is; what a tenth cannot know is WHERE the
+    # sign-off actually starts, and the phrase that starts it says so.
+    if store is not None and transcript is not None:
+        language = getattr(transcript, "language", "en")
+        limit_head = duration * BOOKEND_LIMIT
+        limit_tail = duration * (1.0 - BOOKEND_LIMIT)
+        for word in getattr(transcript, "words", []):
+            role = store.role_of(word.text, language)
+            if role == ROLE_OPENING and head < word.end <= limit_head:
+                head = word.end
+            elif role == ROLE_ENDING and limit_tail <= word.start < tail:
+                tail = word.start
+
+    def quiet(sh) -> bool:
+        """True when nobody is speaking over this shot. False with no transcript,
+        so every branch below reads as it did before one existed."""
+        if not spans or sh.duration <= 0:
+            return False
+        heard = sum(max(0.0, min(sh.end, e) - max(sh.start, st)) for st, e in spans)
+        return heard / sh.duration < QUIET_COVERAGE
+
     for sh in shots:
-        if sh.duration < threshold:
+        silent = quiet(sh)
+        if silent:
+            # Nobody is talking over it, however long it holds. This is the
+            # correction the transcript buys: a sixty-second silent hold is
+            # b-roll, and shape alone called it an interview.
             sh.role = ROLE_CUT
         elif sh.start <= head:
-            sh.role = ROLE_OPENING
+            # In the opening tenth, anything with speech over it belongs to the
+            # opening -- a cold open is cut fast and is still the opening. Length
+            # only decides roles in the middle, where position says nothing.
+            sh.role = ROLE_OPENING if spans else (
+                ROLE_OPENING if sh.duration >= threshold else ROLE_CUT)
         elif sh.end >= tail:
-            sh.role = ROLE_ENDING
-        else:
+            sh.role = ROLE_ENDING if spans else (
+                ROLE_ENDING if sh.duration >= threshold else ROLE_CUT)
+        elif sh.duration >= threshold:
             sh.role = ROLE_INTERVIEW
+        else:
+            sh.role = ROLE_CUT
 
 
 class ReferenceError(RuntimeError):
@@ -310,12 +437,29 @@ def analyse_reference(
             still=tp if build_thumb(path, tp, at) else None,
         ))
 
-    classify_roles(shots, full_duration)
+    heard = captions_beside(path)
+    store = None
+    if heard is not None:
+        from .cues import CueStore
+        store = CueStore.load(work_dir)
+        # Learn from this reference BEFORE reading it, so a second run of the
+        # same job sees what the first one learned. `observe` is keyed on the
+        # reference, so re-running never counts it twice.
+        head_text, tail_text, middle_text = _ends_of(heard, full_duration)
+        store.observe(heard.language, head_text, tail_text, middle_text,
+                      content_hash(path))
+        store.save(work_dir)
+    classify_roles(shots, full_duration, heard, store)
     holds = [s for s in shots if s.role in SPOKEN_ROLES]
-    if holds:
+    if heard:
         warnings.append(
-            f"read {len(holds)} shot(s) as someone talking: "
-            + ", ".join(sorted({s.role for s in holds}))
+            f"read its captions ({heard.language}) to tell talking from b-roll: "
+            f"{len(holds)} of {len(shots)} shot(s) have someone speaking"
+        )
+    elif holds:
+        warnings.append(
+            f"read {len(holds)} shot(s) as someone talking, from shot lengths "
+            f"alone -- no caption track was found beside the reference"
         )
 
     missing = sum(1 for s in shots if s.still is None)
