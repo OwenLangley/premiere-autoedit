@@ -1627,6 +1627,11 @@ $("update").addEventListener("click", async () => {
     }
     const outcome = updateOutcome({ result, pickedUp, waited: true });
     if (outcome.key) log(state.t(outcome.key, { detail: outcome.detail || "" }), outcome.kind);
+    // Which checkout was updated. The helper's plist pins an absolute path, so
+    // this is not necessarily the folder the editor would `cd` into -- and when
+    // the two differ, the button updates one tree while a terminal updates the
+    // other, and looks broken while doing exactly what it was told.
+    if (result && result.root) log(state.t("msg.updateRoot", { root: result.root }));
     if (result && result.status === "updated") log(state.t("msg.updateRestart"), "ok");
   } catch (err) {
     log(`${err && err.message ? err.message : String(err)}`, "err");

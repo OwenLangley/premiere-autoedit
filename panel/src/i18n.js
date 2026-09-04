@@ -277,6 +277,7 @@ const EN = {
   "msg.updateRestart": "  Quit Premiere and reopen it — the panel only loads at startup.",
   "msg.updateFailed": "Update did not complete: {detail}",
   "msg.updateStarted": "  The helper picked it up — updating...",
+  "msg.updateRoot": "  in {root}",
   "msg.updateNotHeard":
     "  The helper has not read the request yet. It handles one thing at a time, so it is probably busy analysing footage — still waiting.",
   "msg.updateNeverHeard":
@@ -736,6 +737,7 @@ const JA = {
   "msg.updateRestart": "  Premiere を終了して再度開いてください。パネルは起動時にのみ読み込まれます。",
   "msg.updateFailed": "更新を完了できませんでした: {detail}",
   "msg.updateStarted": "  ヘルパーが受け付けました。更新しています...",
+  "msg.updateRoot": "  対象: {root}",
   "msg.updateNotHeard":
     "  ヘルパーはまだ要求を読んでいません。一度に一つの処理しか行わないため、映像の解析中の可能性があります。このまま待機します。",
   "msg.updateNeverHeard":

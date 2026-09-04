@@ -31,15 +31,22 @@ BEFORE="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 finish() {
   [ -z "$RESULT" ] && return 0
   AFTER="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  # WHICH checkout was updated. The helper is installed with an absolute path
+  # baked into its plist, so it runs update.sh from the tree it was installed
+  # from -- which is not necessarily the one someone `cd`s into to run it by
+  # hand. With two clones on a machine that difference is invisible and the
+  # button looks broken while doing exactly what it was told.
   python3 -c 'import json,sys; open(sys.argv[1],"w").write(json.dumps({
       "status": sys.argv[2], "detail": sys.argv[3],
-      "before": sys.argv[4], "after": sys.argv[5]}, indent=2))' \
-    "$RESULT" "$STATUS" "$DETAIL" "$BEFORE" "$AFTER" 2>/dev/null || true
+      "before": sys.argv[4], "after": sys.argv[5],
+      "root": sys.argv[6]}, indent=2))' \
+    "$RESULT" "$STATUS" "$DETAIL" "$BEFORE" "$AFTER" "$ROOT" 2>/dev/null || true
 }
 trap finish EXIT
 
 echo
 echo "Updating AutoEdit..."
+echo "  in $ROOT"
 
 # No pre-flight purity check. There used to be one and it was wrong twice: it
 # counted untracked files, and then, once that was fixed, it still stopped an

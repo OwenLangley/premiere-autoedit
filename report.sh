@@ -61,6 +61,38 @@ echo "Collecting a diagnostic report..."
   echo
   echo "--- helper (launchd) ---"
   launchctl list 2>/dev/null | grep -i autoedit || echo "(not registered)"
+
+  # WHICH checkout the helper runs from, which is not necessarily this one.
+  # The plist pins an absolute path at install time, and the Update button runs
+  # the update.sh next to THAT watch.py. With two clones on a machine -- easy to
+  # end up with, a `git clone` run from inside the repo leaves one nested -- the
+  # button updates one tree while the editor updates the other by hand, and it
+  # looks broken while doing exactly what it was told.
+  PLIST="$HOME/Library/LaunchAgents/com.company.autoedit.helper.plist"
+  HELPER_SCRIPT=""
+  if [ -f "$PLIST" ]; then
+    HELPER_SCRIPT="$(plutil -extract ProgramArguments.1 raw -o - "$PLIST" 2>/dev/null \
+      || grep -o '[^<>]*watch\.py' "$PLIST" | head -1)"
+  fi
+  if [ -n "$HELPER_SCRIPT" ]; then
+    HELPER_ROOT="$(cd "$(dirname "$HELPER_SCRIPT")/.." 2>/dev/null && pwd)"
+    echo "helper runs from  ${HELPER_ROOT:-$HELPER_SCRIPT}"
+    if [ -n "$HELPER_ROOT" ] && [ "$HELPER_ROOT" != "$ROOT" ]; then
+      echo "  !! THIS REPORT WAS RUN FROM $ROOT"
+      echo "  !! The Update button updates the helper's copy, not this one."
+      echo "  !! Re-run ./setup.sh from the copy you want to keep."
+    fi
+    [ -f "$HELPER_SCRIPT" ] || echo "  !! that file does not exist -- the helper cannot start"
+  else
+    echo "helper runs from  (no launchd plist found)"
+  fi
+
+  # A clone inside the clone. One was found on a real machine, reported only as
+  # "uncommitted 1 file(s)", which said nothing about the trap it is.
+  for NESTED in "$ROOT"/*/.git; do
+    [ -e "$NESTED" ] || continue
+    echo "  !! a second checkout is nested here: $(dirname "$NESTED")"
+  done
   echo
   echo "--- installed panel ---"
   PANEL_DEST="/Library/Application Support/Adobe/UXP/Plugins/External/com.company.autoedit_0.1.0"
