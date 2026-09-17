@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from . import progress
 from .detect import plan_cuts
 from .plan import EditPlanBuilder, MediaEntry, validate_plan
 from .probe import ProbeError, content_hash, needs_proxy, probe
@@ -742,6 +743,38 @@ def cmd_plan(args) -> int:
     # "the footage was rejected" from "the footage was fine and the cuts were
     # not", which are opposite problems with opposite fixes.
     usable_shots = 0
+    # What the run is made of, weighted by the seconds of video each part has to
+    # decode. See progress.py for why duration is the weight and why the bar
+    # moves between passes rather than through them.
+    reference_seconds = 0.0
+    if getattr(args, "reference", None):
+        try:
+            reference_seconds = probe(Path(args.reference)).duration
+        except ProbeError:
+            # Weightless rather than fatal: analyse_reference is about to probe
+            # the same file and report the failure in terms an editor can act on.
+            reference_seconds = 0.0
+    footage_seconds = sum(p.duration for p in probes)
+    units: list[tuple[str, float]] = []
+    if getattr(args, "reference", None):
+        units.append(("reference", reference_seconds))
+    units += [(f"media:{i}", p.duration) for i, p in enumerate(probes)]
+    # Assembly decodes nothing, but it is not free and most of what it costs is
+    # a CONSTANT, so it cannot be a percentage of the material. Measured on a
+    # two-file job with a reference: 17.5s in total, of which describe.available
+    # -- loading the shot recogniser -- was 10.7s. That 10.7s is the same 10.7s
+    # on a three-hour job.
+    #
+    # So it is expressed in the same unit as everything else here, seconds of
+    # video, using the scanning rate the visual.py measurements imply: a
+    # 27-minute reference scans in under two minutes, about 13x faster than
+    # real time. Ten seconds of fixed cost is therefore worth roughly 130
+    # seconds of material, plus a small share for the work that does scale.
+    ASSEMBLE_FIXED_SECONDS = 130.0
+    units.append(("assemble",
+                  ASSEMBLE_FIXED_SECONDS + (reference_seconds + footage_seconds) * 0.05))
+    progress.begin(units)
+
     # The editor's sentence, read once. `beats` here would collide with the
     # musical beat grid that is live throughout this function, so the story's
     # units keep their own name everywhere: sections.
@@ -749,6 +782,8 @@ def cmd_plan(args) -> int:
     if getattr(args, "reference", None):
         from .reference import ReferenceError, analyse_reference
 
+        progress.unit("reference")
+        progress.step("progress.reference", Path(args.reference).name)
         print(f"  reference: reading {Path(args.reference).name}", file=sys.stderr)
         try:
             reference = analyse_reference(
@@ -950,6 +985,8 @@ def cmd_plan(args) -> int:
     for i, raw in enumerate(args.media):
         path = Path(raw).resolve()
         info = probes[i]
+        progress.unit(f"media:{i}")
+        progress.step("progress.clip", f"{path.name} ({i + 1}/{len(args.media)})")
 
         mid = _media_id(i, path, media_ids)
         media_ids[mid] = path
@@ -1081,10 +1118,28 @@ def cmd_plan(args) -> int:
             # a story against, and to put a word to each shot -- an editor
             # scanning a strip needs to know what a shot IS, and a filename does
             # not tell them.
+            # One ffmpeg seek and JPEG per shot, so this is the only phase in
+            # the run whose progress is genuinely continuous -- everything else
+            # is an ffmpeg pass we cannot see inside. Reported every tenth
+            # still, over the half of the unit the two decodes did not use.
+            drawn = 0
+            expected = len(analysis.usable) + min(len(analysis.usable),
+                                                  MAX_CANDIDATES_PER_MEDIA)
+
+            def drew_one() -> None:
+                nonlocal drawn
+                drawn += 1
+                if drawn % 10 == 0:
+                    progress.step("progress.thumbs", f"{path.name} ({drawn}/{expected})",
+                                  within=0.5 + 0.5 * drawn / max(expected, 1))
+
+            progress.step("progress.thumbs", f"{path.name} (0/{expected})", within=0.5)
             for span in analysis.usable:
                 at = sample_point(span.shot.start, span.shot.end)
                 tp = thumb_path(cache_root, path, at)
-                if build_thumb(path, tp, at):
+                made = build_thumb(path, tp, at)
+                drew_one()
+                if made:
                     story_spans.append(
                         (mid, span.shot.start, span.shot.end, span.score, tp))
 
@@ -1111,6 +1166,7 @@ def cmd_plan(args) -> int:
                 at = sample_point(span.shot.start, span.shot.end)
                 tp = thumb_path(cache_root, path, at)
                 thumb = str(tp) if build_thumb(path, tp, at) else None
+                drew_one()
                 builder.add_candidate(
                     mid, span.shot.start, span.shot.end, span.score,
                     reason=f"quality {span.score:.2f}", thumb_path=thumb,
@@ -1217,9 +1273,17 @@ def cmd_plan(args) -> int:
     # The id is what the panel translates; the text is its fallback.
     captions: dict[str, list[tuple[float, float, str, str]]] = {}
     described = 0
+    # The scanning is done; everything from here is assembly. It used to report
+    # nothing at all, which on the run measured above meant the bar sat at 89%
+    # for 84% of the wall clock -- the exact complaint this is here to answer.
+    progress.unit("assemble")
     if visual_used and story_spans:
         try:
             from . import describe
+            # Said BEFORE the call, not after: `available` loads the recogniser
+            # and takes about ten seconds the first time, and an editor watching
+            # a bar deserves to know what the ten seconds is for.
+            progress.step("progress.describe", within=0.0)
             if describe.available(cache_root):
                 vecs, kept = describe.embed_stills_cached(
                     [sp[4] for sp in story_spans], cache_root)
@@ -1245,6 +1309,7 @@ def cmd_plan(args) -> int:
     # A story replaces the running order outright: the beats decide what appears
     # and in what sequence, so the source-by-source assembly above is set aside.
     story_sections: dict[str, str] = {}
+    progress.step("progress.matching", within=0.55)
     if story and story.beats:
         collected, story_sections = _assemble_story(
             story, story_spans, collected, builder, options, detection, cache_root)
@@ -1560,6 +1625,8 @@ def cmd_plan(args) -> int:
         plan["warnings"] = builder.build()["warnings"]
         print("  subtitles: asked for, but nothing was transcribed", file=sys.stderr)
 
+    progress.step("progress.writing", within=0.9)
+
     errors = validate_plan(plan)
     if errors:
         print(f"error: generated plan is invalid ({len(errors)} problem(s)):", file=sys.stderr)
@@ -1661,7 +1728,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    finally:
+        # cmd_plan returns from a dozen places and can raise from any of them,
+        # and the helper calls this IN-PROCESS, reusing the interpreter for the
+        # next job. Clearing here rather than at each exit is what stops one
+        # run's weights from being the next run's starting point.
+        progress.finish()
 
 
 if __name__ == "__main__":

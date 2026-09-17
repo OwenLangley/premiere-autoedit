@@ -21,7 +21,9 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
+from . import progress
 from .detect import KIND_SILENCE, CutPlan, Drop, Keep
 from .music import BeatGrid
 from .notes import note
@@ -489,8 +491,18 @@ def measure(
     `centre_ratio` is the fraction of the width a centre crop would keep. Pass it
     when the output is a different shape from the source, and each shot gains a
     crop-risk score.
+
+    The two calls below are the longest thing that happens to one file, and they
+    are reported between rather than within: ffmpeg cannot tell us where it is
+    inside either of them (`progress.py` records the measurement). So a file the
+    size of a reference moves the bar twice, not continuously.
     """
+    name = Path(path).name
+    # Weighted one-third / two-thirds because that is the decode count:
+    # detect_structure reads the file once, analyse_frames reads it twice.
+    progress.step("progress.scanShots", name, 0.0)
     structure = detect_structure(path, duration, settings)
+    progress.step("progress.scanFrames", name, 1 / 3)
     return Measurements(
         shots=structure.shots,
         samples=analyse_frames(path, settings, centre_ratio),

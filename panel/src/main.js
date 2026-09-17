@@ -27,6 +27,7 @@ const { audition, playheadSeconds, AuditionError } = require("./audition");
 const { readPromptSettings } = require("./prompt");
 const { runSelfTest } = require("./selftest");
 const { updateOutcome } = require("./update");
+const { progressView } = require("./progress");
 const { LANGUAGES, makeTranslator } = require("./i18n");
 
 /** @type {(id: string) => any} document.getElementById is typed HTMLElement; the
@@ -1553,14 +1554,20 @@ async function onCreate() {
 function watchJob(jobId) {
   if (state.watching) clearInterval(state.watching);
   let lastMessage = "";
+  const requestedAt = Date.now();
 
-  state.watching = setInterval(async () => {
+  const tick = async () => {
     let status = null;
     try {
       status = await state.transport.readStatus(jobId);
     } catch {
+      // Unreadable is not the same as absent -- a half-written file reads as a
+      // parse error -- so the bar keeps whatever it last showed rather than
+      // flickering back to "waiting for the helper".
       return;
     }
+
+    drawProgress(progressView(status, Date.now(), requestedAt));
     if (!status) return;
 
     if (status.message && status.message !== lastMessage) {
@@ -1578,7 +1585,39 @@ function watchJob(jobId) {
         await refreshPlans();
       }
     }
-  }, 2000);
+  };
+
+  // Once immediately, so the bar appears when the button is pressed rather than
+  // two seconds later. Two seconds of nothing is how this felt before.
+  tick();
+  state.watching = setInterval(tick, 2000);
+}
+
+/**
+ * Put a view on screen. Everything decided in progress.js; this only writes it
+ * out, which is the part a test cannot reach.
+ *
+ * @param {import("./progress").ProgressView} view
+ */
+function drawProgress(view) {
+  const box = $("progress");
+  if (!box) return;                        // an older index.html
+  if (!view.visible) {
+    box.classList.add("hidden");
+    $("progress-fill").style.width = "0";
+    return;
+  }
+  box.classList.remove("hidden");
+  // A width of nought when the position is unknown, rather than a guess. The
+  // label and the clock are what carry "still working" in that case.
+  $("progress-fill").style.width = `${view.percent === null ? 0 : view.percent}%`;
+  $("progress-label").textContent =
+    state.t(view.stepKey || "progress.working");
+  $("progress-detail").textContent = view.detail;
+  $("progress-elapsed").textContent =
+    view.elapsed ? state.t("progress.elapsed", { elapsed: view.elapsed }) : "";
+  $("progress-quiet").textContent =
+    view.quiet ? state.t("progress.quiet", { quietFor: view.quietFor }) : "";
 }
 
 // How long to wait for the updater to finish. The old sixty seconds was fine

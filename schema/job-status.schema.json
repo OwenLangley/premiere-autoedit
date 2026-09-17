@@ -10,9 +10,23 @@
     "schemaVersion": { "const": "1.0" },
     "jobId": { "type": "string" },
     "state": { "enum": ["queued", "analysing", "ready", "failed"] },
-    "message": { "type": "string", "description": "Human-readable; shown verbatim in the panel." },
+    "message": { "type": "string", "description": "Human-readable; shown verbatim in the panel. The engine's own words, and English." },
     "updatedAt": { "type": "string" },
     "startedAt": { "type": "string" },
+    "percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "How far through the run, 0-100. Weighted by the seconds of video each part has to decode, so it is a position and not a time estimate -- see engine/autoedit/progress.py. Absent while the helper is doing something it cannot weigh, such as downloading a reference."
+    },
+    "step": {
+      "type": "string",
+      "description": "Translation key for the stage, e.g. progress.scanShots. A key rather than a sentence because the panel is translated and its editor reads Japanese; `message` above is the one part that is not."
+    },
+    "stepDetail": {
+      "type": "string",
+      "description": "Substituted into `step`: a file name or a count, something that reads the same in either language."
+    },
     "planFile": { "type": "string", "description": "Set when state is ready." },
     "warnings": { "type": "array", "items": { "type": "string" } }
   }

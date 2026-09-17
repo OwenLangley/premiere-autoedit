@@ -1153,7 +1153,8 @@ def test_a_bare_url_is_treated_as_one_even_when_labelled_a_file(tmp_path):
 
     calls = []
     original = watch.download_reference
-    watch.download_reference = lambda url, work: calls.append(url) or Path("/tmp/x.mp4")
+    watch.download_reference = (lambda url, work, on_progress=None:
+                                calls.append(url) or Path("/tmp/x.mp4"))
     try:
         watch.resolve_reference({"source": "file", "value": "https://x/y"},
                                 tmp_path, tmp_path, [])
@@ -1182,3 +1183,99 @@ def test_captions_alone_do_not_count_as_a_downloaded_reference(tmp_path):
     (tmp_path / "abc123.ja.vtt").write_text("x")
     assert _downloaded_video(stem) is None
     assert _downloaded_video(tmp_path / "nothing" / "abc123") is None
+
+
+# --- progress reaches the panel while the job is still running ---------------
+
+def _run_with_fake_engine(tmp_path, monkeypatch, emit):
+    """Drive `process` with a stand-in engine. Returns (status seen mid-run, final).
+
+    `emit` is called with a recorder; whatever it prints to stderr goes through
+    the same path the real engine's output does.
+    """
+    import watch
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "EP001.request.json").write_text(json.dumps(request()))
+    for name in ("a.mp4", "b.mp4"):
+        (tmp_path / name).write_bytes(b"")
+
+    seen = []
+
+    def fake_engine(argv):
+        def look():
+            # Read the status file from INSIDE the run. This is the whole point:
+            # before this change the engine's output was buffered and nothing
+            # was written until it returned, so there was nothing to read here.
+            try:
+                seen.append(json.loads((jobs / "EP001.status.json").read_text()))
+            except (OSError, ValueError):
+                pass
+        emit(look)
+        (jobs / "EP001.editplan.json").write_text("{}")
+        return 0
+
+    monkeypatch.setattr(watch, "engine_main", fake_engine)
+    process(jobs / "EP001.request.json", jobs, tmp_path, tmp_path)
+    return seen, json.loads((jobs / "EP001.status.json").read_text())
+
+
+def test_the_panel_can_see_the_bar_move_before_the_job_finishes(tmp_path, monkeypatch):
+    def emit(look):
+        print("PROGRESS 0.2500 progress.scanShots C0001.MP4", file=sys.stderr)
+        look()
+        print("PROGRESS 0.7500 progress.thumbs C0001.MP4", file=sys.stderr)
+        look()
+
+    seen, _ = _run_with_fake_engine(tmp_path, monkeypatch, emit)
+    assert [s["percent"] for s in seen] == [25, 75]
+    assert [s["step"] for s in seen] == ["progress.scanShots", "progress.thumbs"]
+    assert seen[0]["stepDetail"] == "C0001.MP4"
+
+
+def test_a_finished_job_still_reports_what_it_made_not_a_progress_line(tmp_path, monkeypatch):
+    """The summary is the last thing an editor reads. Left unfiltered, the last
+    progress line would be it -- "PROGRESS 0.9990 progress.writing" where the
+    clip count used to be."""
+    def emit(look):
+        print("  12 clips, 00:00:28:00 (28.0s)", file=sys.stderr)
+        print("PROGRESS 0.9990 progress.writing", file=sys.stderr)
+
+    _, final = _run_with_fake_engine(tmp_path, monkeypatch, emit)
+    assert final["state"] == "ready"
+    assert final["message"] == "12 clips, 00:00:28:00 (28.0s)"
+    assert final["percent"] == 100
+
+
+def test_a_failing_job_reports_the_engines_words_not_its_progress(tmp_path, monkeypatch):
+    import watch
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "EP001.request.json").write_text(json.dumps(request()))
+
+    def fake_engine(argv):
+        print("PROGRESS 0.1000 progress.scanShots C0001.MP4", file=sys.stderr)
+        print("error: ref.mp4: no cuts were found in it", file=sys.stderr)
+        return 2
+
+    monkeypatch.setattr(watch, "engine_main", fake_engine)
+    process(jobs / "EP001.request.json", jobs, tmp_path, tmp_path)
+
+    final = json.loads((jobs / "EP001.status.json").read_text())
+    assert final["state"] == "failed"
+    assert final["message"] == "error: ref.mp4: no cuts were found in it"
+
+
+def test_the_elapsed_clock_survives_every_update(tmp_path, monkeypatch):
+    """startedAt is set once, at the start, and every later write has to carry
+    it forward -- the panel's clock is `now - startedAt`, so dropping it would
+    reset the elapsed time to nothing on the first progress line."""
+    def emit(look):
+        print("PROGRESS 0.5000 progress.thumbs C0001.MP4", file=sys.stderr)
+        look()
+
+    seen, final = _run_with_fake_engine(tmp_path, monkeypatch, emit)
+    assert seen[0].get("startedAt")
+    assert final.get("startedAt") == seen[0]["startedAt"]

@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
 
 from autoedit.cli import main as engine_main            # noqa: E402
 from autoedit.options import ASPECT_LABELS, CUT_RATES, PACING  # noqa: E402
+from autoedit.progress import parse as parse_progress   # noqa: E402
 from autoedit.probe import ProbeError, content_hash, needs_proxy, probe  # noqa: E402
 from autoedit.proxy import build_proxy, proxy_path        # noqa: E402
 from autoedit.thumbs import build_thumb, sample_point, thumb_path  # noqa: E402
@@ -85,6 +86,53 @@ def write_status(jobs: Path, job_id: str, state: str, message: str = "", **extra
         **extra,
     }
     (jobs / f"{job_id}.status.json").write_text(json.dumps(payload, indent=2) + "\n")
+
+
+# How often a running job may rewrite its status file. The engine narrates a
+# line per file and a progress line per pass, which on a big job is a few dozen
+# writes -- but a step change is written immediately regardless, because the
+# whole point is that the editor sees it move.
+STATUS_INTERVAL = 0.5
+
+
+class _EngineOutput(io.StringIO):
+    """The engine's stderr, read as it is written instead of after it finishes.
+
+    This is the link that was missing. `cmd_plan` has always narrated itself --
+    which file it is on, which pass it is in -- and all of it was captured into
+    a buffer that nobody looked at until the engine returned. On a 28-minute
+    reference that meant every word of the commentary arrived at once, minutes
+    late, to an editor who had spent those minutes unable to tell a working tool
+    from a dead one.
+
+    Still a StringIO, so `getvalue()` keeps working: the failure message and the
+    "ready" summary are still built from the whole output at the end.
+    """
+
+    def __init__(self, on_line):
+        super().__init__()
+        self._pending = ""
+        self._on_line = on_line
+
+    def write(self, text: str) -> int:
+        written = super().write(text)
+        # print() sends the text and the newline as separate writes, so lines
+        # have to be reassembled here rather than assumed.
+        self._pending += text
+        while "\n" in self._pending:
+            line, _, self._pending = self._pending.partition("\n")
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                self._on_line(line)
+            except Exception:
+                # Reporting progress must never be able to fail a job. This
+                # writes to a folder the editor chose and can unmount, rename or
+                # fill; losing the bar is a disappointment, losing the edit
+                # because the bar could not be drawn is not.
+                pass
+        return written
 
 
 def write_capabilities(jobs: Path) -> None:
@@ -720,8 +768,12 @@ def _downloaded_video(stem: Path) -> Path | None:
     return found[0] if found else None
 
 
-def download_reference(url: str, work_dir: Path) -> Path:
+def download_reference(url: str, work_dir: Path, on_progress=None) -> Path:
     """Fetch a reference video once and keep it. Returns a local path.
+
+    `on_progress` is called with a percentage, 0-100, of the DOWNLOAD -- not of
+    the job. A 28-minute video is minutes of waiting before the analysis it
+    feeds has even started, and that wait had nothing to say for itself.
 
     Imported here rather than at module scope: a helper that never sees a URL
     should not fail to start because a package is missing, and the message when
@@ -769,8 +821,29 @@ def download_reference(url: str, work_dir: Path) -> Path:
         "outtmpl": f"{stem}.%(ext)s",
         "quiet": True,
         "no_warnings": True,
+        # yt-dlp's own progress goes to a terminal nobody is looking at: this
+        # process is a launchd agent. The hook below goes where it can be seen.
         "noprogress": True,
     }
+    if on_progress:
+        last = [0.0]
+
+        def hook(d: dict) -> None:
+            # Called per chunk, which is many times a second. The status file is
+            # read by a panel polling every two seconds; writing it faster than
+            # that is work nobody sees.
+            if d.get("status") != "downloading":
+                return
+            now = time.monotonic()
+            if now - last[0] < 1.0:
+                return
+            last[0] = now
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            done = d.get("downloaded_bytes") or 0
+            if total > 0:
+                on_progress(100.0 * done / total)
+
+        options["progress_hooks"] = [hook]
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
             ydl.download([url])
@@ -788,7 +861,7 @@ def download_reference(url: str, work_dir: Path) -> Path:
 
 
 def resolve_reference(option: dict, jobs: Path, work_dir: Path,
-                      media_roots: list[Path]) -> Path:
+                      media_roots: list[Path], on_progress=None) -> Path:
     """A request's `reference` option as a local path. Raises ValueError."""
     source = option.get("source")
     value = str(option.get("value") or "").strip()
@@ -796,7 +869,7 @@ def resolve_reference(option: dict, jobs: Path, work_dir: Path,
         raise ValueError("a reference video was asked for but none was named")
 
     if source == "url" or _URLISH.match(value):
-        return download_reference(value, work_dir)
+        return download_reference(value, work_dir, on_progress)
 
     candidate = Path(value).expanduser()
     if candidate.is_absolute() and candidate.exists():
@@ -1069,7 +1142,8 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
         write_status(jobs, job_id, "failed", "; ".join(problems))
         return False
 
-    write_status(jobs, job_id, "analysing", "starting", startedAt=_now())
+    started = _now()
+    write_status(jobs, job_id, "analysing", "starting", startedAt=started, percent=0)
 
     try:
         reference = None
@@ -1078,20 +1152,67 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
             # Said out loud before it starts. A download can take a minute and
             # the panel polls a status file: without this it sits on "starting"
             # and reads as a job that has hung.
+            fetching = option.get("source") == "url"
             write_status(jobs, job_id, "analysing",
-                         "fetching the reference video" if option.get("source") == "url"
-                         else "reading the reference video")
-            reference = resolve_reference(option, jobs, work_dir, media_roots or [media_root])
+                         "fetching the reference video" if fetching
+                         else "reading the reference video",
+                         startedAt=started, percent=0,
+                         step="progress.fetching" if fetching else "progress.reference")
+
+            def downloading(pct: float) -> None:
+                # The BAR stays at nought and the LABEL carries the percentage.
+                # Downloading is not analysis: none of the run's work is done
+                # when it finishes, so moving the bar to 60% and then back to
+                # nought would be a lie told twice. The number climbing in the
+                # label is what proves the tool is alive, which is the thing
+                # actually being asked for.
+                write_status(jobs, job_id, "analysing",
+                             f"fetching the reference video ({pct:.0f}%)",
+                             startedAt=started, percent=0,
+                             step="progress.fetching", stepDetail=f"{pct:.0f}%")
+
+            reference = resolve_reference(option, jobs, work_dir,
+                                          media_roots or [media_root],
+                                          downloading if fetching else None)
 
         argv = request_to_argv(request, jobs, media_root, work_dir, music_root,
                                 media_roots, reference)
     except ValueError as exc:
         write_status(jobs, job_id, "failed", str(exc))
         return False
-    captured = io.StringIO()
+    # Where the run has got to, kept across lines so each status write says
+    # everything currently known rather than only what just changed.
+    shown = {"percent": 0, "step": "", "detail": "", "message": "starting"}
+    last_write = 0.0
+
+    def on_line(line: str) -> None:
+        nonlocal last_write
+        reading = parse_progress(line)
+        if reading:
+            fraction, key, detail = reading
+            moved = key != shown["step"]
+            shown.update(percent=int(fraction * 100), step=key, detail=detail)
+        else:
+            # Prose. It is the engine's own words and it is English, which is why
+            # the bar is driven by the key above and not by this -- but it is
+            # also the detail that makes a log worth reading, so it is kept.
+            moved = False
+            shown["message"] = line
+        now = time.monotonic()
+        # A step change is written at once; everything else waits its turn. The
+        # editor is watching for movement, and movement is the step changing.
+        if not moved and now - last_write < STATUS_INTERVAL:
+            return
+        last_write = now
+        write_status(jobs, job_id, "analysing", shown["message"], startedAt=started,
+                     percent=shown["percent"], step=shown["step"],
+                     stepDetail=shown["detail"])
+
+    captured = _EngineOutput(on_line)
     try:
         # The engine reports progress on stderr; capture it so the failure message
-        # in the status file is the engine's own words rather than a stack trace.
+        # in the status file is the engine's own words rather than a stack trace,
+        # and stream it so the panel can draw a bar while the run is still going.
         with redirect_stderr(captured), redirect_stdout(io.StringIO()):
             code = engine_main(argv)
     except SystemExit as exc:
@@ -1101,7 +1222,12 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
         return False
 
     output = captured.getvalue().strip()
-    lines = [l.strip() for l in output.splitlines() if l.strip()]
+    # Progress lines are for the bar, not for the editor. Left in, the last one
+    # would become the "ready" summary -- so a finished job would report
+    # "PROGRESS 0.9990 progress.assemble" where it used to say how many clips it
+    # had made.
+    lines = [l.strip() for l in output.splitlines()
+             if l.strip() and parse_progress(l.strip()) is None]
 
     if code != 0:
         detail = " / ".join(lines[-3:]) if lines else f"engine exited {code}"
@@ -1115,7 +1241,7 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
 
     write_status(
         jobs, job_id, "ready", lines[-1] if lines else "done",
-        planFile=plan_file.name,
+        startedAt=started, percent=100, planFile=plan_file.name,
         warnings=[l for l in lines if l.lower().startswith("warning")],
     )
     return True

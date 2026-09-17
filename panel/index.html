@@ -183,6 +183,32 @@
                         font-size: var(--t-small); }
       button.disclose:hover:not(:disabled) { background: var(--control); color: var(--text); }
 
+      /* --- how far through a job it is --------------------------------------
+         A bar, not a spinner, and the width is set from JS on every poll.
+         Deliberate: a spinning circle needs @keyframes, which appears nowhere
+         in this panel, and the failure mode of an animation UXP has not
+         implemented is a shape that sits perfectly still while claiming to be
+         progress -- exactly what an editor would read as a hang. This bar can
+         only move when the panel has just read a new status file, so its
+         stillness and the tool's stillness are the same thing.
+
+         No transition on the width either, for the same reason: an eased bar
+         would keep gliding for a moment after the last poll it will ever get. */
+      #progress { margin-top: var(--s3); }
+      .progress-track { height: 4px; background: var(--well); border-radius: 2px;
+                        overflow: hidden; }
+      .progress-fill { height: 100%; width: 0; background: var(--accent-solid); }
+      .progress-line { display: flex; justify-content: space-between; gap: var(--s2);
+                       font-size: var(--t-small); margin-top: var(--s1); }
+      .progress-line .progress-detail { color: var(--dim); overflow: hidden;
+                                        text-overflow: ellipsis; white-space: nowrap;
+                                        font-variant-numeric: tabular-nums; }
+      .progress-line.dim { color: var(--dim); font-size: var(--t-micro);
+                           font-variant-numeric: tabular-nums; }
+      /* Amber, not red: a long gap between passes is ordinary on a big file and
+         is not yet a failure. The colour should raise an eyebrow, not an alarm. */
+      #progress-quiet { color: var(--warn); }
+
       /* --- what the engine did --------------------------------------------- */
       .kv { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0;
             border-bottom: 1px solid #2a2a30; font-size: var(--t-small); }
@@ -503,6 +529,20 @@
       </div>
       <div class="hint" data-i18n="edit.createHint">
         Runs in the background. The plan appears below when it is ready.
+      </div>
+
+      <!-- Sits directly under the button that starts the work, which is where
+           the editor is already looking when they press it. -->
+      <div id="progress" class="hidden">
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+        <div class="progress-line">
+          <span id="progress-label"></span>
+          <span class="progress-detail" id="progress-detail"></span>
+        </div>
+        <div class="progress-line dim">
+          <span id="progress-elapsed"></span>
+          <span id="progress-quiet"></span>
+        </div>
       </div>
     </section>
 

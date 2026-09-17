@@ -296,6 +296,26 @@ const EN = {
   "msg.reportFailed": "Could not collect the report: {detail}",
   "log.title": "Log",
 
+  // --- how far through a job it is -----------------------------------------
+  // Stage names, not sentences with the file name in them: the file name is
+  // shown beside these and reads the same in either language, and a key with a
+  // parameter renders the placeholder when the parameter is missing.
+  "progress.queued": "Waiting for the background helper",
+  "progress.fetching": "Downloading the reference video",
+  "progress.reference": "Reading the reference video",
+  "progress.scanShots": "Finding the cuts",
+  "progress.scanFrames": "Measuring exposure and focus",
+  "progress.clip": "Reading the footage",
+  "progress.thumbs": "Making stills",
+  "progress.describe": "Recognising what each shot shows",
+  "progress.matching": "Matching your footage to the reference",
+  "progress.writing": "Writing the edit",
+  "progress.working": "Working",
+  "progress.elapsed": "{elapsed} so far",
+  // A fact, not a diagnosis. The panel cannot tell a dead helper from a slow
+  // ffmpeg pass, and should not pretend otherwise.
+  "progress.quiet": "no news for {quietFor}",
+
   // --- messages the panel itself produces ----------------------------------
   "msg.jobIdChanged":
     "The job will be called “{cleaned}” — characters a filename cannot hold were removed.",
@@ -755,6 +775,19 @@ const JA = {
   "msg.reportNoJobs": "先に設定でジョブフォルダーを選択してください。",
   "msg.reportFailed": "レポートを作成できませんでした: {detail}",
   "log.title": "ログ",
+  "progress.queued": "バックグラウンドヘルパーの応答待ち",
+  "progress.fetching": "参考動画をダウンロード中",
+  "progress.reference": "参考動画を読み込み中",
+  "progress.scanShots": "カットを検出中",
+  "progress.scanFrames": "露出とピントを測定中",
+  "progress.clip": "素材を読み込み中",
+  "progress.thumbs": "静止画を作成中",
+  "progress.describe": "各ショットの内容を認識中",
+  "progress.matching": "素材を参考動画に合わせています",
+  "progress.writing": "編集データを書き出し中",
+  "progress.working": "処理中",
+  "progress.elapsed": "経過 {elapsed}",
+  "progress.quiet": "{quietFor} 更新なし",
 
   // --- messages the panel itself produces ----------------------------------
   "msg.jobIdChanged":
