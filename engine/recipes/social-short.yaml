@@ -28,6 +28,13 @@ format:
     - to camera
     - vlog
     - piece to camera
+    # Japanese, and none of 縦型 / 縦動画 / 縦長 for the reason stated above:
+    # those say the shape, and PLATFORM_ASPECTS already reads them. Nor 顔出し,
+    # which is most often written 顔出しNG -- the opposite of what it would be
+    # read as here.
+    - ショート動画
+    - リール
+    - カメラに向かって
   order: 1
 
 sequence:

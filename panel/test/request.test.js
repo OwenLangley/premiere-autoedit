@@ -57,6 +57,9 @@ test("problems come back as keys, so the form can be translated", () => {
   // Prose here would have made the form the one untranslatable part of the
   // panel -- and the form is where a Japanese editor spends all their time.
   assert.deepEqual(validateRequest(buildRequest(form({ media: [] }))), ["err.clipsRequired"]);
+  // The panel cannot produce this one by hand any more -- the description picks
+  // the recipe and the recipes declare a default -- so an empty one means the
+  // capabilities never arrived. It is still refused rather than sent.
   assert.deepEqual(validateRequest(buildRequest(form({ recipe: "" }))), ["err.recipeRequired"]);
 });
 

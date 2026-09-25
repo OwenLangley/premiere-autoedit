@@ -440,10 +440,12 @@
            for checking. -->
       <div id="adjust-block" class="hidden">
       <div class="group" style="margin-top:var(--s4)" data-i18n="edit.groupFormat">Format</div>
-      <div class="split">
-        <label class="field"><span data-i18n="edit.recipe">Recipe</span><select id="opt-recipe"></select></label>
-        <label class="field"><span data-i18n="edit.shape">Shape</span><select id="opt-aspect"></select></label>
-      </div>
+      <!-- The Recipe dropdown lived here, and went the way the format cards
+           did: a third way to say one thing, and the only one that said it in
+           thresholds and track counts rather than in deliverables. Nobody picks
+           an edit by its filler mode. The description names the kind now, and
+           the line beside Show settings reads back the name it recognised. -->
+      <label class="field"><span data-i18n="edit.shape">Shape</span><select id="opt-aspect"></select></label>
       <label class="field"><span data-i18n="edit.look">Look</span><select id="opt-look"></select></label>
 
       <div class="group" data-i18n="edit.groupTiming">Timing</div>

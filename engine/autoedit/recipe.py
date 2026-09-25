@@ -116,7 +116,7 @@ class Recipe:
 # Aspect names the engine accepts. Imported lazily inside the validator to keep
 # recipe.py free of an options.py import at module scope.
 _FORMAT_KEYS = {"label", "aspect", "duration", "duration_mode", "cut_rate",
-                "visual", "protect_speech", "keywords", "order"}
+                "visual", "protect_speech", "keywords", "order", "default"}
 _DURATION_MODES = {"none", "upTo", "exactly", "about"}
 
 
@@ -171,6 +171,14 @@ def _coerce_format(raw: Any, where: str) -> dict[str, Any]:
     # matched to footage of someone talking.
     if raw.get("protect_speech"):
         out["protect_speech"] = True
+    # What a job gets when the description names no kind of edit at all. The
+    # panel has no recipe control any more -- the words choose it -- so silence
+    # has to land somewhere, and it should land on a recipe somebody picked for
+    # the job rather than on whichever name sorts first. Exactly one recipe may
+    # claim this; test_recipe.py enforces that, because two would mean the
+    # default was decided by file order again.
+    if raw.get("default"):
+        out["default"] = True
     words = raw.get("keywords") or []
     if not isinstance(words, list) or any(not isinstance(w, str) for w in words):
         raise RecipeError(f"{where}: format keywords must be a list of strings")
@@ -310,3 +318,26 @@ def _sanity_check(source: str, d: DetectionSettings) -> None:
 
 def list_recipes() -> list[str]:
     return sorted(p.stem for p in RECIPE_DIR.glob("*.yaml"))
+
+
+def default_recipe() -> str:
+    """Which recipe a job gets when its description names no kind of edit.
+
+    Read from the recipe data (`format.default`), not from sort order. The panel
+    used to carry a dropdown, so the answer to "nothing was said" was whichever
+    name sorted first -- a choice nobody made, hidden in a control nobody
+    opened. Declaring it keeps it reviewable in the file a producer already
+    edits.
+
+    A recipe that will not load is skipped rather than raised on: this answers
+    "which name", and one broken file in the library should not cost the panel
+    its whole capabilities document.
+    """
+    names = list_recipes()
+    for name in names:
+        try:
+            if load_recipe(name).format.get("default"):
+                return name
+        except Exception:
+            continue
+    return names[0] if names else ""

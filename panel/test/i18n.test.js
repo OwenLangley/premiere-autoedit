@@ -144,6 +144,32 @@ test("no shot-list label is left as English in the Japanese catalogue", () => {
   assert.deepStrictEqual(untranslated, []);
 });
 
+test("every deliverable a description can name reads in both languages", () => {
+  // The kind of edit is the one setting with no control behind it: the words
+  // choose the recipe, and this label is the only place an editor sees which one
+  // was understood. A recipe added without a translation shows English inside a
+  // Japanese panel -- and the fallback makes that work, which is exactly why it
+  // needs a tripwire rather than trust.
+  const dir = path.join(__dirname, "..", "..", "engine", "recipes");
+  const recipes = fs.readdirSync(dir).filter((f) => f.endsWith(".yaml"));
+  assert.ok(recipes.length >= 5, `only found ${recipes.length} recipes`);
+  const missing = { en: [], ja: [] };
+  for (const file of recipes) {
+    const name = file.replace(/\.yaml$/, "");
+    const label = /\n  label:\s*(.+)/.exec(fs.readFileSync(path.join(dir, file), "utf8"));
+    if (EN[`format.${name}`] === undefined) missing.en.push(name);
+    if (JA[`format.${name}`] === undefined) missing.ja.push(name);
+    // The recipe's own label is the fallback when a key is absent, so the two
+    // saying different things would mean the panel showed one string before a
+    // translation existed and another one after.
+    if (label) {
+      assert.strictEqual(EN[`format.${name}`], label[1].trim(),
+        `${file}'s label and the English catalogue disagree`);
+    }
+  }
+  assert.deepEqual(missing, { en: [], ja: [] });
+});
+
 test("every shot descriptor the engine can choose has a label here", () => {
   // The other half of engine/tests/fixtures/shot-descriptors.json, which Python
   // asserts still matches autoedit.describe.DESCRIPTORS. A descriptor added to

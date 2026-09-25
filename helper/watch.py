@@ -44,7 +44,7 @@ from autoedit.visual import (                             # noqa: E402
     Measurements, VisualError, VisualSettings, analyse as analyse_visual,
     measure as measure_visual, measurement_key,
 )
-from autoedit.recipe import list_recipes, load_recipe   # noqa: E402
+from autoedit.recipe import default_recipe, list_recipes, load_recipe  # noqa: E402
 from autoedit.story import (                            # noqa: E402
     MONTAGE_WORDS, PACE_WORDS, PLATFORM_ASPECTS, SUBTITLE_WORDS,
     SUBTITLE_WORDS_CJK,
@@ -174,6 +174,12 @@ def write_capabilities(jobs: Path) -> None:
         "updatedAt": _now(),
         "recipes": recipes,
         "formats": formats,
+        # Which recipe a job gets when the description names no kind of edit.
+        # The panel has no recipe control -- the words choose it -- so it needs
+        # to be told where silence lands, and it must not decide that for
+        # itself: a name hardcoded in JavaScript drifts from the recipes the
+        # moment one is added, which is the whole reason this document exists.
+        "defaultRecipe": default_recipe(),
         # The words the engine reads out of a description, so the panel can
         # reflect the same prompt in its controls without a second vocabulary
         # that drifts from this one. The panel owns the regex shapes; the words

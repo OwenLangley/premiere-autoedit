@@ -342,24 +342,13 @@ def _is_description(fragment: str) -> bool:
     return not _says_something(rest)
 
 
-def find_recipe(text: str, formats: list[dict]) -> str | None:
-    """Which kind of edit the description asks for, if it says.
-
-    Longest keyword first, so "case study" is not decided by "study" appearing
-    in another format's list, and so a two-word phrase beats a one-word one.
-
-    Returns None when nothing matches, which leaves whatever recipe is already
-    chosen alone. Guessing a recipe from silence would change the thresholds,
-    the tracks and the filler handling of an edit on no evidence at all.
-    """
-    low = (text or "").lower()
-    best: tuple[int, str] | None = None
-    for fmt in formats or []:
-        for word in fmt.get("keywords") or []:
-            if len(word) > (best[0] if best else 0) and re.search(
-                    rf"\b{re.escape(word)}\b", low):
-                best = (len(word), fmt["recipe"])
-    return best[1] if best else None
+# `find_recipe` lived here: the engine's half of choosing a kind of edit from a
+# description. It never had a caller -- the recipe arrives as `--recipe`, decided
+# in the panel -- and it never had a test, so nobody noticed that its `\b...\b`
+# matching cannot match a Japanese keyword at all. Now that the recipes
+# carry Japanese words and the panel has no dropdown to fall back on, a second
+# implementation that quietly disagrees is worse than none. The one that decides
+# is `chooseRecipe` in panel/src/prompt.js, and it is tested in both languages.
 
 
 def find_pace(text: str) -> float | None:

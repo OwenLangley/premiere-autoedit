@@ -124,4 +124,33 @@ function readPromptSettings(text, words, formats) {
   };
 }
 
-module.exports = { readPromptSettings, readDuration, hasWord };
+/**
+ * The recipe a request will carry, and whether the description named it.
+ *
+ * The panel has no recipe control any more. It was a third way to say one thing
+ * -- the format cards went before it for the same reason -- and it was the one
+ * that spoke the wrong language: a recipe is thresholds, track counts and filler
+ * handling, while an editor describes a deliverable. So the words choose it, and
+ * a description that names no kind of edit gets the default the recipes
+ * themselves declare (`capabilities.defaultRecipe`).
+ *
+ * `named` is separate on purpose. A recognised deliverable is worth reading back
+ * -- "Promo — cuts to music" confirms the word landed -- and the fallback is
+ * not. "a 12 second tiktok" names no kind of edit; printing "Client promo" over
+ * it would dress an engineering default as an editorial choice the editor never
+ * made.
+ *
+ * @param {string} text the description
+ * @param {any} words vocabulary from capabilities.json
+ * @param {any[]} [formats] from capabilities.json
+ * @param {string} [fallback] capabilities.defaultRecipe
+ * @returns {{recipe: string|null, named: boolean, format: any|null}}
+ */
+function chooseRecipe(text, words, formats, fallback) {
+  const named = readPromptSettings(text, words, formats).recipe;
+  const recipe = named || fallback || null;
+  const format = (formats || []).find((f) => f.recipe === recipe) || null;
+  return { recipe, named: Boolean(named), format };
+}
+
+module.exports = { readPromptSettings, readDuration, hasWord, chooseRecipe };

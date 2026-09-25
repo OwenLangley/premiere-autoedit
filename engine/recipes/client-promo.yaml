@@ -18,7 +18,21 @@ format:
     - case study
     - corporate
     - brand film
+    # Japanese. 導入事例 and not a bare 事例, which lives inside ordinary
+    # sentences; お客様の声 is what a testimonial is actually called.
+    - お客様の声
+    - 導入事例
+    - 会社紹介
+    - ブランドムービー
   order: 3
+  # What a job gets when the description names no kind of edit. This one, and
+  # not the punchier ones, because it is the recipe that does least: 0.70s of
+  # silence before a cut, conservative filler removal, longer clips, and the
+  # beat giving way to speech. Guessing wrong here is invisible -- nobody chose
+  # it -- so the guess should be the cautious one. It is also what shipped as the
+  # silent default when the panel still had a dropdown, alphabetically rather
+  # than on purpose.
+  default: true
 
 sequence:
   timebase: "25"

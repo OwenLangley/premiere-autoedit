@@ -455,16 +455,35 @@ from a preset faster than that; see findings 12f.
 ## Recipes
 
 Editorial policy lives in `engine/recipes/*.yaml`, not in code, so a producer can
-tune it. Three ship by default:
+tune it. Five ship:
 
 | Recipe | min_silence | Fillers | Intent |
 |---|---|---|---|
 | `podcast-2cam` | 0.50s | conservative | Stay conversational. An over-cut podcast reads as artificial. |
 | `social-short` | 0.25s | **aggressive** | The one format where cutting `like` / `you know` is correct. |
 | `client-promo` | 0.70s | conservative | Music-led. Deliberately does less; rhythm stays with the editor. |
+| `long-form` | 0.80s | conservative | YouTube and documentary. People pause when they think. |
+| `promo-silent` | 0.50s | conservative | A montage: cuts from the pictures to the beat, so these two rarely come into it. |
 
 A typo in a recipe is rejected rather than silently ignored — a setting that
 quietly does nothing is worse than a crash.
+
+**The panel has no recipe control.** The description picks it, from the
+`keywords` each recipe's `format` block declares: "a b-roll montage of the
+kitchen" is `promo-silent`, "a two camera podcast episode" is `podcast-2cam`.
+When one is recognised its name appears in the line beside **Show settings**, so
+an editor can see the word landed. There were three ways to say this at one
+point — cards, a dropdown and the description — and two have gone, in that
+order. The dropdown was also the only one that spoke in thresholds and track
+counts rather than in deliverables, which is nobody's way of choosing an edit.
+
+A description that names no kind of edit gets the recipe declaring
+`default: true` — `client-promo`, the one that cuts least, because a default
+applies exactly when nobody said anything. Only one recipe may claim it, and a
+recipe with no keywords is now unreachable; both are tested, since both used to
+be settled by whichever filename sorted first. Whichever recipe ran is recorded
+on the plan and shown in its details, so a cut can be traced back to the
+settings that made it.
 
 ## Editorial rules the engine enforces
 

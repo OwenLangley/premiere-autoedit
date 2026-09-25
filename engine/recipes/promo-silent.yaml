@@ -30,6 +30,13 @@ format:
     - highlight
     - highlights
     - music video
+    # Japanese. Compound and loanword forms only -- the rule PLATFORM_ASPECTS
+    # states, for the same reason. Deliberately not a bare 広告: it lives inside
+    # 広告代理店, and a video introducing an ad agency is not a montage.
+    - プロモ
+    - モンタージュ
+    - ダイジェスト
+    - bロール
   order: 2
 
 sequence:

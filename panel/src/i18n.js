@@ -77,6 +77,14 @@ const EN = {
   "edit.adjustHide": "Hide settings",
   "format.noLimit": "No length limit",
   "format.cutsToSpeech": "Cuts to the words",
+  // The deliverables, by the name the description was recognised as. The recipe
+  // yaml carries the same English, so a recipe added tomorrow still reads
+  // sensibly before anyone translates it; these are what the panel shows.
+  "format.social-short": "Reel / Short",
+  "format.promo-silent": "Promo — cuts to music",
+  "format.client-promo": "Client promo",
+  "format.podcast-2cam": "Podcast cut",
+  "format.long-form": "Long form — YouTube, documentary",
   "edit.title": "New edit",
   "edit.name": "Name (optional)",
   "edit.nameHint": "Leave it blank and the edit is named by the date and time.",
@@ -342,7 +350,10 @@ const EN = {
   "err.nameRequired": "Give the job a name",
   "err.nameDotOrSpace": "Job name cannot start with a dot or a space",
   "err.nameUnsafe": "Job name cannot contain / \\ : * ? \" < > |",
-  "err.recipeRequired": "Choose a recipe",
+  // Not "choose one" any more: there is nothing to choose. The description
+  // names the kind of edit and the recipes declare where silence lands, so an
+  // empty recipe means the panel has not heard what this engine supports.
+  "err.recipeRequired": "Waiting for the helper to say what this engine can make",
   "err.clipsRequired": "Select at least one clip",
   "err.lengthPositive": "Length must be more than zero seconds",
   "err.lengthTooLong": "Length must be under two hours",
@@ -572,6 +583,11 @@ const JA = {
   "edit.adjustHide": "設定を隠す",
   "format.noLimit": "長さの指定なし",
   "format.cutsToSpeech": "話に合わせてカット",
+  "format.social-short": "リール・ショート",
+  "format.promo-silent": "プロモ（音楽に合わせてカット）",
+  "format.client-promo": "クライアント向けプロモ",
+  "format.podcast-2cam": "ポッドキャストの編集",
+  "format.long-form": "長尺（YouTube・ドキュメンタリー）",
   "edit.title": "新規編集",
   "edit.name": "名前（任意）",
   "edit.nameHint": "空欄のままにすると、日付と時刻で名前が付きます。",
@@ -826,7 +842,7 @@ const JA = {
   "err.nameRequired": "ジョブ名を入力してください",
   "err.nameDotOrSpace": "ジョブ名の先頭にピリオドや空白は使えません",
   "err.nameUnsafe": "ジョブ名に / \\ : * ? \" < > | は使えません",
-  "err.recipeRequired": "レシピを選んでください",
+  "err.recipeRequired": "このエンジンで作れるものが、ヘルパーからまだ届いていません",
   "err.clipsRequired": "クリップを 1 つ以上選んでください",
   "err.lengthPositive": "尺は 0 秒より長く指定してください",
   "err.lengthTooLong": "尺は 2 時間未満で指定してください",

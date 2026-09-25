@@ -19,6 +19,13 @@ format:
     - two camera
     - 2 camera
     - conversation
+    # Japanese. インタビュー and 対談 are in SPEECH_WORDS_CJK as well, which
+    # answers a different question: that list asks whether the talking matters,
+    # this one asks what is being made. Both being true of a podcast is correct.
+    - ポッドキャスト
+    - 対談
+    - インタビュー
+    - 2カメ
   order: 4
 
 sequence:

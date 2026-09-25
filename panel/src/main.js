@@ -24,7 +24,7 @@ const {
   normaliseJobId, jobIdWasChanged, jobIdFromPlanName,
 } = require("./request");
 const { audition, playheadSeconds, AuditionError } = require("./audition");
-const { readPromptSettings } = require("./prompt");
+const { readPromptSettings, chooseRecipe } = require("./prompt");
 const { runSelfTest } = require("./selftest");
 const { updateOutcome } = require("./update");
 const { progressView } = require("./progress");
@@ -67,14 +67,13 @@ const state = {
   // accidental discard they will actually hit -- opening a different plan.
   swaps: new Map(),
   selectedSlot: null,      // atFrame of the block whose alternates are showing
-  // Every shot the helper has found across the media library, not just the
-  // clips in this job. Null until it has written the index once.
-  format: null,          // the deliverable card the editor picked
   // What the description last set, so a later keystroke only pushes what
   // actually changed and a hand-made adjustment is not overwritten.
   promptApplied: { seconds: null, aspect: null, cutRate: null, visual: null,
                    subtitles: null, recipe: null },
   lastReceipt: null,     // the previous build of this plan, if there was one
+  // Every shot the helper has found across the media library, not just the
+  // clips in this job. Null until it has written the index once.
   libraryShots: null,
   thumbFailureLogged: false,
   watching: null,          // interval id while a job is being worked on
@@ -1168,8 +1167,6 @@ async function loadCapabilities() {
   state.capabilities = caps;
   $("create").disabled = false;
 
-  // Recipe and look names are identifiers and brand-kit names, not prose.
-  fillSelect("opt-recipe", (caps.recipes || []).map((r) => ({ value: r.name, label: r.name })), []);
   applyCapabilityLabels(caps);
   // Neutral defaults: the first entry in a list is not necessarily the sane one.
   if (!$("opt-pacing").value || $("opt-pacing").value === caps.pacing[0].value) {
@@ -1335,6 +1332,43 @@ function syncDurationField() {
 }
 
 /**
+ * A deliverable's name in the panel's language.
+ *
+ * The recipes write their labels in English, the way the helper writes its
+ * capability labels, and the catalogue overrides them where it has a
+ * translation -- the same `t(key, {}, fallback)` shape `applyCapabilityLabels`
+ * uses for aspects and pacing. A label added to a recipe still reads sensibly
+ * before anyone translates it.
+ *
+ * Typed, so a typo in either field is a build error rather than the string
+ * "undefined" in the summary line. An untyped parameter is implicitly `any` and
+ * this panel has shipped that mistake twice.
+ * @param {{recipe: string, label: string}} fmt
+ */
+function formatLabel(fmt) {
+  return state.t(`format.${fmt.recipe}`, {}, fmt.label);
+}
+
+/**
+ * Which recipe this request will carry, and whether the description named it.
+ *
+ * Read out of the description every time rather than remembered, so one
+ * sentence always produces one request. The dropdown could not promise that:
+ * its value was whatever the last keystroke had pushed into it, so deleting the
+ * word "podcast" left the podcast recipe behind -- closed inside Adjust, where
+ * nobody was going to read it.
+ */
+function chosenRecipe() {
+  const caps = state.capabilities || {};
+  // `defaultRecipe` is what the recipes themselves declare. The list is only a
+  // stand-in for a capabilities.json written by a helper older than that field,
+  // which is a real state on a machine whose panel updated first.
+  const first = (caps.recipes || [])[0];
+  return chooseRecipe($("opt-story").value, caps.promptWords, caps.formats,
+                      caps.defaultRecipe || (first && first.name));
+}
+
+/**
  * Read the settings back in plain English, so they can be checked in one line.
  *
  * This is the whole point of moving them behind Adjust: hidden is only
@@ -1351,6 +1385,14 @@ function renderFormatSummary() {
     return opt ? opt.textContent : "";
   };
   const bits = [];
+  // What KIND of edit, when the description said so. With the dropdown gone
+  // this is the only place that fact is visible, and seeing it is how an editor
+  // knows the word landed. A description that named nothing is left unnamed
+  // rather than labelled with the default: that default is an engineering
+  // choice, and printing "Client promo" over a sentence that never said it
+  // would read as a decision somebody made.
+  const kind = chosenRecipe();
+  if (kind.named && kind.format) bits.push(formatLabel(kind.format));
   const mode = $("opt-duration-mode").value;
   bits.push(mode === "none"
     ? state.t("format.noLimit")
@@ -1393,12 +1435,14 @@ function applyPromptSettings() {
 
   // The recipe first: it decides thresholds, tracks and filler handling, and
   // anything the description states explicitly below should outrank the
-  // defaults that come with it.
+  // defaults that come with it. Nothing is pushed into a control for the recipe
+  // itself -- there is no control; `chosenRecipe` reads the description when the
+  // request is built. What still has to be applied is the format that comes with
+  // it, because those ARE controls and they would otherwise contradict the words.
   if (got.recipe !== last.recipe && got.recipe) {
-    push("opt-recipe", got.recipe);
     const fmt = formats.find((f) => f.recipe === got.recipe);
     if (fmt) {
-      from.push(fmt.label);
+      from.push(formatLabel(fmt));
       // The recipe's own defaults fill in whatever the sentence did not say.
       if (got.seconds === null && fmt.duration) {
         push("opt-duration-mode", fmt.duration_mode || "about");
@@ -1476,7 +1520,7 @@ function currentForm() {
   const seconds = Number($("opt-duration-seconds").value);
   return {
     jobId: $("job-name").value,
-    recipe: $("opt-recipe").value,
+    recipe: chosenRecipe().recipe,
     media: [...state.selectedMedia],
     aspect: $("opt-aspect").value,
     pacing: $("opt-pacing").value,
@@ -1938,7 +1982,7 @@ for (const id of ["opt-subtitles", "opt-protect-speech", "opt-remove-silence",
 syncSpeechFields();
 for (const id of ["job-name", "opt-story", "opt-reference", "opt-reference-url",
                   "opt-reference-rhythm",
-                  "opt-recipe", "opt-aspect", "opt-pacing", "opt-cut-rate",
+                  "opt-aspect", "opt-pacing", "opt-cut-rate",
                   "opt-look", "opt-duration-mode", "opt-duration-seconds",
                   "opt-music", "opt-music-start", "opt-music-length"]) {
   $(id).addEventListener("change", renderSummary_);

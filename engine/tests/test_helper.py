@@ -175,6 +175,14 @@ def test_capabilities_lists_what_the_engine_supports(tmp_path):
     assert "promo-silent" in names and "podcast-2cam" in names
     assert {a["value"] for a in caps["aspects"]} >= {"source", "vertical", "landscape"}
     assert {p["value"] for p in caps["pacing"]} == {"relaxed", "standard", "punchy"}
+    # The panel has no recipe control any more: a description that names no kind
+    # of edit falls back to this, so a capabilities document without it sends the
+    # panel back to picking by sort order.
+    assert caps["defaultRecipe"] in names
+    # Every card carries the words that reach it, because those words are now the
+    # only way to ask for one.
+    for fmt in caps["formats"]:
+        assert fmt["keywords"], f"{fmt['recipe']} has no keywords in capabilities"
 
 
 # --- Media index -----------------------------------------------------------

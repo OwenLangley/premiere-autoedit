@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from autoedit.recipe import RecipeError, list_recipes, load_recipe
@@ -168,6 +170,66 @@ def test_a_recipe_that_does_not_transcribe_still_names_a_listening_fallback():
         "the premise: this recipe cannot transcribe on its own"
     )
     assert "whisper-local" in LISTENS
+
+
+def test_every_recipe_can_be_asked_for_in_words():
+    """With no recipe control in the panel, keywords are the only way in.
+
+    The dropdown used to be the escape hatch: a recipe nobody could describe was
+    still one file away. It is gone, so a format with no keywords is a recipe an
+    editor cannot reach at all -- shipped, documented, and unreachable.
+    """
+    for name in list_recipes():
+        assert load_recipe(name).format.get("keywords"), (
+            f"{name} cannot be asked for: no format keywords, and the panel has "
+            f"no recipe dropdown to reach it with"
+        )
+
+
+def test_every_recipe_can_be_asked_for_in_japanese_too():
+    """The panel is translated. Its only way in has to be as well.
+
+    Found by trying it: 「厨房のプロモを 15 秒で」 chose nothing at all, because
+    every keyword but long-form's was English and the dropdown had been the way
+    round that. Removing the dropdown turned a gap into a wall.
+    """
+    cjk = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
+    for name in list_recipes():
+        words = load_recipe(name).format.get("keywords") or []
+        assert any(cjk.search(w) for w in words), (
+            f"{name} can only be asked for in English, and there is no dropdown "
+            f"to reach it with any more"
+        )
+
+
+def test_exactly_one_recipe_is_the_default():
+    """Silence has to land on a recipe somebody picked.
+
+    Two claimants would put the decision back where it was before this existed
+    -- on whichever file the loop reaches first -- while looking like a choice.
+    """
+    from autoedit.recipe import default_recipe
+
+    claimed = [n for n in list_recipes() if load_recipe(n).format.get("default")]
+    assert claimed == ["client-promo"], (
+        f"expected exactly one default recipe, found {claimed}"
+    )
+    assert default_recipe() == "client-promo"
+
+
+def test_the_default_recipe_is_a_cautious_one():
+    """Not a property of the name: of the settings behind it.
+
+    The default is invisible -- it applies precisely when nobody said anything
+    -- so it must not be the recipe that cuts hardest. social-short removes
+    fillers aggressively and lets the beat clip words, which is correct when it
+    was asked for and wrong when it was assumed.
+    """
+    from autoedit.recipe import default_recipe
+
+    recipe = load_recipe(default_recipe())
+    assert recipe.detection.filler_mode != "aggressive"
+    assert not recipe.music.music_wins
 
 
 def test_no_two_recipes_claim_the_same_keyword():
