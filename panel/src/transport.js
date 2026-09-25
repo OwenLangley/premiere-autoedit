@@ -299,6 +299,40 @@ class LocalFolderTransport {
     }
   }
 
+  /**
+   * Ask the helper how far behind this checkout is.
+   *
+   * Separate from `requestUpdate` because the answers are separate acts: this
+   * one installs nothing, which is what makes it safe to ask on every panel
+   * load. An editor should not have to wonder whether there is a fix.
+   */
+  async requestUpdateCheck() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) throw new Error("Jobs folder is not reachable. Re-select it in settings.");
+    try {
+      await (await folder.getEntry("update-check.result.json")).delete();
+    } catch { /* no previous answer is the ordinary case */ }
+    const file = await folder.createFile("update-check.request", { overwrite: true });
+    await file.write(new Date().toISOString());
+  }
+
+  /**
+   * The last answer, or null if none has been written.
+   *
+   * Worth reading BEFORE asking for a fresh one: the helper does one thing at a
+   * time, so a check can sit unread for as long as a job takes, and the last
+   * answer is better than a button that says "Checking" for five minutes.
+   */
+  async readUpdateCheckResult() {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return null;
+    try {
+      return JSON.parse(await (await folder.getEntry("update-check.result.json")).read());
+    } catch {
+      return null;
+    }
+  }
+
   /** Ask the helper to pull and install the latest version. */
   async requestUpdate() {
     const folder = await folderFromToken(this.jobsToken);

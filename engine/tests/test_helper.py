@@ -1591,3 +1591,161 @@ def test_no_marker_means_no_indexing(tmp_path, monkeypatch):
     jobs.mkdir()
     watch.run_once(jobs, tmp_path, tmp_path, verbose=False, music_root=tmp_path)
     assert started == []
+
+
+# --- Checking for updates ---------------------------------------------------
+#
+# The panel's top-right button asks this question when it opens, so it must
+# answer without installing anything and without ever hanging. Every case below
+# is a real git repository on disk and no network: the failures worth testing
+# are the ones that have nothing to do with GitHub being up.
+
+
+def _git(*args, cwd, check=True):
+    import subprocess
+
+    done = subprocess.run(
+        ["git", "-c", "user.email=t@example.com", "-c", "user.name=T", *args],
+        cwd=str(cwd), capture_output=True, text=True,
+    )
+    assert not check or done.returncode == 0, done.stderr
+    return done
+
+
+def _repo_pair(tmp_path):
+    """A bare 'remote' with one commit, and a clone that tracks it."""
+    remote = tmp_path / "remote.git"
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    _git("init", "--quiet", "--initial-branch=main", cwd=seed)
+    (seed / "README.md").write_text("one\n")
+    _git("add", ".", cwd=seed)
+    _git("commit", "--quiet", "-m", "first", cwd=seed)
+    _git("init", "--bare", "--quiet", str(remote), cwd=tmp_path)
+    _git("remote", "add", "origin", str(remote), cwd=seed)
+    _git("push", "--quiet", "-u", "origin", "main", cwd=seed)
+    clone = tmp_path / "clone"
+    _git("clone", "--quiet", str(remote), str(clone), cwd=tmp_path)
+    return seed, clone
+
+
+def test_a_checkout_with_nothing_waiting_is_current(tmp_path):
+    from watch import update_check
+
+    _, clone = _repo_pair(tmp_path)
+    answer = update_check(clone)
+    assert answer["status"] == "current"
+    assert answer["behind"] == 0
+    assert answer["head"]
+
+
+def test_the_check_counts_the_commits_waiting_and_names_them(tmp_path):
+    from watch import update_check
+
+    seed, clone = _repo_pair(tmp_path)
+    for n in ("second", "third"):
+        (seed / "README.md").write_text(f"{n}\n")
+        _git("commit", "--quiet", "-am", n, cwd=seed)
+    _git("push", "--quiet", cwd=seed)
+
+    answer = update_check(clone)
+    assert answer["status"] == "behind"
+    assert answer["behind"] == 2
+    # The subjects are what the panel shows an editor. A count alone says
+    # something is waiting without saying whether it is worth restarting for.
+    assert any("third" in s for s in answer["subjects"])
+
+
+def test_the_check_installs_nothing(tmp_path):
+    """The whole reason this is not update.sh.
+
+    It runs unasked when the panel opens. A check that moved the working tree
+    would update an editor mid-job, and the first they would know of it is
+    Premiere behaving differently after a restart they did not make.
+    """
+    from watch import update_check
+
+    seed, clone = _repo_pair(tmp_path)
+    (seed / "README.md").write_text("changed upstream\n")
+    _git("commit", "--quiet", "-am", "second", cwd=seed)
+    _git("push", "--quiet", cwd=seed)
+
+    before = (clone / "README.md").read_text()
+    head_before = _git("rev-parse", "HEAD", cwd=clone).stdout
+    assert update_check(clone)["status"] == "behind"
+    assert (clone / "README.md").read_text() == before
+    assert _git("rev-parse", "HEAD", cwd=clone).stdout == head_before
+
+
+def test_a_remote_that_cannot_be_reached_is_unreachable_not_broken(tmp_path):
+    # An editing machine that has lost its GitHub credential, or is on a train.
+    # It is not the same answer as "this is not a checkout", because the person
+    # reading it can do something about only one of them.
+    from watch import update_check
+    import shutil
+
+    _, clone = _repo_pair(tmp_path)
+    shutil.rmtree(tmp_path / "remote.git")
+    answer = update_check(clone)
+    assert answer["status"] == "unreachable"
+    assert answer["detail"]
+
+
+def test_a_branch_tracking_nothing_is_a_failure_with_a_reason(tmp_path):
+    from watch import update_check
+
+    _, clone = _repo_pair(tmp_path)
+    _git("checkout", "--quiet", "-b", "detached-work", cwd=clone)
+    answer = update_check(clone)
+    assert answer["status"] == "failed"
+    assert answer["detail"]
+
+
+def test_a_folder_that_is_not_a_checkout_says_so(tmp_path):
+    from watch import update_check
+
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    answer = update_check(plain)
+    assert answer["status"] == "failed"
+    assert answer["behind"] == 0
+
+
+def test_the_check_marker_is_consumed_and_answered(tmp_path, monkeypatch):
+    import watch
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    monkeypatch.setattr(watch, "update_check",
+                        lambda root: {"status": "behind", "behind": 1})
+    (jobs / watch.UPDATE_CHECK_REQUEST).write_text("x")
+    watch.run_once(jobs, tmp_path, tmp_path, verbose=False)
+    assert not (jobs / watch.UPDATE_CHECK_REQUEST).exists(), (
+        "left behind, so the helper would check again on every tick"
+    )
+    answer = json.loads((jobs / "update-check.result.json").read_text())
+    assert answer["status"] == "behind" and answer["root"]
+
+
+def test_a_check_that_hangs_is_reported_rather_than_waited_on(tmp_path, monkeypatch):
+    """The helper is single-threaded: a hung git is a panel that never plans again.
+
+    git is given BatchMode and no terminal prompt so it fails instead of asking,
+    and a timeout on top of that in case it finds another way to wait.
+    """
+    import subprocess
+
+    import watch
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+
+    def hang(root):
+        raise subprocess.TimeoutExpired(cmd="git fetch", timeout=watch.UPDATE_CHECK_TIMEOUT)
+
+    monkeypatch.setattr(watch, "update_check", hang)
+    (jobs / watch.UPDATE_CHECK_REQUEST).write_text("x")
+    watch.run_once(jobs, tmp_path, tmp_path, verbose=False)
+    answer = json.loads((jobs / "update-check.result.json").read_text())
+    assert answer["status"] == "unreachable"
+    assert str(watch.UPDATE_CHECK_TIMEOUT) in answer["detail"]

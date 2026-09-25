@@ -101,13 +101,42 @@
               border-bottom: 1px solid var(--line); }
       .sect:last-child { border-bottom: none; }
       .sect .meta { color: var(--dim); font-size: var(--t-small); }
-      #log { font-family: monospace; font-size: var(--t-small); max-height: 150px;
+      /* 220 rather than the 150 it had while it sat open at the bottom of the
+         panel forever. It is behind a button now, so it is only on screen when
+         somebody went looking for it, and a self-test writes more lines than
+         150px holds. */
+      #log { font-family: monospace; font-size: var(--t-small); max-height: 220px;
              overflow-y: auto; color: var(--dim); }
       #log div { padding: 1px 0; }
       #log .ok { color: var(--good); }
       #log .err { color: var(--bad); }
       .hint { color: var(--dim); font-size: var(--t-small); margin-top: 6px; }
       .hidden { display: none; }
+
+      /* --- the two corners ---------------------------------------------------
+         Update at the top, problems at the bottom, and neither of them
+         `position: fixed`. Adobe's UXP guidance says not to use it in a plugin
+         panel, and the Premiere CSS reference documents `top` for relatively
+         and absolutely positioned elements only -- so a floating corner button
+         would be built on something that is undocumented here and discouraged
+         there. These are the ends of the scrolling column instead, which is
+         where both of them already were. */
+      #topbar { margin-bottom: var(--s2); }
+      /* The Setup heading is no longer the first child, so it loses the rule
+         that flattened its top margin. Written as a class rather than `+`,
+         which no other selector in this panel relies on. */
+      h2.flush { margin-top: 0; }
+      #update-note { text-align: right; margin: -2px 0 var(--s3); }
+      /* Worth a glance rather than an alarm: an update waiting and a restart
+         owed are both good news, so this is the readable accent. */
+      button.notice { color: var(--accent); border-color: var(--accent); }
+      /* And this one is not good news -- it counts errors that went into a log
+         nobody had open. Two classes rather than one, because a panel where
+         "there is a newer version" and "your job failed" look the same teaches
+         an editor to ignore both. */
+      button.alert { color: var(--bad); border-color: var(--bad); }
+      #diag-row { margin-top: var(--s5); }
+      #diag-block { margin-top: var(--s2); }
       label.field { display: block; margin-bottom: var(--s3); }
       /* A switch and what it does, on one row. The hint used to be a separate
          paragraph below each one, which put four grey paragraphs between four
@@ -301,7 +330,18 @@
     </style>
   </head>
   <body>
-    <h2 data-i18n="setup.title">Setup</h2>
+    <!-- Top right. One button carrying the whole update story: what it says is
+         where this machine stands, and checking and installing are two presses.
+         It used to be a full-width "Update to the latest version" in a
+         Diagnostics section, which said nothing about whether there was one and
+         installed it the moment anyone pressed it to find out. -->
+    <div class="row" id="topbar">
+      <div class="grow"></div>
+      <button id="update" class="quiet" data-i18n="update.check">Check for updates</button>
+    </div>
+    <div class="hint hidden" id="update-note"></div>
+
+    <h2 class="flush" data-i18n="setup.title">Setup</h2>
     <section>
       <!-- Once the three folders are chosen this is finished forever, so it
            collapses to one line and stops occupying the top of the panel. It
@@ -616,29 +656,30 @@
       </div>
     </div>
 
-    <h2 data-i18n="diag.title">Diagnostics</h2>
-    <section>
-      <!-- Three full-width buttons each under its own paragraph took more of
-           the panel than the plan did. These are rare actions: two of them are
-           for when something is already wrong. -->
-      <div class="row">
-        <button id="update" class="grow" data-i18n="diag.update">Update to the latest version</button>
-      </div>
-      <div class="hint" data-i18n="diag.updateHint">
-        Installs the newest fixes, then quit and reopen Premiere.
-      </div>
-      <div class="row" style="margin-top:var(--s3)">
-        <button id="bug-report" class="grow quiet" data-i18n="diag.report">Collect a report to send</button>
-        <button id="selftest" class="quiet" data-i18n="diag.selfTest">Self-test</button>
-      </div>
-      <div class="hint" data-i18n="diag.reportHint">
-        A report gathers the logs and your recent jobs into one zip on your
-        Desktop &mdash; send it to whoever maintains this.
-      </div>
-    </section>
-
-    <h2 data-i18n="log.title">Log</h2>
-    <section><div id="log"><div>Ready.</div></div></section>
+    <!-- Bottom right, and closed. Everything in here is for when something has
+         already gone wrong, and between them the three of them took more of the
+         panel than the plan did. The log came with them: an editor reads it
+         perhaps twice a year, and errors mark the button rather than relying on
+         anyone watching a scrolling box. -->
+    <div class="row" id="diag-row">
+      <div class="grow"></div>
+      <button id="diag-toggle" class="quiet" data-i18n="diag.show">Report a problem</button>
+    </div>
+    <div id="diag-block" class="hidden">
+      <section>
+        <div class="group" data-i18n="diag.title">Diagnostics</div>
+        <div class="row">
+          <button id="bug-report" class="grow quiet" data-i18n="diag.report">Collect a report to send</button>
+          <button id="selftest" class="quiet" data-i18n="diag.selfTest">Self-test</button>
+        </div>
+        <div class="hint" data-i18n="diag.reportHint">
+          A report gathers the logs and your recent jobs into one zip on your
+          Desktop &mdash; send it to whoever maintains this.
+        </div>
+        <div class="group" data-i18n="log.title">Log</div>
+        <div id="log"><div>Ready.</div></div>
+      </section>
+    </div>
 
     <script src="index.js"></script>
   </body>

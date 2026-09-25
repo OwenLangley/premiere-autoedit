@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -1524,6 +1525,106 @@ def run_report(jobs: Path, verbose: bool = True) -> None:
         marker.unlink(missing_ok=True)
 
 
+UPDATE_CHECK_REQUEST = "update-check.request"
+
+# How long git may spend talking to the network. The helper does one thing at a
+# time, so a fetch that hangs is a panel that never plans another edit -- and on
+# a machine with no working credential for a private repo, hanging is the
+# default behaviour rather than the unlucky case.
+UPDATE_CHECK_TIMEOUT = 25
+
+
+def _git(args: list[str], cwd: Path, timeout: int = UPDATE_CHECK_TIMEOUT):
+    """git with every prompt closed off.
+
+    `GIT_TERMINAL_PROMPT=0` and ssh's BatchMode are the pair update.sh already
+    uses, for the reason it gives: nobody is at the keyboard of a background
+    helper, so a credential prompt is not a question, it is a hang.
+    """
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0",
+               GIT_SSH_COMMAND="ssh -oBatchMode=yes")
+    return subprocess.run(["git", *args], cwd=str(cwd), env=env, timeout=timeout,
+                          capture_output=True, text=True)
+
+
+def update_check(root: Path) -> dict:
+    """How far behind the remote this checkout is, without touching it.
+
+    Deliberately not update.sh. A check must install nothing: `fetch` moves
+    nothing in the working tree, it only learns what the remote has, which is
+    what makes it safe to run unasked when the panel opens. That is the only way
+    an editor hears about a fix they did not know to look for.
+
+    Four answers, because they need four different things from a person:
+    `current` nothing; `behind` a press of the button; `unreachable` a look at
+    whether this machine can still sign in to GitHub; `failed` someone who knows
+    what a checkout is.
+    """
+    head = _git(["rev-parse", "--short", "HEAD"], root)
+    if head.returncode != 0:
+        return {"status": "failed", "behind": 0,
+                "detail": (head.stderr or "not a git checkout").strip().split("\n")[0]}
+    at = head.stdout.strip()
+
+    fetched = _git(["fetch", "--quiet"], root)
+    if fetched.returncode != 0:
+        return {"status": "unreachable", "behind": 0, "head": at,
+                "detail": (fetched.stderr or "could not reach the repository")
+                          .strip().split("\n")[0]}
+
+    counted = _git(["rev-list", "--count", "HEAD..@{u}"], root)
+    if counted.returncode != 0:
+        # No upstream, most likely. Worth saying plainly: the button cannot do
+        # anything about a branch that tracks nothing.
+        return {"status": "failed", "behind": 0, "head": at,
+                "detail": (counted.stderr or "no upstream branch").strip().split("\n")[0]}
+    try:
+        behind = int(counted.stdout.strip() or "0")
+    except ValueError:
+        return {"status": "failed", "behind": 0, "head": at,
+                "detail": f"could not read a commit count from {counted.stdout.strip()!r}"}
+
+    if behind == 0:
+        return {"status": "current", "behind": 0, "head": at}
+    # What is coming, in the words of whoever wrote it. Five at most: this is a
+    # line in a panel, not a changelog.
+    log = _git(["log", "--oneline", "--no-decorate", "-5", "HEAD..@{u}"], root)
+    return {
+        "status": "behind", "behind": behind, "head": at,
+        "subjects": [ln.strip() for ln in log.stdout.splitlines() if ln.strip()],
+    }
+
+
+def run_update_check(jobs: Path, verbose: bool = True) -> None:
+    """Answer the panel's question about updates.
+
+    Same marker channel as everything else here, and the same reason: a UXP
+    panel cannot run git.
+    """
+    marker = jobs / UPDATE_CHECK_REQUEST
+    out = jobs / "update-check.result.json"
+    root = Path(__file__).resolve().parent.parent
+    if verbose:
+        print(f"[{_now()}] {UPDATE_CHECK_REQUEST}", file=sys.stderr)
+    try:
+        answer = update_check(root)
+    except subprocess.TimeoutExpired:
+        answer = {"status": "unreachable", "behind": 0,
+                  "detail": f"git took longer than {UPDATE_CHECK_TIMEOUT}s to answer"}
+    except Exception as exc:
+        answer = {"status": "failed", "behind": 0, "detail": str(exc)}
+    try:
+        # The root goes back for the reason update.sh reports it: the helper's
+        # plist pins an absolute path, so this is not necessarily the checkout
+        # someone would `cd` into, and when the two differ the button and the
+        # terminal answer about different trees.
+        out.write_text(json.dumps({"at": _now(), "root": str(root), **answer}, indent=2))
+    except OSError:
+        pass
+    finally:
+        marker.unlink(missing_ok=True)
+
+
 UPDATE_REQUEST = "update.request"
 
 
@@ -1567,6 +1668,8 @@ def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True,
         run_report(jobs, verbose)
     if (jobs / UPDATE_REQUEST).exists():
         run_update(jobs, verbose)
+    if (jobs / UPDATE_CHECK_REQUEST).exists():
+        run_update_check(jobs, verbose)
     marker = jobs / MUSIC_INDEX_REQUEST
     if marker.exists():
         # Consumed whether or not there is a library to index, or it would be

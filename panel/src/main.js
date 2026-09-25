@@ -26,7 +26,7 @@ const {
 const { audition, playheadSeconds, AuditionError } = require("./audition");
 const { readPromptSettings, chooseRecipe } = require("./prompt");
 const { runSelfTest } = require("./selftest");
-const { updateOutcome } = require("./update");
+const { updateOutcome, updateButton, updateNote } = require("./update");
 const { progressView } = require("./progress");
 const { LANGUAGES, makeTranslator } = require("./i18n");
 
@@ -72,6 +72,20 @@ const state = {
   promptApplied: { seconds: null, aspect: null, cutRate: null, visual: null,
                    subtitles: null, recipe: null },
   lastReceipt: null,     // the previous build of this plan, if there was one
+  // The last answer to "is there a newer version", from the helper. Read from
+  // disk on the way in, so the button says something true before the fresh
+  // check it then asks for comes back.
+  updateCheck: null,
+  // What the button is doing, as opposed to what it knows. Annotated so a phase
+  // `updateButton` has never heard of is a build error rather than a button
+  // that silently falls through to "Check for updates".
+  /** @type {"idle"|"checking"|"updating"|"restart"|"failed"} */
+  updatePhase: "idle",
+  updateDetail: "",      // why the last update failed, for the line under it
+  // Errors logged while the diagnostics drawer was closed. The log used to sit
+  // open at the bottom of the panel; behind a button, an error nobody opens the
+  // drawer for is an error nobody sees.
+  unseenProblems: 0,
   // Every shot the helper has found across the media library, not just the
   // clips in this job. Null until it has written the index once.
   libraryShots: null,
@@ -85,6 +99,28 @@ function log(message, kind) {
   el.textContent = message;
   $("log").appendChild(el);
   $("log").scrollTop = $("log").scrollHeight;
+  // The log is behind a button now, so something has to say that a line worth
+  // reading went into it. Counted rather than flagged: "Report a problem (3)"
+  // says an editor missed three, which is the difference between a hiccup and
+  // a job that never ran.
+  if (kind === "err" && $("diag-block").classList.contains("hidden")) {
+    state.unseenProblems += 1;
+    renderDiagToggle();
+  }
+}
+
+/** The bottom-right button, carrying whatever went wrong while it was shut. */
+function renderDiagToggle() {
+  const open = !$("diag-block").classList.contains("hidden");
+  const button = $("diag-toggle");
+  if (open) {
+    button.textContent = state.t("diag.hide");
+  } else {
+    button.textContent = state.unseenProblems
+      ? state.t("diag.showCount", { count: state.unseenProblems })
+      : state.t("diag.show");
+  }
+  button.classList.toggle("alert", !open && state.unseenProblems > 0);
 }
 
 async function showFolder(token, el, fallback) {
@@ -200,6 +236,10 @@ function applyTranslations() {
     renderStrip();
   }
   renderSummary_();
+  // Both corner buttons carry text set from JavaScript, so the walk over
+  // `data-i18n` above has just overwritten them with their English defaults.
+  renderUpdate();
+  renderDiagToggle();
   // The folder rows hold values, not labels, so the generic walk skips them --
   // but "not set" is still a phrase and still has to follow the language.
   refreshSetup().catch(() => { /* first run, before any folder is chosen */ });
@@ -248,6 +288,11 @@ async function refreshSetup() {
   state.transport = state.settings.jobsToken
     ? new LocalFolderTransport(state.settings.jobsToken)
     : null;
+  // The update button cannot ask anything without a jobs folder, so it is
+  // disabled until there is one -- and this is the moment there is. Without
+  // this it stayed dead until something else happened to redraw it, which on a
+  // new machine is the first thing an editor would try.
+  renderUpdate();
 }
 
 async function refreshPlans() {
@@ -1703,10 +1748,81 @@ const UPDATE_WAIT_SECONDS = 300;
 // When to admit the request has not been read yet.
 const UPDATE_HEARD_SECONDS = 15;
 
-$("update").addEventListener("click", async () => {
+// How long to wait for an answer to a check. The helper does one thing at a
+// time, so this is not "how long git takes" -- it is how long the helper might
+// still be busy with a job before it looks at its folder at all.
+const CHECK_WAIT_SECONDS = 45;
+
+/** Draw the top-right button and the line under it from what is known. */
+function renderUpdate() {
+  const view = updateButton({ check: state.updateCheck, phase: state.updatePhase });
   const button = $("update");
-  button.disabled = true;
-  log(state.t("msg.updateChecking"));
+  button.textContent = state.t(view.key, view.params);
+  // No transport means no jobs folder, and the question cannot be asked at all.
+  button.disabled = view.action === null || !state.transport;
+  button.classList.toggle("notice", view.notice);
+
+  const note = updateNote({
+    check: state.updateCheck, phase: state.updatePhase, detail: state.updateDetail,
+  });
+  const line = $("update-note");
+  line.textContent = note ? state.t(note.key, note.params) : "";
+  line.classList.toggle("hidden", !note);
+}
+
+/**
+ * Ask the helper whether there is a newer version. Installs nothing.
+ *
+ * Called once when the panel opens, quietly, because an editor should not have
+ * to wonder -- and called again when the button is pressed, which is the only
+ * case that takes the button over to say so.
+ *
+ * The answer is recognised by its timestamp rather than by the file appearing,
+ * so the previous answer can stay on disk. A check that never lands then leaves
+ * the button reading the last thing that was true instead of "Checking" for
+ * however long the helper stays busy.
+ *
+ * @param {boolean} announce true when an editor asked for this
+ */
+async function checkForUpdates(announce) {
+  if (!state.transport || !state.transport.requestUpdateCheck) return;
+  const before = state.updateCheck && state.updateCheck.at;
+  if (announce) {
+    state.updatePhase = "checking";
+    renderUpdate();
+    // The button already says "Checking". This is for the drawer, where the
+    // record of what was tried is what a bug report is made of.
+    log(state.t("msg.updateChecking"));
+  }
+  let answered = false;
+  try {
+    await state.transport.requestUpdateCheck();
+    for (let i = 0; i < CHECK_WAIT_SECONDS; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const got = await state.transport.readUpdateCheckResult();
+      if (got && got.at !== before) {
+        state.updateCheck = got;
+        answered = true;
+        break;
+      }
+    }
+    // Nothing came back. Said only to whoever asked: a quiet check at startup
+    // that finds a busy helper is not news, and the button still reads true.
+    if (announce && !answered) log(state.t("msg.updateNeverHeard"), "err");
+  } catch (err) {
+    if (announce) log(err && err.message ? err.message : String(err), "err");
+  } finally {
+    state.updatePhase = "idle";
+    renderUpdate();
+  }
+}
+
+/** Pull and install, which is a second press and never the first. */
+async function installUpdate() {
+  state.updatePhase = "updating";
+  state.updateDetail = "";
+  renderUpdate();
+  log(state.t("update.updating"));
   try {
     if (!state.transport || !state.transport.requestUpdate) {
       throw new Error(state.t("msg.reportNoJobs"));
@@ -1746,12 +1862,37 @@ $("update").addEventListener("click", async () => {
     // the two differ, the button updates one tree while a terminal updates the
     // other, and looks broken while doing exactly what it was told.
     if (result && result.root) log(state.t("msg.updateRoot", { root: result.root }));
-    if (result && result.status === "updated") log(state.t("msg.updateRestart"), "ok");
+    if (result && result.status === "updated") {
+      log(state.t("msg.updateRestart"), "ok");
+      // Nothing else can be done from the panel: UXP loads it once at startup,
+      // so the new code is on disk and out of reach until Premiere restarts.
+      state.updatePhase = "restart";
+      return;
+    }
+    // "current" is a finished, successful update that changed nothing, so the
+    // button goes back to saying this machine is up to date -- which it now is,
+    // on better evidence than the check had.
+    if (result && result.status === "current") {
+      state.updateCheck = { at: new Date().toISOString(), status: "current", behind: 0 };
+      state.updatePhase = "idle";
+      return;
+    }
+    state.updateDetail = (outcome && outcome.detail) || "";
+    state.updatePhase = "failed";
   } catch (err) {
-    log(`${err && err.message ? err.message : String(err)}`, "err");
+    const detail = err && err.message ? err.message : String(err);
+    log(detail, "err");
+    state.updateDetail = detail;
+    state.updatePhase = "failed";
   } finally {
-    button.disabled = false;
+    renderUpdate();
   }
+}
+
+$("update").addEventListener("click", () => {
+  const view = updateButton({ check: state.updateCheck, phase: state.updatePhase });
+  if (view.action === "update") installUpdate();
+  else if (view.action === "check") checkForUpdates(true);
 });
 
 $("bug-report").addEventListener("click", async () => {
@@ -2009,6 +2150,16 @@ $("console-toggle").addEventListener("click", () => {
   if (open) renderConsole();
 });
 
+$("diag-toggle").addEventListener("click", () => {
+  const block = $("diag-block");
+  const open = block.classList.contains("hidden");
+  block.classList.toggle("hidden", !open);
+  // Opening it is reading it, so the count goes. It counts what was missed, not
+  // how many errors there have ever been -- the log itself keeps those.
+  if (open) state.unseenProblems = 0;
+  renderDiagToggle();
+});
+
 $("adjust-toggle").addEventListener("click", () => {
   const block = $("adjust-block");
   const open = block.classList.contains("hidden");
@@ -2078,6 +2229,15 @@ $("plan-keep").addEventListener("change", async (e) => {
     await loadMediaList();
     watchReferenceFolder();
     applyTranslations();
+    // The last answer first, because reading it is instant, then a fresh one in
+    // the background. Deliberately not awaited: the helper does one thing at a
+    // time, so asking can wait on a running job for minutes, and nothing else
+    // here should wait on an answer about updates.
+    if (state.transport) {
+      state.updateCheck = await state.transport.readUpdateCheckResult();
+      renderUpdate();
+      checkForUpdates(false);
+    }
     log("Panel ready.");
   } catch (err) {
     // Surfacing this in the panel matters: a throw during init leaves every

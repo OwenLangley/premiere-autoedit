@@ -265,6 +265,12 @@ const EN = {
   "shot.an-empty-scene-with-no-people": "an empty scene with no people",
 
   "diag.title": "Diagnostics",
+  // The bottom-right button. Named for the reason anyone opens it rather than
+  // for what is inside: "Diagnostics" is what this drawer holds, not what an
+  // editor is looking for when something has gone wrong.
+  "diag.show": "Report a problem",
+  "diag.showCount": "Report a problem ({count})",
+  "diag.hide": "Close",
   "diag.selfTest": "Self-test",
   "diag.selfTestHint":
     "Exercises the Premiere API against this build and writes a report to " +
@@ -282,8 +288,20 @@ const EN = {
   "msg.rootAlreadyAdded": "{path} is already one of the footage folders.",
   "msg.rootsUnreachable": "Not reachable right now: {paths}. If that is an external drive, plug it in — its clips are hidden until you do.",
   "setup.change": "Change",
-  "diag.update": "Update to the latest version",
-  "diag.updateHint": "Installs the newest fixes, then quit and reopen Premiere.",
+  // The top-right button, which is the whole update story in one label. See
+  // `updateButton` for why checking and installing are two presses.
+  "update.check": "Check for updates",
+  "update.checking": "Checking...",
+  "update.current": "Up to date",
+  "update.available": "Update available",
+  "update.updating": "Updating...",
+  "update.restartNeeded": "Restart Premiere",
+  "update.failed": "Update failed",
+  "update.checkFailed": "Could not check",
+  "update.offline": "Cannot check right now",
+  "update.behindNote": "{count} change{plural} waiting, newest: {latest}",
+  "update.behindNoteCount": "{count} change{plural} waiting.",
+  "update.offlineNote": "Could not reach the repository: {detail}",
   "msg.updateChecking": "Checking for a newer version...",
   "msg.updateDone": "Updated ({detail}).",
   "msg.updateCurrent": "Already up to date ({detail}).",
@@ -780,11 +798,24 @@ const JA = {
   "msg.rootAlreadyAdded": "{path} はすでに素材フォルダに含まれています。",
   "msg.rootsUnreachable": "現在アクセスできません: {paths}。外付けドライブの場合は接続してください。接続するまでそのクリップは表示されません。",
   "setup.change": "変更",
+  "diag.show": "不具合を報告",
+  "diag.showCount": "不具合を報告（{count}）",
+  "diag.hide": "閉じる",
   "diag.selfTestHint":
     "このバージョンの Premiere API を検証し、/tmp/autoedit-selftest/report.json に" +
     "結果を書き出します。新しい PC では最初にこれを実行してください。",
-  "diag.update": "最新バージョンに更新",
-  "diag.updateHint": "最新の修正を適用します。適用後は Premiere を再起動してください。",
+  "update.check": "更新を確認",
+  "update.checking": "確認しています...",
+  "update.current": "最新です",
+  "update.available": "更新があります",
+  "update.updating": "更新しています...",
+  "update.restartNeeded": "Premiere を再起動",
+  "update.failed": "更新に失敗しました",
+  "update.checkFailed": "確認できませんでした",
+  "update.offline": "現在は確認できません",
+  "update.behindNote": "更新が {count} 件あります。最新: {latest}",
+  "update.behindNoteCount": "更新が {count} 件あります。",
+  "update.offlineNote": "リポジトリに接続できませんでした: {detail}",
   "msg.updateChecking": "新しいバージョンを確認しています...",
   "msg.updateDone": "更新しました（{detail}）。",
   "msg.updateCurrent": "すでに最新です（{detail}）。",

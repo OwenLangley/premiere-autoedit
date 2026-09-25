@@ -557,8 +557,12 @@ single transaction silently does not work, so clips are placed as subclips.
 
 ## When an editor hits a bug
 
-They press **Collect a report to send** in the panel's Diagnostics section, and
-send you the zip it names on their Desktop. No Terminal.
+They press **Report a problem**, bottom right of the panel, then **Collect a
+report to send**, and send you the zip it names on their Desktop. No Terminal.
+
+That button is also where the log lives. It counts anything that went wrong
+while it was shut -- "Report a problem (2)" -- so an error in a closed drawer is
+still an error somebody sees.
 
 It carries the build's git sha, the machine and its versions, the helper log,
 Premiere's own UXP log, and the last eight jobs -- request, status, receipt and
@@ -577,8 +581,20 @@ not say which code ran.
 
 ### Shipping them the fix
 
-They press **Update to the latest version**, in the same Diagnostics section,
-and restart Premiere. No Terminal for that either.
+The button is top right, and it says where the machine stands rather than what
+it does: **Check for updates**, then **Up to date** or **Update available**.
+Checking and installing are two presses, so pressing it to find out costs
+nothing -- a check runs `git fetch` and touches the working tree not at all. The
+panel checks once by itself when it opens, quietly, because an editor should not
+have to wonder whether there is a fix.
+
+Pressing it while it reads *Update available* installs, and it then reads
+**Restart Premiere**, which is the only step left: UXP loads the panel once at
+startup, so the new code is on disk and out of reach until they do.
+
+A machine that cannot reach GitHub says **Cannot check right now** and stays out
+of the way. It is not an error -- an editing machine on a train is in an
+ordinary state and can still cut.
 
 `./update.sh` is the same thing from a shell. Both pull, reinstall the panel and
 restart the helper. Those middle two matter more than they look: the panel lives

@@ -586,6 +586,33 @@ number that looks like a threshold usually is not one, and a provider that
 advertises support has not promised correctness. Both were caught by running the
 thing against real footage rather than reasoning about it.
 
+## 10e. `position: fixed` is the one thing here that was not measured
+
+The panel wanted two floating corners: an update button top right, a problem
+drawer bottom right, both staying put while the column scrolls. That is what
+`position: fixed` is for, and it is the only entry in this file taken from
+documentation rather than from a run.
+
+What the documentation says:
+
+- Adobe's UXP changelog (XD 21.0.12): "Technically `position: fixed` is
+  supported. However, *you should not use it* in your plugin panels because
+  there are some bugs that will be fixed in a future update that will break if
+  your plugin uses `position: fixed`."
+- The Premiere UXP CSS reference documents `top` as setting the position of "an
+  element that is relatively or absolutely positioned". `fixed` is not
+  mentioned on it at all.
+
+So whether it works in 26.3.2 is unknown, and deliberately so: a panel built on
+something Adobe discourages and does not document would be a panel that breaks
+on an update nobody could have predicted from this repository. The corners are
+the ends of the scrolling column instead -- the update button above everything,
+the problem drawer below it -- which is where both of those controls already
+were, and costs a scroll to reach the one you need when something is wrong.
+
+If a later build documents it, the markup is already in the right order to make
+both float: `#topbar` is the first element in the body and `#diag-row` the last.
+
 ## 11. `SourceMonitor` is the way to play audio, because UXP cannot
 
 There is no `<audio>` element and no Web Audio API, so a panel cannot play a
