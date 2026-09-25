@@ -1982,6 +1982,28 @@ $("plan-list").addEventListener("change", (e) => {
   if (ref) selectPlan(ref);
 });
 
+/**
+ * Choosing a reference is the first moment anyone knows the music library will
+ * be needed, and it is minutes before Create is pressed -- the editor still has
+ * clips to pick. Indexing a hundred tracks takes about forty seconds, so that
+ * gap is usually the whole job.
+ *
+ * Told once per selection, not per keystroke: the URL field fires `input` on
+ * every character, and a hundred markers in a second is a hundred pointless
+ * folder writes.
+ */
+let lastReferenceAsked = "";
+function referenceChosen() {
+  const chosen = `${$("opt-reference").value}|${$("opt-reference-url").value}`.trim();
+  if (chosen === "|" || chosen === lastReferenceAsked) return;
+  lastReferenceAsked = chosen;
+  if (state.transport && state.transport.requestMusicIndex) {
+    state.transport.requestMusicIndex();
+  }
+}
+$("opt-reference").addEventListener("change", referenceChosen);
+$("opt-reference-url").addEventListener("change", referenceChosen);
+
 $("plan-keep").addEventListener("change", async (e) => {
   const box = /** @type {HTMLInputElement} */ (e.target);
   const planName = state.planName;

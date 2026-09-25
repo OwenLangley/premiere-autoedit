@@ -88,10 +88,14 @@ def _find_music_bed(search_dir: Path, exclude: set[Path]) -> tuple[Path | None, 
 def _library_fingerprints(music_root: Path, cache_root: Path):
     """Whatever the helper has already listened to. Returns (by name, total seen).
 
-    Only what is CACHED. Fingerprinting a hundred-track library is about three
-    minutes, and that belongs in the helper's background pass, not in front of
-    an editor who pressed Create. A part-indexed library still answers -- it can
-    only fail to find a match, never find a wrong one.
+    The values are cache PATHS, not loaded fingerprints. A hundred-track library
+    is about 45MB of landmarks and the match needs only the best two scores, so
+    they are read one at a time and dropped again rather than all held at once.
+
+    Only what is CACHED. Fingerprinting the library belongs in the helper's
+    background pass, not in front of an editor who pressed Create. A
+    part-indexed library still answers -- it can only fail to find a match,
+    never find a wrong one.
     """
     from . import fingerprint as fp
 
@@ -103,12 +107,22 @@ def _library_fingerprints(music_root: Path, cache_root: Path):
             continue
         total += 1
         try:
-            cached = fp.load(fp.cache_path(cache_root, content_hash(entry)))
+            cached = fp.cache_path(cache_root, content_hash(entry))
         except OSError:
             continue
-        if cached is not None:
+        if cached.exists():
             found[entry.name] = cached
     return found, total
+
+
+def _read_fingerprints(paths: "dict[str, Path]"):
+    """Load them one at a time, skipping any the cache has lost."""
+    from . import fingerprint as fp
+
+    for name, path in paths.items():
+        cached = fp.load(path)
+        if cached is not None:
+            yield name, cached
 
 
 def _music_from_reference(reference: Path, music_root: Path, cache_root: Path,
@@ -139,7 +153,7 @@ def _music_from_reference(reference: Path, music_root: Path, cache_root: Path,
         print(f"  music: could not listen to the reference ({exc})", file=sys.stderr)
         return None
 
-    match = fp.identify(query, library)
+    match = fp.identify(query, _read_fingerprints(library))
     if match is None or match.score < fp.MATCH_FLOOR:
         if len(library) < total:
             builder.add_warning("music", note("music.referenceNotIndexed",

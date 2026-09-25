@@ -53,6 +53,21 @@ def library():
     return {f"track{i}.mp3": print_of(synth(i)) for i in range(8)}
 
 
+# --- the peak finder --------------------------------------------------------
+
+def test_the_separable_max_filter_is_the_two_dimensional_one():
+    """It replaced a 2-D neighbourhood max that was 82% of the entire indexing
+    cost. The speedup is only allowed because the answer is the same, so that
+    is what is checked -- not that it is fast, but that it is identical."""
+    rng = np.random.default_rng(0)
+    spec = rng.normal(size=(64, 96)).astype(np.float32)
+    for rf, rt in ((1, 1), (3, 5), (12, 12)):
+        padded = np.pad(spec, ((rf, rf), (rt, rt)), constant_values=-np.inf)
+        both_at_once = np.lib.stride_tricks.sliding_window_view(
+            padded, (2 * rf + 1, 2 * rt + 1)).max(axis=(2, 3))
+        assert np.array_equal(fp._max_filter(spec, rf, rt), both_at_once), (rf, rt)
+
+
 # --- the mechanism ----------------------------------------------------------
 
 def test_a_track_recognises_itself(library):

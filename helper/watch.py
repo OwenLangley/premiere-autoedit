@@ -1474,6 +1474,12 @@ def claimed_marker(jobs: Path, path: Path) -> Path:
 
 REPORT_REQUEST = "report.request"
 
+# Dropped by the panel the moment an editor picks a reference, which is minutes
+# before they press Create. Indexing takes about forty seconds, so that gap is
+# usually the whole of it -- and this is the difference between the first
+# reference job matching and being told to try again.
+MUSIC_INDEX_REQUEST = "music-index.request"
+
 
 def run_report(jobs: Path, verbose: bool = True) -> None:
     """Collect a diagnostic bundle because the panel asked for one.
@@ -1555,6 +1561,12 @@ def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True,
         run_report(jobs, verbose)
     if (jobs / UPDATE_REQUEST).exists():
         run_update(jobs, verbose)
+    marker = jobs / MUSIC_INDEX_REQUEST
+    if marker.exists():
+        # Consumed whether or not there is a library to index, or it would be
+        # read again on every tick for the life of the helper.
+        marker.unlink(missing_ok=True)
+        ensure_music_fingerprints(music_root, work_dir)
     handled = 0
     for path in sorted(jobs.glob(f"*{REQUEST_SUFFIX}")):
         marker = claimed_marker(jobs, path)

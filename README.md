@@ -378,17 +378,23 @@ The library is fingerprinted by the helper in the background -- about three
 minutes for a hundred tracks, once, cached by content hash.
 
 **That only happens on machines that use references.** Matching needs something
-to match against, so indexing for anyone else is pure cost; nothing is listened
-to until a job actually asks for a reference. It is then queued rather than
-started, and runs after the job rather than beside it -- indexing is
-decode-bound and so is an edit, and two ffmpeg passes on the same cores make the
-one somebody is waiting for slower. If a job starts while indexing is still
-going, the indexer stands aside until it finishes.
+to match against, so indexing for anyone else is pure cost. It starts the moment
+a reference is chosen in the panel -- which is minutes before Create is pressed,
+while clips are still being picked -- so the library is usually ready by the
+time the first job runs. A job that asks for a reference also queues it, as a
+backstop for a panel that never sent the message.
 
-The cost of that is the first reference job on a machine: the library has not
-been heard yet, so there is no match, and the plan says so -- "the music library
-is still being listened to (0 of 103 tracks)". Every job after it matches. A
-part-indexed library can fail to find a match but can never find a wrong one.
+Indexing stands aside while a job is being built. It is decode-bound and so is
+an edit, and two ffmpeg passes on the same cores make the one somebody is
+waiting for slower.
+
+A library that has not been heard yet produces no match, and the plan says so --
+"the music library is still being listened to (0 of 103 tracks)". A part-indexed
+library can fail to find a match but can never find a wrong one.
+
+The cost is about forty seconds for a hundred tracks, once, and 12MB on disk.
+Fingerprints are read back one at a time while matching rather than all at once,
+so the memory a match needs does not grow with the library.
 
 ## Footage in more than one place
 

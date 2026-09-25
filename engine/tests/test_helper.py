@@ -1540,3 +1540,46 @@ def test_the_same_library_is_not_queued_twice(tmp_path):
         watch.index_music_after_job(tmp_path / "music")
     assert watch._index_when_idle == [tmp_path / "music"]
     watch.forget_music_fingerprints()
+
+
+def test_choosing_a_reference_starts_the_index_before_create_is_pressed(tmp_path, monkeypatch):
+    """The panel drops a marker the moment a reference is picked, which is
+    minutes before Create. Indexing takes about forty seconds, so that gap is
+    usually the whole of it -- the difference between the first reference job
+    matching and being told to try again."""
+    import watch
+
+    started = []
+    monkeypatch.setattr(watch, "ensure_music_fingerprints",
+                        lambda root, work: started.append(root))
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / watch.MUSIC_INDEX_REQUEST).write_text("2026-09-25T12:00:00Z")
+
+    watch.run_once(jobs, tmp_path, tmp_path, verbose=False, music_root=tmp_path)
+
+    assert started == [tmp_path]
+    assert not (jobs / watch.MUSIC_INDEX_REQUEST).exists(), \
+        "the marker would be read again on every tick for the life of the helper"
+
+
+def test_the_marker_is_consumed_even_with_no_music_library(tmp_path, monkeypatch):
+    import watch
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / watch.MUSIC_INDEX_REQUEST).write_text("x")
+    watch.run_once(jobs, tmp_path, tmp_path, verbose=False, music_root=None)
+    assert not (jobs / watch.MUSIC_INDEX_REQUEST).exists()
+
+
+def test_no_marker_means_no_indexing(tmp_path, monkeypatch):
+    import watch
+
+    started = []
+    monkeypatch.setattr(watch, "ensure_music_fingerprints",
+                        lambda root, work: started.append(root))
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    watch.run_once(jobs, tmp_path, tmp_path, verbose=False, music_root=tmp_path)
+    assert started == []

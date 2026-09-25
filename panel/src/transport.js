@@ -368,6 +368,23 @@ class LocalFolderTransport {
   }
 
   /**
+   * Tell the helper a reference is in play, so it can start listening to the
+   * music library before Create is pressed.
+   *
+   * Best effort and deliberately quiet: this is a head start, not a feature.
+   * If the folder is unreachable the editor still gets their edit, just without
+   * a music match on this run -- so nothing here is worth an error in the log.
+   */
+  async requestMusicIndex() {
+    try {
+      const folder = await folderFromToken(this.jobsToken);
+      if (!folder) return;
+      const file = await folder.createFile("music-index.request", { overwrite: true });
+      await file.write(new Date().toISOString());
+    } catch { /* a head start that did not happen is not a failure */ }
+  }
+
+  /**
    * Is this plan marked to survive the helper's sweep?
    *
    * A marker file beside the plan rather than a field inside it, for two
