@@ -346,6 +346,22 @@ def ensure_library_shots(media_root: Path, work_dir: Path, jobs: Path,
 _fingerprint_lock = threading.Lock()
 _fingerprint_started: set = set()
 
+# Music libraries to index once the machine is free. A job that asked for a
+# reference puts one here; `run_once` drains it after the last job it handled.
+_index_when_idle: list = []
+
+# Set while a job is being built. Indexing is decode-bound and so is a job, so
+# two of them on the same cores make the edit an editor is waiting on slower --
+# and starting after the job is not enough on its own, because the index takes
+# minutes and the next job can arrive inside them. The worker stands aside.
+_job_running = threading.Event()
+
+
+def index_music_after_job(music_root: Path | None) -> None:
+    """Note that this library is worth listening to, once there is time."""
+    if music_root and music_root not in _index_when_idle:
+        _index_when_idle.append(music_root)
+
 
 def ensure_music_fingerprints(music_root: Path | None, work_dir: Path) -> None:
     """Learn what every track in the library sounds like, in the background.
@@ -358,6 +374,15 @@ def ensure_music_fingerprints(music_root: Path | None, work_dir: Path) -> None:
 
     Cached by content hash, so this is three minutes once and nothing
     afterwards -- a track already indexed is skipped without being opened.
+
+    **Only ever called because a job asked for a reference.** It used to run at
+    startup, which spent three minutes of somebody's machine on a feature they
+    may never use: matching only happens when there is a reference to match
+    against, so indexing for anyone else is pure cost. And it is queued until
+    AFTER the job finishes rather than started alongside it -- this is
+    decode-bound and so is the job, and two ffmpeg passes competing for the same
+    cores make the edit an editor is waiting on slower. The helper is idle
+    between jobs; that is when this should have the machine.
     """
     if not music_root or not music_root.is_dir():
         return
@@ -380,6 +405,10 @@ def ensure_music_fingerprints(music_root: Path | None, work_dir: Path) -> None:
             if out.exists():
                 skipped += 1
                 continue
+            # Wait for the machine rather than compete for it. A track is a
+            # second or two, so this gives way promptly once a job starts.
+            while _job_running.is_set():
+                time.sleep(1.0)
             try:
                 fingerprints.save(out, fingerprints.fingerprint(
                     path, seconds=fingerprints.INDEX_SECONDS))
@@ -403,6 +432,7 @@ def forget_music_fingerprints() -> None:
     """Let the next call re-scan, after the library moves."""
     with _fingerprint_lock:
         _fingerprint_started.clear()
+    _index_when_idle.clear()
 
 
 def _library_spans(path: Path, info, settings, work_dir: Path) -> list[dict]:
@@ -1237,6 +1267,10 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
             reference = resolve_reference(option, jobs, work_dir,
                                           media_roots or [media_root],
                                           downloading if fetching else None)
+            # This job wanted a reference, so this machine is one where the
+            # reference's music is worth being able to look up. Queued, not
+            # started: see ensure_music_fingerprints.
+            index_music_after_job(music_root)
 
         argv = request_to_argv(request, jobs, media_root, work_dir, music_root,
                                 media_roots, reference)
@@ -1529,8 +1563,19 @@ def run_once(jobs: Path, media_root: Path, work_dir: Path, verbose: bool = True,
         marker.write_text(_now())
         if verbose:
             print(f"[{_now()}] {path.name}", file=sys.stderr)
-        process(path, jobs, media_root, work_dir, music_root, media_roots)
+        _job_running.set()
+        try:
+            process(path, jobs, media_root, work_dir, music_root, media_roots)
+        finally:
+            # In a finally because `process` returns from a dozen places and can
+            # raise from any of them, and a flag left set would stall the
+            # indexer for the life of the helper.
+            _job_running.clear()
         handled += 1
+
+    # Every job in this pass is done, so the machine is ours again.
+    while _index_when_idle:
+        ensure_music_fingerprints(_index_when_idle.pop(), work_dir)
     return handled
 
 
@@ -1548,7 +1593,6 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
         ensure_library_shots(root, work_dir, jobs, root_name=root_id_for(i))
     music_root = resolve_music_root(jobs, music_root)
     write_music_index(jobs, music_root)
-    ensure_music_fingerprints(music_root, work_dir)
     print(f"watching {jobs} (media root {media_root})", file=sys.stderr)
     if music_root:
         print(f"  music library: {music_root}", file=sys.stderr)
@@ -1563,9 +1607,9 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
                 print(f"  music library: {music_root}", file=sys.stderr)
                 write_music_index(jobs, music_root)
                 # A different folder is a different library, so the guard that
-                # stops this running twice has to be released for it.
+                # stops this running twice has to be released for it. Nothing
+                # starts here: the next job that wants a reference will ask.
                 forget_music_fingerprints()
-                ensure_music_fingerprints(music_root, work_dir)
             # The footage can move too, and moving it used to break everything
             # quietly until someone re-ran setup.sh.
             moved = resolve_media_roots(jobs, installed_media_root)

@@ -1458,3 +1458,85 @@ def test_a_job_named_after_a_shared_cache_does_not_destroy_it(tmp_path):
     assert "proxies" in swept and "models" in swept     # the plans still go
     for shared in SHARED_CACHE_DIRS:                    # the caches do not
         assert (cache / shared / "expensive.bin").exists(), shared
+
+
+# --- the music index only happens for people who use references -------------
+
+def test_nothing_is_indexed_until_a_job_asks_for_a_reference(tmp_path, monkeypatch):
+    """It used to index at startup, which spent three minutes of somebody's
+    machine on a feature they may never use. Matching only happens when there
+    is a reference to match against."""
+    import watch
+
+    started = []
+    monkeypatch.setattr(watch, "ensure_music_fingerprints",
+                        lambda root, work: started.append(root))
+    watch.forget_music_fingerprints()
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "EP001.request.json").write_text(json.dumps(request()))
+    monkeypatch.setattr(watch, "engine_main", lambda argv: 0)
+
+    watch.run_once(jobs, tmp_path, tmp_path, verbose=False, music_root=tmp_path)
+    assert started == [], "a job with no reference indexed the music library"
+
+
+def test_a_job_with_a_reference_queues_the_index_for_afterwards(tmp_path, monkeypatch):
+    """Queued, not started: indexing is decode-bound and so is the job."""
+    import watch
+
+    order = []
+    monkeypatch.setattr(watch, "ensure_music_fingerprints",
+                        lambda root, work: order.append(("index", root)))
+    monkeypatch.setattr(watch, "resolve_reference",
+                        lambda *a, **k: tmp_path / "ref.mp4")
+    monkeypatch.setattr(watch, "engine_main",
+                        lambda argv: order.append(("job", None)) or 1)
+    watch.forget_music_fingerprints()
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    r = request()
+    r["options"]["reference"] = {"source": "file", "value": "ref.mp4"}
+    (jobs / "EP001.request.json").write_text(json.dumps(r))
+
+    watch.run_once(jobs, tmp_path, tmp_path, verbose=False, music_root=tmp_path)
+
+    assert ("index", tmp_path) in order
+    assert order.index(("job", None)) < order.index(("index", tmp_path)), \
+        "the library was indexed while the job was still being built"
+
+
+def test_the_running_flag_is_cleared_even_when_a_job_explodes(tmp_path, monkeypatch):
+    """A flag left set would stall the indexer for the life of the helper."""
+    import watch
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "EP001.request.json").write_text(json.dumps(request()))
+
+    def boom(*a, **k):
+        raise RuntimeError("engine fell over")
+
+    monkeypatch.setattr(watch, "process", boom)
+    with pytest.raises(RuntimeError):
+        watch.run_once(jobs, tmp_path, tmp_path, verbose=False)
+    assert not watch._job_running.is_set()
+
+
+def test_moving_the_library_drops_the_queue_for_the_old_one(tmp_path):
+    import watch
+    watch.index_music_after_job(tmp_path / "old-music")
+    assert watch._index_when_idle
+    watch.forget_music_fingerprints()
+    assert not watch._index_when_idle
+
+
+def test_the_same_library_is_not_queued_twice(tmp_path):
+    import watch
+    watch.forget_music_fingerprints()
+    for _ in range(3):
+        watch.index_music_after_job(tmp_path / "music")
+    assert watch._index_when_idle == [tmp_path / "music"]
+    watch.forget_music_fingerprints()
