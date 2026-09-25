@@ -97,6 +97,15 @@ CATALOGUE: dict[str, str] = {
         "or shorten the chunk",
     "music.stopsEarly":
         "the music stops {shortfall:.1f}s before the picture does",
+    "music.fromReference":
+        "the reference is playing {name}, which is in your music library, so the edit "
+        "is cut to it",
+    "music.referenceAmbiguous":
+        "the reference's music resembles more than one track in your library "
+        "({name} and {other}) -- pass one explicitly if this is wrong",
+    "music.referenceNotIndexed":
+        "the music library is still being listened to ({done} of {total} tracks), so "
+        "the reference's music could not be looked up yet -- it will work on the next run",
 
     # --- cutting to the beat -----------------------------------------------
     "beat.snapped":

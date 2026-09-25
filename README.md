@@ -347,6 +347,38 @@ of service**, and `yt-dlp`'s extractors break whenever those sites change, so
 this part needs occasional updating. The output is your own footage either way;
 whether to use the link field is your call.
 
+### The reference's own music
+
+When Music is left on **Automatic** and a reference is given, the tool listens to
+the reference and looks for that track in your music library. If it is there, the
+edit is cut to it. An editor cutting to a reference usually wants the reference's
+music and already owns the file; finding it again in a hundred-item dropdown is a
+lookup a machine can do.
+
+It matches by landmark fingerprinting -- pairs of spectrogram peaks, scored by
+how many agree on the *same* time offset. That last part is what survives a
+voiceover: noise creates spurious matches too, but they scatter across the track
+instead of piling up on one offset. Measured against the real 103-track library
+here, with a 30-second excerpt re-encoded as AAC:
+
+| what is over the music | score |
+|---|---|
+| nothing | 2917 |
+| speech at the music's level | 2787 |
+| speech at four times it | 2566 |
+| heavy pink noise | 2643 |
+| only ten seconds of music, clean | 975 |
+
+and, holding out ten tracks and matching each against a library that did **not**
+contain it, the highest false match anywhere was **8**. The floor is 100, which
+sits in the gap rather than near either edge. A track that is not in the library
+produces no match and no music, which is the right answer.
+
+The library is fingerprinted by the helper in the background -- about three
+minutes for a hundred tracks, once, cached by content hash. Until that finishes a
+job can fail to find a match but can never find a wrong one, and says which it
+was.
+
 ## Footage in more than one place
 
 **Setup > Add another footage folder.** Rushes on the desktop and last month's

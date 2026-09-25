@@ -85,6 +85,83 @@ def _find_music_bed(search_dir: Path, exclude: set[Path]) -> tuple[Path | None, 
     return (candidates[0] if len(candidates) == 1 else None), candidates
 
 
+def _library_fingerprints(music_root: Path, cache_root: Path):
+    """Whatever the helper has already listened to. Returns (by name, total seen).
+
+    Only what is CACHED. Fingerprinting a hundred-track library is about three
+    minutes, and that belongs in the helper's background pass, not in front of
+    an editor who pressed Create. A part-indexed library still answers -- it can
+    only fail to find a match, never find a wrong one.
+    """
+    from . import fingerprint as fp
+
+    found, total = {}, 0
+    for entry in sorted(music_root.iterdir()):
+        if not entry.is_file() or entry.name.startswith("."):
+            continue
+        if entry.suffix.lower() not in AUDIO_EXTENSIONS:
+            continue
+        total += 1
+        try:
+            cached = fp.load(fp.cache_path(cache_root, content_hash(entry)))
+        except OSError:
+            continue
+        if cached is not None:
+            found[entry.name] = cached
+    return found, total
+
+
+def _music_from_reference(reference: Path, music_root: Path, cache_root: Path,
+                          builder) -> Path | None:
+    """The library track the reference video is playing, if it is one of them.
+
+    An editor cutting to a reference usually wants the reference's own music,
+    and they already have the file. Measured on the real 103-track library: the
+    right track scored 1470-4452 through speech and heavy noise, and the best
+    WRONG answer across ten held-out tracks scored 8. `fingerprint.py` has the
+    table.
+
+    Returns None whenever it is not certain, which is an ordinary outcome: the
+    reference may use music nobody here owns.
+    """
+    from . import fingerprint as fp
+
+    library, total = _library_fingerprints(music_root, cache_root)
+    if not library:
+        if total:
+            builder.add_warning("music", note("music.referenceNotIndexed",
+                                              done=0, total=total))
+        return None
+
+    try:
+        query = fp.fingerprint(reference, seconds=fp.QUERY_SECONDS)
+    except fp.FingerprintError as exc:
+        print(f"  music: could not listen to the reference ({exc})", file=sys.stderr)
+        return None
+
+    match = fp.identify(query, library)
+    if match is None or match.score < fp.MATCH_FLOOR:
+        if len(library) < total:
+            builder.add_warning("music", note("music.referenceNotIndexed",
+                                              done=len(library), total=total))
+        return None
+    if not match.decisive:
+        # Two tracks that both look like the reference, which in practice means
+        # two copies of one song. Refusing to choose is what `_find_music_bed`
+        # does with two candidate beds, and for the same reason.
+        builder.add_warning("music", note("music.referenceAmbiguous",
+                                          name=match.name, other="another track"))
+        print(f"  music: {match.name} scored {match.score} but so did another "
+              f"({match.runner_up}) -- not choosing", file=sys.stderr)
+        return None
+
+    picked = music_root / match.name
+    print(f"  music: the reference is playing {match.name} "
+          f"(score {match.score} against {match.runner_up})", file=sys.stderr)
+    builder.add_warning("music", note("music.fromReference", name=match.name))
+    return picked if picked.is_file() else None
+
+
 def root_id(index: int) -> str:
     """The name a root is known by in the plan.
 
@@ -904,6 +981,20 @@ def cmd_plan(args) -> int:
     if music_path is not None and not music_path.is_file():
         print(f"error: music file not found: {music_path}", file=sys.stderr)
         return 2
+    # A reference plus music left on automatic is an editor saying "cut it like
+    # this one" without having gone to find the track. If that track is in their
+    # library, this is a lookup a machine should do.
+    #
+    # NOT gated on `recipe.auto_music`, unlike the search below it. That gate
+    # exists to stop a stray audio file lying among the rushes becoming a
+    # soundtrack nobody asked for; a reference is the opposite of stray, it is
+    # the thing the editor chose. It is reported either way, never silent.
+    if (music_path is None and options.music == "auto" and music_root
+            and getattr(args, "reference", None)):
+        progress.step("progress.music")
+        music_path = _music_from_reference(
+            Path(args.reference), music_root, cache_root, builder)
+
     if music_path is None and options.music != "none" and recipe.auto_music:
         search_dir = media_root or Path(args.media[0]).resolve().parent
         found, candidates = _find_music_bed(

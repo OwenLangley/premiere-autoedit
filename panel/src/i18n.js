@@ -313,6 +313,7 @@ const EN = {
   "progress.clip": "Reading the footage",
   "progress.thumbs": "Making stills",
   "progress.describe": "Recognising what each shot shows",
+  "progress.music": "Listening for the reference's music",
   "progress.matching": "Matching your footage to the reference",
   "progress.writing": "Writing the edit",
   "progress.working": "Working",
@@ -397,6 +398,12 @@ const EN = {
   "warn.music.runsPastPicture":
     "the music runs {overhang}s past the last frame of picture — extend the edit or shorten the chunk",
   "warn.music.stopsEarly": "the music stops {shortfall}s before the picture does",
+  "warn.music.fromReference":
+    "the reference is playing {name}, which is in your music library, so the edit is cut to it",
+  "warn.music.referenceAmbiguous":
+    "the reference's music resembles more than one track in your library ({name} and {other}) — pass one explicitly if this is wrong",
+  "warn.music.referenceNotIndexed":
+    "the music library is still being listened to ({done} of {total} tracks), so the reference's music could not be looked up yet — it will work on the next run",
   "warn.language.uncertain":
     "{file}: only {confidence} sure this is {language} — set the language in the panel if that is wrong",
   "warn.plan.lowConfidence":
@@ -793,6 +800,7 @@ const JA = {
   "progress.clip": "素材を読み込み中",
   "progress.thumbs": "静止画を作成中",
   "progress.describe": "各ショットの内容を認識中",
+  "progress.music": "参考動画の音楽を照合中",
   "progress.matching": "素材を参考動画に合わせています",
   "progress.writing": "編集データを書き出し中",
   "progress.working": "処理中",
@@ -875,6 +883,12 @@ const JA = {
   "warn.music.runsPastPicture":
     "音楽が映像の最後より {overhang} 秒長くなっています。編集を伸ばすか、音楽を短くしてください",
   "warn.music.stopsEarly": "音楽が映像より {shortfall} 秒早く終わります",
+  "warn.music.fromReference":
+    "参考動画で流れている {name} が音楽ライブラリにあったので、その曲に合わせて編集しました",
+  "warn.music.referenceAmbiguous":
+    "参考動画の音楽がライブラリの複数の曲（{name} と {other}）に似ています。違う場合は曲を直接指定してください",
+  "warn.music.referenceNotIndexed":
+    "音楽ライブラリを解析中です（{total} 曲中 {done} 曲）。参考動画の音楽はまだ照合できませんが、次回の実行では使えます",
   "warn.language.uncertain":
     "{file}：{language} である確率は {confidence} です。異なる場合はパネルで言語を指定してください",
   "warn.plan.lowConfidence":

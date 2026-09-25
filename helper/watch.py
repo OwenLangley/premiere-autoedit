@@ -34,6 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
 
 from autoedit.cli import main as engine_main            # noqa: E402
+from autoedit import fingerprint as fingerprints        # noqa: E402
 from autoedit.options import ASPECT_LABELS, CUT_RATES, PACING  # noqa: E402
 from autoedit.progress import parse as parse_progress   # noqa: E402
 from autoedit.probe import ProbeError, content_hash, needs_proxy, probe  # noqa: E402
@@ -340,6 +341,68 @@ def ensure_library_shots(media_root: Path, work_dir: Path, jobs: Path,
             return
         _shots_started.add(key)
     threading.Thread(target=worker, name="library-shots", daemon=True).start()
+
+
+_fingerprint_lock = threading.Lock()
+_fingerprint_started: set = set()
+
+
+def ensure_music_fingerprints(music_root: Path | None, work_dir: Path) -> None:
+    """Learn what every track in the library sounds like, in the background.
+
+    This is what lets a reference video name its own music. It is here rather
+    than in the engine for the same reason proxies are: measured on the real
+    103-track library, the first pass is about three minutes, and an editor who
+    pressed Create should get a plan now. Matching against whatever has been
+    indexed so far costs well under a second.
+
+    Cached by content hash, so this is three minutes once and nothing
+    afterwards -- a track already indexed is skipped without being opened.
+    """
+    if not music_root or not music_root.is_dir():
+        return
+
+    def worker() -> None:
+        done = skipped = failed = 0
+        for path in sorted(music_root.iterdir()):
+            if not path.is_file() or path.name.startswith("."):
+                continue
+            # The same set the index uses. The library really does hold .mp4s:
+            # a track exported as video-less mp4 is common, and five of them are
+            # in the library on this machine.
+            if path.suffix.lower() not in MEDIA_EXTENSIONS:
+                continue
+            try:
+                out = fingerprints.cache_path(work_dir, content_hash(path))
+            except OSError:
+                failed += 1
+                continue
+            if out.exists():
+                skipped += 1
+                continue
+            try:
+                fingerprints.save(out, fingerprints.fingerprint(
+                    path, seconds=fingerprints.INDEX_SECONDS))
+                done += 1
+            except Exception as exc:       # one unreadable track is not fatal
+                print(f"  music: could not index {path.name}: {exc}", file=sys.stderr)
+                failed += 1
+        if done or failed:
+            print(f"  music: indexed {done} track(s), {skipped} already known"
+                  f"{f', {failed} failed' if failed else ''}", file=sys.stderr)
+
+    with _fingerprint_lock:
+        key = str(music_root)
+        if key in _fingerprint_started:
+            return
+        _fingerprint_started.add(key)
+    threading.Thread(target=worker, name="music-fingerprints", daemon=True).start()
+
+
+def forget_music_fingerprints() -> None:
+    """Let the next call re-scan, after the library moves."""
+    with _fingerprint_lock:
+        _fingerprint_started.clear()
 
 
 def _library_spans(path: Path, info, settings, work_dir: Path) -> list[dict]:
@@ -1485,6 +1548,7 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
         ensure_library_shots(root, work_dir, jobs, root_name=root_id_for(i))
     music_root = resolve_music_root(jobs, music_root)
     write_music_index(jobs, music_root)
+    ensure_music_fingerprints(music_root, work_dir)
     print(f"watching {jobs} (media root {media_root})", file=sys.stderr)
     if music_root:
         print(f"  music library: {music_root}", file=sys.stderr)
@@ -1498,6 +1562,10 @@ def watch(jobs: Path, media_root: Path, work_dir: Path, interval: float = POLL_S
                 music_root = current
                 print(f"  music library: {music_root}", file=sys.stderr)
                 write_music_index(jobs, music_root)
+                # A different folder is a different library, so the guard that
+                # stops this running twice has to be released for it.
+                forget_music_fingerprints()
+                ensure_music_fingerprints(music_root, work_dir)
             # The footage can move too, and moving it used to break everything
             # quietly until someone re-ran setup.sh.
             moved = resolve_media_roots(jobs, installed_media_root)
