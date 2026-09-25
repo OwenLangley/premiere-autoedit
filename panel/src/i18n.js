@@ -308,8 +308,9 @@ const EN = {
   "progress.queued": "Waiting for the background helper",
   "progress.fetching": "Downloading the reference video",
   "progress.reference": "Reading the reference video",
-  "progress.scanShots": "Finding the cuts",
-  "progress.scanFrames": "Measuring exposure and focus",
+  // One label because it is now one decode: the cuts, the exposure and the
+  // focus are all read from the same pass over the file.
+  "progress.scanShots": "Looking through the footage",
   "progress.clip": "Reading the footage",
   "progress.thumbs": "Making stills",
   "progress.describe": "Recognising what each shot shows",
@@ -795,8 +796,7 @@ const JA = {
   "progress.queued": "バックグラウンドヘルパーの応答待ち",
   "progress.fetching": "参考動画をダウンロード中",
   "progress.reference": "参考動画を読み込み中",
-  "progress.scanShots": "カットを検出中",
-  "progress.scanFrames": "露出とピントを測定中",
+  "progress.scanShots": "映像を解析中",
   "progress.clip": "素材を読み込み中",
   "progress.thumbs": "静止画を作成中",
   "progress.describe": "各ショットの内容を認識中",

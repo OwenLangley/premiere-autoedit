@@ -1226,7 +1226,9 @@ def cmd_plan(args) -> int:
             # One ffmpeg seek and JPEG per shot, so this is the only phase in
             # the run whose progress is genuinely continuous -- everything else
             # is an ffmpeg pass we cannot see inside. Reported every tenth
-            # still, over the half of the unit the two decodes did not use.
+            # still, over the last quarter of the unit: on the profiled run the
+            # scan was 92% of the work against 5% for the stills, and cutting
+            # the scan to a third of itself leaves them roughly one to three.
             drawn = 0
             expected = len(analysis.usable) + min(len(analysis.usable),
                                                   MAX_CANDIDATES_PER_MEDIA)
@@ -1236,9 +1238,9 @@ def cmd_plan(args) -> int:
                 drawn += 1
                 if drawn % 10 == 0:
                     progress.step("progress.thumbs", f"{path.name} ({drawn}/{expected})",
-                                  within=0.5 + 0.5 * drawn / max(expected, 1))
+                                  within=0.75 + 0.25 * drawn / max(expected, 1))
 
-            progress.step("progress.thumbs", f"{path.name} (0/{expected})", within=0.5)
+            progress.step("progress.thumbs", f"{path.name} (0/{expected})", within=0.75)
             for span in analysis.usable:
                 at = sample_point(span.shot.start, span.shot.end)
                 tp = thumb_path(cache_root, path, at)

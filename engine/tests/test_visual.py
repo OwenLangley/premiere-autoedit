@@ -288,3 +288,54 @@ def test_a_shot_can_be_a_fraction_of_a_beat():
     assert lengths[0.5] < lengths[1.0] < lengths[4.0], lengths
     assert abs(lengths[1.0] - 0.5) < 0.06, lengths
     assert abs(lengths[4.0] - 2.0) < 0.12, lengths
+
+
+# --- one decode instead of three -------------------------------------------
+
+@pytest.mark.skipif(not (FIXTURES / "sample_25fps_1080p.mp4").exists(),
+                    reason="run engine/tests/fixtures/generate.sh first")
+@pytest.mark.parametrize("centre_ratio", [None, 0.5625])
+def test_the_combined_pass_measures_what_the_separate_ones_did(centre_ratio):
+    """`measure` feeds every filter from a split of one decode instead of
+    decoding the file three or four times. Profiled on six 4K HEVC clips, those
+    passes were 92% of an eleven-minute run -- but the speedup is only allowed
+    because the answer does not move, so that is what is checked here rather
+    than a duration.
+
+    Measured on real 4K HEVC while making the change: 45.1s to 15.8s without a
+    centre crop and 63.1s to 21.9s with one, shots and samples identical to the
+    digit in both.
+    """
+    from autoedit.visual import (Measurements, analyse_frames, detect_structure,
+                                 measure)
+
+    path = str(FIXTURES / "sample_25fps_1080p.mp4")
+    settings = VisualSettings()
+    duration = 7.0
+
+    structure = detect_structure(path, duration, settings)
+    separately = Measurements(
+        shots=structure.shots,
+        samples=analyse_frames(path, settings, centre_ratio),
+        black=structure.black, frozen=structure.frozen,
+        centre_ratio=centre_ratio or 0.0)
+    together = measure(path, duration, settings, centre_ratio)
+
+    def spans(a, b):
+        assert len(a) == len(b)
+        for x, y in zip(a, b):
+            assert x.start == pytest.approx(y.start, abs=1e-9)
+            assert x.end == pytest.approx(y.end, abs=1e-9)
+
+    spans(separately.shots, together.shots)
+    spans(separately.black, together.black)
+    spans(separately.frozen, together.frozen)
+
+    assert len(separately.samples) == len(together.samples)
+    assert separately.samples, "the fixture produced no samples to compare"
+    for x, y in zip(separately.samples, together.samples):
+        assert x.time == pytest.approx(y.time, abs=1e-6)
+        assert x.motion == pytest.approx(y.motion, abs=1e-9)
+        assert x.brightness == pytest.approx(y.brightness, abs=1e-9)
+        assert x.sharpness == pytest.approx(y.sharpness, abs=1e-9)
+        assert x.centre_sharpness == pytest.approx(y.centre_sharpness, abs=1e-9)

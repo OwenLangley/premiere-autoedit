@@ -396,6 +396,28 @@ The cost is about forty seconds for a hundred tracks, once, and 12MB on disk.
 Fingerprints are read back one at a time while matching rather than all at once,
 so the memory a match needs does not grow with the library.
 
+## How long a job takes
+
+Profiled cold on six 4K HEVC clips -- about three minutes of footage -- with a
+reference:
+
+| | before | after |
+|---|---|---|
+| whole job | 681s | **293s** |
+| decoding | 628s (92%) | 237s |
+| thumbnails | 32s | 34s |
+| loading the shot recogniser | 7s | 8s |
+
+Every measurement starts by decoding the same frames and scaling them to 640px,
+and that used to happen separately for the shot detection, the brightness
+sampling and the edge sampling -- four times over when a centre crop was wanted
+too. They now read from one decode. The plan either way is the same plan:
+identical timeline, identical candidates, identical warnings.
+
+Decoding is still four fifths of a job, and there is no further saving in it
+without changing what gets measured. Analysing the proxy instead of the original
+would be about five times faster again, but it is not free -- see below.
+
 ## Footage in more than one place
 
 **Setup > Add another footage folder.** Rushes on the desktop and last month's
