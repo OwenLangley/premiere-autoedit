@@ -21,7 +21,7 @@ const {
 const {
   isVideoFile, buildRequest, validateRequest, requestFileName, describeRequest,
   musicChoices, referenceChoices, parseMusicValue, parseTimecode, formatTimecode, parseSeconds,
-  normaliseJobId, jobIdWasChanged,
+  normaliseJobId, jobIdWasChanged, jobIdFromPlanName,
 } = require("./request");
 const { audition, playheadSeconds, AuditionError } = require("./audition");
 const { readPromptSettings } = require("./prompt");
@@ -271,8 +271,11 @@ async function refreshPlans() {
   }
   for (const p of state.plans) {
     const opt = document.createElement("option");
+    // The value stays the filename -- it is what selectPlan and the keep marker
+    // are keyed on -- but ".editplan.json" on every row is eleven characters of
+    // noise in a control that is 400px wide when the panel is docked.
     opt.value = p.name;
-    opt.textContent = p.name;
+    opt.textContent = jobIdFromPlanName(p.name);
     list.appendChild(opt);
   }
   await selectPlan(state.plans[0]);
@@ -281,6 +284,8 @@ async function refreshPlans() {
 function clearPlan() {
   state.plan = null;
   state.planName = null;
+  $("plan-keep-field").classList.add("hidden");
+  $("plan-keep").checked = false;
   state.disabled.clear();
   state.swaps.clear();
   state.selectedSlot = null;
@@ -353,10 +358,36 @@ async function selectPlan(ref) {
     state.lastReceipt = null;
   }
   renderStrip();
+  await showKeepState(ref.name);
   $("detail-block").classList.remove("hidden");
   if (!$("console-block").classList.contains("hidden")) renderConsole();
   $("apply").disabled = false;
   log(`Loaded ${ref.name}`);
+}
+
+/**
+ * Show whether this plan is marked to survive the helper's sweep.
+ *
+ * Hidden entirely on a transport that cannot answer -- the HTTPS seam
+ * implements three methods and this is not one of them -- rather than shown
+ * unticked, which would say "this plan will be cleared" on a transport that
+ * never clears anything.
+ */
+async function showKeepState(planName) {
+  const field = $("plan-keep-field");
+  if (!state.transport || !state.transport.isKept) {
+    field.classList.add("hidden");
+    return;
+  }
+  let kept = false;
+  try {
+    kept = await state.transport.isKept(planName);
+  } catch {
+    field.classList.add("hidden");
+    return;
+  }
+  $("plan-keep").checked = kept;
+  field.classList.remove("hidden");
 }
 
 function renderSummary() {
@@ -1949,6 +1980,24 @@ $("plan-list").addEventListener("change", (e) => {
   const value = /** @type {any} */ (e.target).value;
   const ref = state.plans.find((p) => p.name === value);
   if (ref) selectPlan(ref);
+});
+
+$("plan-keep").addEventListener("change", async (e) => {
+  const box = /** @type {HTMLInputElement} */ (e.target);
+  const planName = state.planName;
+  if (!planName || !state.transport || !state.transport.setKept) return;
+  const wanted = box.checked;
+  try {
+    await state.transport.setKept(planName, wanted);
+    log(state.t(wanted ? "plan.kept" : "plan.unkept", {
+      name: jobIdFromPlanName(planName),
+    }), wanted ? "ok" : "");
+  } catch (err) {
+    // Put the tick back. A box that stayed ticked after the marker failed to
+    // write would promise the plan was safe when the sweep will still take it.
+    box.checked = !wanted;
+    log(err.message, "err");
+  }
 });
 
 (async function init() {

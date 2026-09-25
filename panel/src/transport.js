@@ -14,6 +14,7 @@
 
 const fs = require("uxp").storage.localFileSystem;
 const formats = require("uxp").storage.formats;
+const { keepFileName } = require("./request");
 
 /**
  * Get at a file two ways, because only one of them is blessed.
@@ -365,7 +366,40 @@ class LocalFolderTransport {
       return null;   // never built is the ordinary case, not a failure
     }
   }
+
+  /**
+   * Is this plan marked to survive the helper's sweep?
+   *
+   * A marker file beside the plan rather than a field inside it, for two
+   * reasons: the plan is the engine's output and the panel does not own it, and
+   * the helper has to read this decision without parsing a megabyte of JSON for
+   * every plan in the folder.
+   */
+  async isKept(planName) {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) return false;
+    try {
+      await folder.getEntry(keepFileName(planName));
+      return true;
+    } catch {
+      return false;     // not marked is the ordinary case
+    }
+  }
+
+  async setKept(planName, keep) {
+    const folder = await folderFromToken(this.jobsToken);
+    if (!folder) throw new Error("Jobs folder is not reachable. Re-select it in settings.");
+    if (keep) {
+      const file = await folder.createFile(keepFileName(planName), { overwrite: true });
+      await file.write(new Date().toISOString());
+      return;
+    }
+    try {
+      await (await folder.getEntry(keepFileName(planName))).delete();
+    } catch { /* already unmarked */ }
+  }
 }
+
 
 /** Seam for the NAS-era shared service. Same three methods. */
 class HttpsTransport {

@@ -101,6 +101,14 @@ so setup makes one at `~/Desktop/AutoEdit-jobs` and points the helper at it;
 `--jobs <folder>` overrides that if a team shares one. Re-running keeps whatever
 folder the machine already uses, so an update never moves an editor's jobs.
 
+The jobs folder keeps itself. A plan is working state: the five most recent
+survive and older ones are swept after a job succeeds, so the list an editor
+picks from is the work they are actually doing. Ticking **Keep this plan**
+exempts one for good. Two things are never swept -- the `.srt`, because the
+panel imports subtitles into the Premiere project by path and the project holds
+a reference to that exact file, and the `.receipt.json`, which is the only
+record anywhere of the swaps an editor made by hand.
+
 That checks the prerequisites and installs the engine venv, the panel and the
 background helper, and is safe to re-run. `./setup.sh --check` reports what a
 machine is missing without changing anything. See

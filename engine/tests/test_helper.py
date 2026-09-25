@@ -1279,3 +1279,182 @@ def test_the_elapsed_clock_survives_every_update(tmp_path, monkeypatch):
     seen, final = _run_with_fake_engine(tmp_path, monkeypatch, emit)
     assert seen[0].get("startedAt")
     assert final.get("startedAt") == seen[0]["startedAt"]
+
+
+# --- keeping the jobs folder from silting up ---------------------------------
+
+def _plan(jobs: Path, job_id: str, age: float, *, kept=False, receipt=False,
+          srt=False, cache: Path | None = None):
+    """One job's worth of files, `age` seconds old."""
+    import os, time
+    for suffix in (".editplan.json", ".status.json", ".request.json", ".sqpreset"):
+        (jobs / f"{job_id}{suffix}").write_text("{}")
+    if kept:
+        (jobs / f"{job_id}.keep").write_text("")
+    if receipt:
+        (jobs / f"{job_id}.receipt.json").write_text("{}")
+    if srt:
+        (jobs / f"{job_id}.srt").write_text("1\n")
+    if cache:
+        d = cache / job_id
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "A001.wav").write_bytes(b"\0" * 16)
+    when = time.time() - age
+    os.utime(jobs / f"{job_id}.editplan.json", (when, when))
+
+
+def test_the_newest_few_plans_survive(tmp_path):
+    from watch import prune_plans, PLANS_RETAINED
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    for i in range(9):
+        _plan(jobs, f"job{i}", age=i * 60)     # job0 newest, job8 oldest
+
+    swept = prune_plans(jobs)
+
+    assert sorted(swept) == ["job5", "job6", "job7", "job8"]
+    left = sorted(f.name for f in jobs.glob("*.editplan.json"))
+    assert len(left) == PLANS_RETAINED
+
+
+def test_a_kept_plan_is_never_swept_however_old(tmp_path):
+    """Marking one is the whole answer to 'I want to come back to this'."""
+    from watch import prune_plans
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    _plan(jobs, "precious", age=99_999, kept=True)
+    for i in range(9):
+        _plan(jobs, f"job{i}", age=i * 60)
+
+    swept = prune_plans(jobs)
+
+    assert "precious" not in swept
+    assert (jobs / "precious.editplan.json").exists()
+
+
+def test_kept_plans_do_not_use_up_the_retained_slots(tmp_path):
+    """Keeping ten plans must not mean the newest un-kept one is swept."""
+    from watch import prune_plans, PLANS_RETAINED
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    for i in range(10):
+        _plan(jobs, f"kept{i}", age=1000 + i, kept=True)
+    for i in range(PLANS_RETAINED):
+        _plan(jobs, f"fresh{i}", age=i)
+
+    assert prune_plans(jobs) == []
+
+
+def test_subtitles_are_never_swept(tmp_path):
+    """The panel imports an .srt into the Premiere project BY PATH, so the
+    project holds a reference to this exact file. Deleting one turns it into
+    missing media inside an editor's project."""
+    from watch import prune_plans
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    _plan(jobs, "old", age=99_999, srt=True)
+    for i in range(6):
+        _plan(jobs, f"job{i}", age=i)
+
+    assert "old" in prune_plans(jobs)
+    assert (jobs / "old.srt").exists()
+    assert not (jobs / "old.editplan.json").exists()
+
+
+def test_receipts_are_never_swept(tmp_path):
+    """A receipt is the only record anywhere of the swaps an editor made by
+    hand -- they are never written back into the plan."""
+    from watch import prune_plans
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    _plan(jobs, "built", age=99_999, receipt=True)
+    for i in range(6):
+        _plan(jobs, f"job{i}", age=i)
+
+    assert "built" in prune_plans(jobs)
+    assert (jobs / "built.receipt.json").exists()
+
+
+def test_the_extracted_audio_goes_with_the_plan(tmp_path):
+    """The per-job cache holds the .wav the transcriber made. On their test
+    footage that is 5.5MB a job; on a 28-minute video it is far more."""
+    from watch import prune_plans
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    cache = jobs / ".cache"
+    _plan(jobs, "old", age=99_999, cache=cache)
+    for i in range(6):
+        _plan(jobs, f"job{i}", age=i, cache=cache)
+
+    prune_plans(jobs, cache)
+
+    assert not (cache / "old").exists()
+    assert (cache / "job0").exists()
+
+
+def test_the_sweep_cannot_escape_the_cache_directory(tmp_path):
+    """The one operation here that removes a TREE rather than a file."""
+    from watch import _remove_job_cache
+    cache = tmp_path / "cache"
+    (cache / "real").mkdir(parents=True)
+    outside = tmp_path / "precious"
+    outside.mkdir()
+    (outside / "keepme.txt").write_text("hello")
+
+    for escape in ["..", "../precious", "/etc", ""]:
+        _remove_job_cache(cache, escape)
+
+    assert outside.exists() and (outside / "keepme.txt").exists()
+    assert cache.exists()
+
+
+def test_a_job_that_left_only_a_receipt_is_not_reported_as_swept(tmp_path):
+    """Nothing was removed, so nothing should be claimed."""
+    from watch import prune_plans
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    for i in range(6):
+        _plan(jobs, f"job{i}", age=i)
+    swept = prune_plans(jobs)
+    assert swept == ["job5"]
+
+
+def test_a_failed_run_sweeps_nothing(tmp_path, monkeypatch):
+    """The safety property: the sweep happens after a new plan exists, so a run
+    that fails cannot destroy the last plan that worked."""
+    import watch
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    for i in range(9):
+        _plan(jobs, f"job{i}", age=i * 60)
+    before = sorted(f.name for f in jobs.glob("*.editplan.json"))
+
+    (jobs / "EP001.request.json").write_text(json.dumps(request()))
+    monkeypatch.setattr(watch, "engine_main", lambda argv: 2)
+    watch.process(jobs / "EP001.request.json", jobs, tmp_path, tmp_path)
+
+    assert sorted(f.name for f in jobs.glob("*.editplan.json")) == before
+
+
+def test_a_job_named_after_a_shared_cache_does_not_destroy_it(tmp_path):
+    """`proxies` is 2.3GB of re-encoding on the real machine and sits at the
+    same level as the per-job folders. Nothing stops an editor naming a job
+    `models`, and the sweep would then take the whole shared cache with it."""
+    from watch import prune_plans, SHARED_CACHE_DIRS
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    cache = jobs / ".cache"
+    for shared in SHARED_CACHE_DIRS:
+        (cache / shared).mkdir(parents=True)
+        (cache / shared / "expensive.bin").write_bytes(b"\0" * 8)
+
+    _plan(jobs, "proxies", age=99_999)
+    _plan(jobs, "models", age=99_998)
+    for i in range(6):
+        _plan(jobs, f"job{i}", age=i)
+
+    swept = prune_plans(jobs, cache)
+
+    assert "proxies" in swept and "models" in swept     # the plans still go
+    for shared in SHARED_CACHE_DIRS:                    # the caches do not
+        assert (cache / shared / "expensive.bin").exists(), shared

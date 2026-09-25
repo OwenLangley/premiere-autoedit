@@ -201,6 +201,33 @@ function normaliseJobId(raw) {
     .slice(0, 64);
 }
 
+/**
+ * A name for an edit nobody wanted to name.
+ *
+ * The field was required, and an editor making a dozen cuts a day had to invent
+ * a dozen names. The evidence is in the jobs folder: `eadaeda`, `klklklkl`,
+ * `dial4`, `test9` -- eighty-five of them. Nobody wanted those names; they
+ * wanted to press the button.
+ *
+ * It cannot simply be dropped, because it is not only a filename: the recipes
+ * build the Premiere sequence name out of it (`{job}_longform_v1`), so it is
+ * what the editor sees in their project panel afterwards. So it stays, and it
+ * fills itself in.
+ *
+ * Seconds are in it, unlovely as that is. Minute resolution collides when a job
+ * fails in the first few seconds and the editor immediately tries again -- and
+ * a collision here does not warn, it overwrites the earlier plan with the later
+ * one under the same name.
+ *
+ * @param {Date|number|string} [when] the clock, passed in so this stays pure
+ */
+function autoJobName(when) {
+  const d = when === undefined ? new Date() : (when instanceof Date ? when : new Date(when));
+  const two = (n) => String(n).padStart(2, "0");
+  return `${two(d.getFullYear() % 100)}${two(d.getMonth() + 1)}${two(d.getDate())}`
+    + `-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
+}
+
 /** True when normalising would silently change what the editor typed. */
 function jobIdWasChanged(raw) {
   const typed = String(raw || "").normalize("NFC").trim().replace(/\s+/g, " ");
@@ -217,7 +244,7 @@ function jobIdWasChanged(raw) {
  *   reference?: string, referenceUrl?: string, referenceRhythmOnly?: boolean,
  *   removeSilence?: boolean, silenceAllowed?: number,
  *   musicStart?: number, musicLength?: number, musicSnap?: boolean, language?: string,
- *   story?: string,
+ *   story?: string, now?: Date|number|string,
  * }} form
  */
 function buildRequest(form) {
@@ -286,7 +313,8 @@ function buildRequest(form) {
 
   return {
     schemaVersion: SCHEMA_VERSION,
-    jobId: normaliseJobId(form.jobId),
+    // An empty name is not an error any more, it is the ordinary case.
+    jobId: normaliseJobId(form.jobId) || autoJobName(form.now),
     recipe: form.recipe,
     createdAt: new Date().toISOString(),
     media: [...(form.media || [])],
@@ -355,6 +383,27 @@ function requestFileName(jobId) {
 }
 
 /**
+ * `EP001.editplan.json` -> `EP001.keep`, the marker that saves a plan from the
+ * helper's sweep.
+ *
+ * A marker file beside the plan, not a field inside it: the plan is the
+ * engine's output and the panel does not own it, and the helper has to read
+ * this decision for every plan in the folder without parsing each one.
+ *
+ * Here rather than in transport.js because transport.js requires `uxp` and so
+ * cannot be loaded, let alone tested, outside Premiere. Kept in step with
+ * KEEP_SUFFIX in helper/watch.py.
+ */
+function keepFileName(planName) {
+  return String(planName || "").replace(/\.editplan\.json$/i, "") + ".keep";
+}
+
+/** `EP001.editplan.json` -> `EP001`, the job the plan came from. */
+function jobIdFromPlanName(planName) {
+  return String(planName || "").replace(/\.editplan\.json$/i, "");
+}
+
+/**
  * Plain-language summary of what will happen, shown before the editor commits.
  * Worth the code: "Vertical 9:16, up to 30s, punchy" is checkable at a glance in
  * a way that a JSON blob never is.
@@ -415,6 +464,9 @@ module.exports = {
   referenceChoices,
   normaliseJobId,
   jobIdWasChanged,
+  autoJobName,
+  keepFileName,
+  jobIdFromPlanName,
   buildRequest,
   validateRequest,
   requestFileName,

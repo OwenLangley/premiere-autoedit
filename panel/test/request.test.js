@@ -4,6 +4,7 @@ const assert = require("node:assert");
 const {
   isVideoFile, normaliseJobId, buildRequest, validateRequest, describeRequest,
   musicChoices, referenceChoices, formatDuration, parseMusicValue, parseTimecode, formatTimecode, parseSeconds,
+  autoJobName, keepFileName, jobIdFromPlanName,
 } = require("../src/request");
 
 const form = (over = {}) => ({
@@ -55,7 +56,6 @@ test("a complete form validates", () => {
 test("problems come back as keys, so the form can be translated", () => {
   // Prose here would have made the form the one untranslatable part of the
   // panel -- and the form is where a Japanese editor spends all their time.
-  assert.deepEqual(validateRequest(buildRequest(form({ jobId: "" }))), ["err.nameRequired"]);
   assert.deepEqual(validateRequest(buildRequest(form({ media: [] }))), ["err.clipsRequired"]);
   assert.deepEqual(validateRequest(buildRequest(form({ recipe: "" }))), ["err.recipeRequired"]);
 });
@@ -63,15 +63,26 @@ test("problems come back as keys, so the form can be translated", () => {
 test("every error key has a translation in both languages", () => {
   const { EN, JA } = require("../src/i18n");
   const cases = [
-    form({ jobId: "" }), form({ media: [] }), form({ recipe: "" }),
-    form({ jobId: ".hidden" }),
-  ];
-  for (const f of cases) {
-    for (const key of validateRequest(buildRequest(f))) {
+    form({ media: [] }), form({ recipe: "" }), form({ jobId: ".hidden" }),
+  ].map(buildRequest);
+  // buildRequest fills an empty name in now, so the only way to reach the
+  // nameRequired guard is a request this panel did not build -- which is
+  // exactly who the guard is still there for.
+  cases.push({
+    ...buildRequest(form()), jobId: "",
+  });
+  for (const request of cases) {
+    for (const key of validateRequest(request)) {
       assert.ok(EN[key], `no English for ${key}`);
       assert.ok(JA[key], `no Japanese for ${key}`);
     }
   }
+});
+
+test("a request built elsewhere with no name is still rejected", () => {
+  assert.deepEqual(
+    validateRequest({ ...buildRequest(form()), jobId: "" }),
+    ["err.nameRequired"]);
 });
 
 test("a nonsense length is rejected", () => {
@@ -361,4 +372,65 @@ test("an empty or missing reference folder still offers None", () => {
     assert.strictEqual(choices.length, 1);
     assert.strictEqual(choices[0].value, "");
   }
+});
+
+
+// --- a name nobody had to think of ------------------------------------------
+
+test("an empty name is no longer an error, it is the ordinary case", () => {
+  // The field was required, so an editor making a dozen cuts a day invented a
+  // dozen names. Their jobs folder is the evidence: eadaeda, klklklkl, dial4.
+  const request = buildRequest(form({ jobId: "", now: new Date("2026-09-25T14:32:07") }));
+  assert.deepStrictEqual(validateRequest(request), []);
+  assert.equal(request.jobId, "260925-143207");
+});
+
+test("a name the editor did type is never overridden", () => {
+  assert.equal(buildRequest(form({ jobId: "EP001" })).jobId, "EP001");
+});
+
+test("an auto name still has to satisfy the schema that rejected Japanese once", () => {
+  const { SCHEMA_JOB_ID } = { SCHEMA_JOB_ID: /^[^.\s/\\:*?"<>|\u0000-\u001f][^/\\:*?"<>|\u0000-\u001f]{0,63}$/ };
+  for (const t of ["2026-01-01T00:00:00", "2026-12-31T23:59:59", "2026-09-05T04:03:02"]) {
+    assert.match(autoJobName(new Date(t)), SCHEMA_JOB_ID);
+  }
+});
+
+test("two edits started in the same minute do not overwrite each other", () => {
+  // Minute resolution collides when a job fails in the first few seconds and
+  // the editor immediately tries again -- and the collision does not warn, it
+  // overwrites the earlier plan under the same name.
+  const a = autoJobName(new Date("2026-09-25T14:32:07"));
+  const b = autoJobName(new Date("2026-09-25T14:32:41"));
+  assert.notEqual(a, b);
+});
+
+test("an auto name sorts in the order the edits were made", () => {
+  const names = [
+    "2026-09-25T14:32:07", "2026-09-25T09:00:00", "2026-10-01T08:00:00",
+    "2027-01-01T00:00:00",
+  ].map((t) => autoJobName(new Date(t)));
+  assert.deepStrictEqual([...names].sort(), [names[1], names[0], names[2], names[3]]);
+});
+
+// --- marking a plan to keep -------------------------------------------------
+
+test("the keep marker sits beside the plan it saves", () => {
+  // Kept in step with KEEP_SUFFIX in helper/watch.py; the helper reads these
+  // without opening a single plan.
+  assert.equal(keepFileName("EP001.editplan.json"), "EP001.keep");
+  assert.equal(jobIdFromPlanName("EP001.editplan.json"), "EP001");
+});
+
+test("a Japanese job name survives the round trip", () => {
+  // The name field takes any language -- that was fixed once already, after a
+  // real edit named in Japanese failed at the schema.
+  const plan = "清田悠悟_小麦生まれ麺育ち.editplan.json";
+  assert.equal(keepFileName(plan), "清田悠悟_小麦生まれ麺育ち.keep");
+  assert.equal(jobIdFromPlanName(plan), "清田悠悟_小麦生まれ麺育ち");
+});
+
+test("a plan name that is not a plan is left alone rather than mangled", () => {
+  assert.equal(keepFileName("notaplan.json"), "notaplan.json.keep");
+  assert.equal(keepFileName(""), ".keep");
 });

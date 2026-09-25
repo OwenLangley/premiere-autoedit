@@ -1244,7 +1244,131 @@ def process(path: Path, jobs: Path, media_root: Path, work_dir: Path,
         startedAt=started, percent=100, planFile=plan_file.name,
         warnings=[l for l in lines if l.lower().startswith("warning")],
     )
+
+    # AFTER the new plan exists and the status says ready, never before. The
+    # sweep is allowed to remove old plans precisely because a newer one is
+    # already on disk; a run that failed above returned long ago and swept
+    # nothing.
+    # `work_dir` here is the CACHE ROOT -- it is what goes to `--work-dir`, and
+    # the engine makes the per-job directory under it as `cache_root / job`.
+    # Passing its parent would have aimed the sweep at the jobs folder itself.
+    swept = prune_plans(jobs, work_dir)
+    if swept:
+        print(f"swept {len(swept)} old plan(s): {', '.join(swept[:8])}"
+              f"{' ...' if len(swept) > 8 else ''}", file=sys.stderr)
     return True
+
+
+# --- keeping the jobs folder from silting up ---------------------------------
+#
+# Nothing ever deleted a job's files, so every run left five behind for good.
+# Measured on this machine after a few months: 85 plans, 357 files, and a
+# dropdown of `eadaeda`, `klklklkl`, `dial4` that an editor has to read past to
+# find the one they made a minute ago.
+#
+# On disk it is small -- 6.9MB of job files against 2.3GB of proxies -- so this
+# is a tidiness problem, not a space one, and it is fixed conservatively.
+
+# How many un-kept plans survive. Marked plans are exempt and are not counted
+# against this, because that is what marking one means.
+PLANS_RETAINED = 5
+
+KEEP_SUFFIX = ".keep"
+
+# What a sweep removes. Everything here is derived from the request and can be
+# produced again by running the job again.
+SWEPT_SUFFIXES = (".editplan.json", ".status.json", ".request.json", ".sqpreset")
+
+# What a sweep must never remove, and why:
+#
+#   .srt          the panel imports subtitles into the Premiere project BY PATH
+#                 (`project.importFiles([srtPath], ...)`), so the project holds
+#                 a reference to this exact file. Deleting one turns it into
+#                 missing media inside an editor's project.
+#
+#   .receipt.json the only record anywhere of the swaps and exclusions an editor
+#                 made by hand -- apply.js says so in as many words, because
+#                 swaps are never written back into the plan.
+#
+#   .keep         the marker itself.
+#
+# The line is: if something outside this folder points at it, or it is the only
+# copy of a decision a person made, it stays.
+
+
+def plan_job_ids(jobs: Path) -> list[tuple[str, float]]:
+    """Every plan in the folder as (job id, modified time), newest first."""
+    found = []
+    for f in jobs.glob("*.editplan.json"):
+        job_id = f.name[: -len(".editplan.json")]
+        if not job_id or not safe_job_id(job_id):
+            continue
+        try:
+            found.append((job_id, f.stat().st_mtime))
+        except OSError:
+            continue
+    return sorted(found, key=lambda pair: -pair[1])
+
+
+def is_kept(jobs: Path, job_id: str) -> bool:
+    return (jobs / f"{job_id}{KEEP_SUFFIX}").exists()
+
+
+def prune_plans(jobs: Path, cache_root: Path | None = None,
+                retain: int = PLANS_RETAINED) -> list[str]:
+    """Sweep un-kept plans past the newest few. Returns the job ids removed.
+
+    Called only after a new plan has been written successfully. That ordering is
+    the safety property: a run that fails never sweeps, so the last plan that
+    worked cannot be destroyed by a run that did not.
+    """
+    doomed = [job_id for job_id, _ in plan_job_ids(jobs)
+              if not is_kept(jobs, job_id)][retain:]
+
+    removed = []
+    for job_id in doomed:
+        gone = False
+        for suffix in SWEPT_SUFFIXES:
+            try:
+                (jobs / f"{job_id}{suffix}").unlink(missing_ok=True)
+                gone = True
+            except OSError:
+                pass
+        if cache_root:
+            _remove_job_cache(cache_root, job_id)
+        if gone:
+            removed.append(job_id)
+    return removed
+
+
+# Directories under the cache root that belong to everyone rather than to one
+# job. They sit at the same level as the per-job folders, so a job that happened
+# to be NAMED one of these would aim the sweep at a shared cache -- and
+# `proxies` is 2.3GB of work on this machine, rebuilt only by re-encoding every
+# clip in the library. Nothing stops an editor calling a job "models".
+SHARED_CACHE_DIRS = frozenset({
+    "proxies", "models", "thumbs", "visual", "transcripts", "reference",
+})
+
+
+def _remove_job_cache(cache_root: Path, job_id: str) -> None:
+    """The per-job work directory, which holds the extracted audio.
+
+    Checked rather than trusted before an rmtree. `safe_job_id` already makes a
+    traversal impossible, but this is the one operation here that deletes a tree
+    rather than a file, and the cost of being wrong is not symmetrical with the
+    cost of one extra comparison.
+    """
+    if job_id in SHARED_CACHE_DIRS:
+        return
+    try:
+        root = cache_root.resolve()
+        target = (cache_root / job_id).resolve()
+    except OSError:
+        return
+    if target.parent != root or target == root or not target.is_dir():
+        return
+    shutil.rmtree(target, ignore_errors=True)
 
 
 def claimed_marker(jobs: Path, path: Path) -> Path:
