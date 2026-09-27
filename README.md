@@ -54,24 +54,15 @@ Homebrew first if you do not have it
 ([brew.sh](https://brew.sh)), then:
 
 ```bash
-brew install ffmpeg python@3.11 gh
-gh auth login          # this repo is private; see below
+brew install ffmpeg python@3.11
 git clone https://github.com/OwenLangley/premiere-autoedit.git
 cd premiere-autoedit
 ./setup.sh ~/Footage
 ```
 
-**`gh auth login` is not optional and it is not a formality.** This repo is
-private, and **GitHub has not accepted passwords for git since 13 August 2021**
--- so cloning without signing in first fails with *"Support for password
-authentication was removed"*, which reads like a rejected password and is not
-one. No password will ever work there. `gh auth login` opens a browser, and when
-it offers to authenticate git with your GitHub credentials, say yes: that is
-what stores the credential, and it is also what makes the panel's **Update**
-button work later.
-
-Accept the repository invitation first, or the clone fails as *"repository not
-found"* -- GitHub does not distinguish private from non-existent.
+No GitHub account is needed to clone or to keep it updated -- the panel's
+**Update** button pulls over HTTPS like any other read. You only need to sign in
+if you intend to push to a fork of your own.
 
 `~/Footage` is your own rushes -- the top of the tree, not one shoot. That is
 the only path you choose; setup makes the rest. **If the footage moves later,
@@ -693,3 +684,44 @@ like 尺 and テロップ are where a translation comes out fluent and wrong, wh
 harder to spot than obviously broken — worth a colleague reading
 `panel/src/i18n.js` before it goes out.
 
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). Use it, change it, ship it in something you sell;
+keep the copyright line.
+
+It is offered with no warranty and no support promise, and that is worth reading
+literally. This is one person's working tool, developed against one pair of eyes
+and one machine: **macOS, Premiere Pro 26.3+, Apple Silicon**. Nothing here has
+run on Windows, and the panel's findings are measured against Premiere 26.3.2
+specifically. Plenty in
+[docs/premiere-uxp-findings.md](docs/premiere-uxp-findings.md) will be wrong on a
+future build — that file exists to be re-measured, not trusted.
+
+The [Known defects](#known-defects) section is honest and not exhaustive.
+
+### What it uses, and what those are licensed under
+
+Nothing here is redistributed; all of it is installed or downloaded on the
+machine that runs it.
+
+| | |
+|---|---|
+| **ffmpeg** | every probe, decode, audio extract and proxy. Installed by you via Homebrew, under its own licence (LGPL or GPL depending on how your build was configured). This project only ever invokes the binary. |
+| **faster-whisper**, **PyYAML**, **jsonschema**, **numpy**, **onnxruntime** | MIT or BSD |
+| **huggingface_hub** | Apache-2.0 |
+| **yt-dlp** | Unlicense. Used only to fetch a reference video you point it at. |
+| **CLIP ViT-B/32** (`Xenova/clip-vit-base-patch32`) and the multilingual text encoder (`sentence-transformers/clip-ViT-B-32-multilingual-v1`) | downloaded from Hugging Face on first use, ~90 MB, under their own model licences. |
+| **`@adobe/premierepro`** | TypeScript definitions, a dev dependency for `npm run typecheck`. Not shipped in the panel. |
+
+**A reference video is yours to be entitled to.** The tool will download one from
+a link and measure its cutting; what you are allowed to download, and what you
+then do with an edit shaped by it, is between you and whoever owns that video.
+
+### Not affiliated with Adobe
+
+Adobe, Premiere Pro and UXP are trademarks of Adobe Inc. This is an independent
+project, not endorsed by or connected to Adobe in any way. It is an unsigned
+third-party plugin that you install yourself, and it writes to a Premiere project
+you have open — read [Panel behaviour](#panel-behaviour) before pointing it at
+work that matters, and keep backups you would be happy to fall back on.

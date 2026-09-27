@@ -46,26 +46,23 @@ request file and a background watcher runs the engine. When the watcher is not
 running there is no error anywhere -- the request just sits on disk. `--check`
 looks for it specifically.
 
-## Signing in to GitHub
+## Getting the code
 
-Two failures land here before anything is installed, and both look like
-something they are not.
+The repository is public, so `git clone` needs no account, no `gh` and no
+credential -- and neither does the panel's Update button, which pulls over the
+same anonymous HTTPS. If you are looking at instructions that say otherwise,
+they predate the project being published.
 
-**"Support for password authentication was removed"** on `git clone`. This is
-not a mistyped password and no password will fix it -- GitHub stopped accepting
-them for git on 13 August 2021. Install `gh` and run `gh auth login`, choosing
-HTTPS and answering **yes** when it offers to authenticate git with your GitHub
-credentials. That last answer is the one that matters: it stores the credential
-that both `git pull` and the panel's Update button need.
+Two git failures are still worth naming, because both look like something they
+are not.
 
-**"repository not found"** on a repo that plainly exists. GitHub returns the
-same answer for private and non-existent, so this usually means the repository
-invitation has not been accepted yet.
+**"Support for password authentication was removed"**, if you have forked this
+and are pushing to your own copy. Not a mistyped password, and no password will
+fix it -- GitHub stopped accepting them for git on 13 August 2021. Install `gh`
+and run `gh auth login`, choosing HTTPS and answering **yes** when it offers to
+authenticate git with your GitHub credentials.
 
-Neither is worth debugging beyond that. Anyone who can clone the repo and run
-`./setup.sh --check` cleanly is past both.
-
-**A third, which is not a git problem at all:**
+**A second, which is not a git problem at all:**
 `fatal: 'ff-only' does not appear to be a git repository`. The `--` in
 `git pull --ff-only` did not survive being pasted -- chat apps turn a double
 dash into an en dash, and git then reads the flag as the name of a remote. Plain

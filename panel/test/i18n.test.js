@@ -11,6 +11,16 @@ test("the Japanese catalogue covers every English key", () => {
   assert.deepEqual(missingKeys("ja"), []);
 });
 
+test("no Japanese key is stranded without an English one", () => {
+  // The other direction, which `missingKeys` does not cover: a key that exists
+  // only in Japanese can never render, because every `t()` call site reaches
+  // for the English key first. A typo in a Japanese key -- `format.long-from`
+  // for `format.long-form` -- is silent both ways without this: the Japanese
+  // panel quietly falls back to English, and nothing says why.
+  const stranded = Object.keys(JA).filter((k) => EN[k] === undefined);
+  assert.deepEqual(stranded, [], "these are unreachable, most likely typos");
+});
+
 test("no Japanese entry was left as its English text", () => {
   const untranslated = Object.keys(EN).filter((k) => JA[k] === EN[k] && /[A-Za-z]{4}/.test(EN[k]));
   assert.deepEqual(untranslated, [], "these look copied rather than translated");
