@@ -185,6 +185,48 @@ def test_capabilities_lists_what_the_engine_supports(tmp_path):
         assert fmt["keywords"], f"{fmt['recipe']} has no keywords in capabilities"
 
 
+def test_only_looks_whose_lut_exists_are_offered(tmp_path):
+    """A dropdown entry that can only fail is worse than an empty dropdown.
+
+    The shipped brandkit.json is a template naming two LUTs under /Users/Shared.
+    They exist for nobody who has not put them there, and choosing one put a LUT
+    in the plan that the panel then refused to build -- reporting it at the end
+    of a build rather than at the moment of the choice.
+    """
+    write_capabilities(tmp_path)
+    caps = json.loads((tmp_path / "capabilities.json").read_text())
+    kit = Path(__file__).resolve().parents[2] / "brandkit" / "brandkit.json"
+    declared = json.loads(kit.read_text()).get("luts") or {}
+    for look in caps["looks"]:
+        path = Path(declared[look["value"]]["path"])
+        assert path.exists(), f"offered {look['value']!r}, whose LUT is not at {path}"
+
+
+def test_a_look_is_offered_once_its_lut_is_there(tmp_path, monkeypatch):
+    """The other half, or the test above passes against a function returning [].
+
+    Someone who drops their own .cube in gets the look with nothing else to do.
+    """
+    import watch
+
+    lut = tmp_path / "house.cube"
+    lut.write_text("# a LUT\n")
+    kit = tmp_path / "brandkit.json"
+    kit.write_text(json.dumps({"luts": {
+        "house": {"path": str(lut)},
+        "absent": {"path": str(tmp_path / "never-exported.cube")},
+    }}))
+    monkeypatch.setattr(watch, "BRANDKIT", kit)
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    watch.write_capabilities(jobs)
+    caps = json.loads((jobs / "capabilities.json").read_text())
+    assert [l["value"] for l in caps["looks"]] == ["house"], (
+        "the one on disk is offered, the one that was only declared is not"
+    )
+
+
 # --- Media index -----------------------------------------------------------
 #
 # The index is what fills the panel's clip and music dropdowns. Music does not

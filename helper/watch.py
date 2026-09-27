@@ -137,17 +137,34 @@ class _EngineOutput(io.StringIO):
         return written
 
 
+# Where the brand kit lives. A module constant rather than an expression inside
+# the function, so a test can point it at a kit it built itself.
+BRANDKIT = Path(__file__).resolve().parents[1] / "brandkit" / "brandkit.json"
+
+
 def write_capabilities(jobs: Path) -> None:
     """Tell the panel what this engine actually supports.
 
     The alternative -- hardcoding the lists in the panel -- guarantees they drift
     the first time a recipe is added.
     """
+    # Only the looks whose .cube is actually on this machine. The shipped
+    # brandkit.json is a template: it names two LUTs under /Users/Shared that
+    # exist for nobody who has not put them there. Offering them anyway gave
+    # every new install a dropdown with two entries that could only fail, and
+    # the failure arrived at the end of a build -- "no brand kit is configured,
+    # but this plan uses graphics or LUTs" -- rather than at the choice.
+    #
+    # A path that appears later needs no action here: capabilities are rewritten
+    # every time the helper starts.
     looks: dict[str, str] = {}
-    kit = Path(__file__).resolve().parents[1] / "brandkit" / "brandkit.json"
+    kit = BRANDKIT
     if kit.exists():
         try:
-            looks = {k: k for k in (json.loads(kit.read_text()).get("luts") or {})}
+            declared = json.loads(kit.read_text()).get("luts") or {}
+            looks = {name: name for name, entry in declared.items()
+                     if isinstance(entry, dict) and entry.get("path")
+                     and Path(entry["path"]).exists()}
         except (json.JSONDecodeError, OSError):
             pass
 
