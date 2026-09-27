@@ -3,7 +3,20 @@ name = "autoedit-engine"
 version = "0.1.0"
 description = "Analysis engine that turns rushes into an EditPlan for Premiere Pro"
 requires-python = ">=3.11"
-dependencies = ["PyYAML>=6.0", "jsonschema>=4.0", "yt-dlp>=2024.1.1"]
+# numpy is imported at module scope by music, story, fingerprint and describe,
+# and onnxruntime and huggingface_hub are what the shot recogniser runs on --
+# which every job uses. None of the three were declared: they arrived as
+# transitive dependencies of faster-whisper, which is an OPTIONAL extra, so
+# `pip install autoedit-engine` produced a package that raised ImportError on
+# first use and setup.sh only worked by accident.
+dependencies = [
+    "PyYAML>=6.0",
+    "jsonschema>=4.0",
+    "yt-dlp>=2024.1.1",
+    "numpy>=1.24",
+    "onnxruntime>=1.17",
+    "huggingface_hub>=0.20",
+]
 
 [project.optional-dependencies]
 whisper = ["faster-whisper>=1.0"]

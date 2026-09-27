@@ -189,7 +189,9 @@ if [ ! -x "$ROOT/.venv/bin/python" ]; then
   "$PY" -m venv "$ROOT/.venv"
 fi
 "$ROOT/.venv/bin/pip" install --quiet --upgrade pip
-"$ROOT/.venv/bin/pip" install --quiet -e "$ROOT/engine" faster-whisper pytest jsonschema PyYAML yt-dlp
+# Extras rather than a second hand-written list: the first one drifted from
+# pyproject.toml and hid three undeclared dependencies for months.
+"$ROOT/.venv/bin/pip" install --quiet -e "$ROOT/engine[whisper,dev]"
 ok "engine + Whisper"
 
 # --- panel (needs root; Premiere 26 reads /Library only) --------------------
