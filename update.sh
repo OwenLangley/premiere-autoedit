@@ -65,6 +65,25 @@ PULL_OUT="$(GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes" \
 PULL_RC=$?
 echo "$PULL_OUT" | sed 's/^/  /'
 if [ $PULL_RC -ne 0 ]; then
+  # Not a checkout at all. GitHub attaches a source tarball to every release and
+  # it is the most obvious thing on the page, so this is how a fair number of
+  # people will arrive -- with a folder that has no .git in it and no way to
+  # update. git says "not a git repository"; the message this used to produce
+  # was "check this machine can sign in to GitHub", which sends someone to fix
+  # a credential that was never the problem.
+  if echo "$PULL_OUT" | grep -qi "not a git repository"; then
+    STATUS="notacheckout"
+    DETAIL="this folder is not a git checkout, so there is nothing to update from. It was most likely unpacked from a downloaded archive. Clone the repository instead: git clone https://github.com/OwenLangley/premiere-autoedit.git"
+    echo
+    echo "  This folder is not a git checkout, so there is nothing to pull."
+    echo "  It was probably unpacked from a downloaded .zip or .tar.gz."
+    echo
+    echo "    git clone https://github.com/OwenLangley/premiere-autoedit.git"
+    echo
+    echo "  Then run ./setup.sh in the clone. Updating works from there."
+    exit 1
+  fi
+
   # A history that no longer lines up with the remote. Checked before the
   # local-changes case because git reports it the same way it reports being
   # offline -- a non-zero pull with no mention of files -- and it used to land
