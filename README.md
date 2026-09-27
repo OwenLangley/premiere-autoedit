@@ -1,6 +1,6 @@
 # premiere-autoedit
 
-**Turns a folder of rushes into a Premiere Pro timeline you can argue with.**
+**A tool to automate rough cuts from plaintext descriptions or reference videos.**
 
 Describe the video in a sentence. The tool watches every clip you give it, finds
 the shots worth using, cuts them to the speech or to the beat, and builds a real
