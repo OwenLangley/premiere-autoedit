@@ -975,6 +975,13 @@ def test_every_write_media_index_call_passes_its_roots():
         assert "roots" in call, f"call site drops the roots: {call}"
 
 
+needs_media = pytest.mark.skipif(
+    not (Path(__file__).resolve().parent / "fixtures" / "sample_25fps_1080p.mp4").exists(),
+    reason="run engine/tests/fixtures/generate.sh first (needs ffmpeg)",
+)
+
+
+@needs_media
 def test_one_big_folder_cannot_starve_the_others(tmp_path):
     """A photo library took 395 of a 400-file budget and left five for the
     folder holding the actual rushes.
@@ -1004,6 +1011,7 @@ def test_one_big_folder_cannot_starve_the_others(tmp_path):
     assert index["truncatedRoots"] == [str(big)]
 
 
+@needs_media
 def test_unused_share_passes_to_later_folders(tmp_path):
     import shutil
     import sys
