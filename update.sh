@@ -65,6 +65,27 @@ PULL_OUT="$(GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes" \
 PULL_RC=$?
 echo "$PULL_OUT" | sed 's/^/  /'
 if [ $PULL_RC -ne 0 ]; then
+  # A history that no longer lines up with the remote. Checked before the
+  # local-changes case because git reports it the same way it reports being
+  # offline -- a non-zero pull with no mention of files -- and it used to land
+  # in the "unreachable" branch below, telling an editor whose machine was
+  # perfectly online to go and check they could sign in to GitHub.
+  #
+  # It happens for one reason: the repository's history was rewritten. Pulling
+  # cannot fix that and neither can stashing; the checkout has to be replaced.
+  if echo "$PULL_OUT" | grep -qi "not possible to fast-forward\|diverged\|unrelated histories"; then
+    STATUS="diverged"
+    DETAIL="this checkout no longer shares history with the repository, which happens when the history has been rewritten. Replace it: git fetch origin then git reset --hard origin/main, or delete the folder and clone it again."
+    echo
+    echo "  This copy and the repository have different histories now."
+    echo "  Nothing is wrong with your machine, and no amount of pulling"
+    echo "  will fix it. Replace this checkout:"
+    echo
+    echo "    git fetch origin && git reset --hard origin/main"
+    echo
+    echo "  That discards local edits to tracked files. To keep them: git stash"
+    exit 1
+  fi
   if echo "$PULL_OUT" | grep -qi "local changes\|would be overwritten\|commit your changes"; then
     STATUS="dirty"
     DETAIL="local changes block the update: $(echo "$PULL_OUT" | grep -i '^\s*[a-zA-Z].*\.' | head -3 | tr '\n' ' ')"
