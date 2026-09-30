@@ -81,7 +81,22 @@ const state = {
   // that silently falls through to "Check for updates".
   /** @type {"idle"|"checking"|"updating"|"restart"|"failed"} */
   updatePhase: "idle",
-  updateDetail: "",      // why the last update failed, for the line under it
+  // Why the last update failed: the outcome's own key plus whatever detail
+  // update.sh gave. A bare string here meant every failure rendered through
+  // "Update did not complete: {detail}", which printed a naked colon in the two
+  // cases where the failure was the panel's own timeout and the detail empty.
+  /** @type {{key: string, detail: string}|null} */
+  updateFailure: null,
+  // What the update is doing, and for how long, for the line under a button that
+  // is disabled and says one static word for as long as five minutes.
+  /** @type {""|"sent"|"running"} */
+  updateStep: "",
+  updateElapsed: 0,
+  // Set once at startup, when update.result.json names a build this panel has not
+  // acknowledged -- i.e. the restart has happened and the new code is what is
+  // running. Cleared by any press, so it never masks a fresher answer.
+  /** @type {{before: string, after: string}|null} */
+  updateInstalled: null,
   // Errors logged while the diagnostics drawer was closed. The log used to sit
   // open at the bottom of the panel; behind a button, an error nobody opens the
   // drawer for is an error nobody sees.
@@ -1761,13 +1776,40 @@ function renderUpdate() {
   // No transport means no jobs folder, and the question cannot be asked at all.
   button.disabled = view.action === null || !state.transport;
   button.classList.toggle("notice", view.notice);
+  // `kind` was computed by `updateButton` and thrown away here, so a failed
+  // update was styled exactly like an available one. The red already exists in
+  // the stylesheet; nothing but this line was missing.
+  button.classList.toggle("alert", view.kind === "err");
 
   const note = updateNote({
-    check: state.updateCheck, phase: state.updatePhase, detail: state.updateDetail,
+    check: state.updateCheck, phase: state.updatePhase,
+    failure: state.updateFailure, step: state.updateStep,
+    elapsed: state.updateElapsed, installed: state.updateInstalled,
   });
   const line = $("update-note");
   line.textContent = note ? state.t(note.key, note.params) : "";
   line.classList.toggle("hidden", !note);
+}
+
+/**
+ * Say, once, that the update an editor installed is the code now running.
+ *
+ * The restart is the one step the panel cannot take, so it is also where the
+ * panel loses its memory: it came back reading "Up to date", which is equally
+ * what it says when the update never happened. `update.result.json` outlives the
+ * restart, so the answer was on disk the whole time and simply never read.
+ *
+ * Acknowledged by sha, in the same `localStorage` store that already holds the
+ * folder tokens and the panel language -- so this appears after the restart that
+ * made it true, and never again.
+ */
+async function noteAnyInstalledUpdate() {
+  if (!state.transport || !state.transport.readUpdateResult) return;
+  const result = await state.transport.readUpdateResult();
+  if (!result || result.status !== "updated" || !result.after) return;
+  if (state.settings.seenBuild === result.after) return;
+  state.updateInstalled = { before: result.before || "", after: result.after };
+  state.settings = saveSettings({ seenBuild: result.after });
 }
 
 /**
@@ -1788,6 +1830,9 @@ async function checkForUpdates(announce) {
   if (!state.transport || !state.transport.requestUpdateCheck) return;
   const before = state.updateCheck && state.updateCheck.at;
   if (announce) {
+    // A fresh question supersedes the confirmation of the last update, which
+    // would otherwise sit there in place of the answer being asked for.
+    state.updateInstalled = null;
     state.updatePhase = "checking";
     renderUpdate();
     // The button already says "Checking". This is for the drawer, where the
@@ -1808,7 +1853,15 @@ async function checkForUpdates(announce) {
     }
     // Nothing came back. Said only to whoever asked: a quiet check at startup
     // that finds a busy helper is not news, and the button still reads true.
-    if (announce && !answered) log(state.t("msg.updateNeverHeard"), "err");
+    if (announce && !answered) {
+      log(state.t("msg.updateNeverHeard"), "err");
+      // Somebody who PRESSED the button is owed an answer, and "no answer" is
+      // one. Recorded as its own status so the button reads "Could not check" in
+      // red and the line under it names the helper -- rather than reverting to
+      // whatever it said before while the reason goes into a shut drawer, which
+      // is how an editor ended up having to ask why nothing happened.
+      state.updateCheck = { at: new Date().toISOString(), status: "noanswer", behind: 0 };
+    }
   } catch (err) {
     if (announce) log(err && err.message ? err.message : String(err), "err");
   } finally {
@@ -1820,7 +1873,10 @@ async function checkForUpdates(announce) {
 /** Pull and install, which is a second press and never the first. */
 async function installUpdate() {
   state.updatePhase = "updating";
-  state.updateDetail = "";
+  state.updateFailure = null;
+  state.updateInstalled = null;
+  state.updateStep = "sent";
+  state.updateElapsed = 0;
   renderUpdate();
   log(state.t("update.updating"));
   try {
@@ -1842,12 +1898,18 @@ async function installUpdate() {
     let said = false;
     for (let i = 0; i < UPDATE_WAIT_SECONDS && !result; i++) {
       await new Promise((r) => setTimeout(r, 1000));
+      // This loop is the clock for the line under the button: one tick, one
+      // second. Cheaper than a second timer, and it cannot drift out of step
+      // with the poll it is reporting on.
+      state.updateElapsed = i + 1;
       result = await state.transport.readUpdateResult();
       if (result) break;
       if (!pickedUp) {
         pickedUp = !(await state.transport.updateRequestPending());
         if (pickedUp) log(state.t("msg.updateStarted"));
       }
+      state.updateStep = pickedUp ? "running" : "sent";
+      renderUpdate();
       // Nothing has read the request yet. Say so once, truthfully, and keep
       // waiting -- being busy is the ordinary reason and it resolves itself.
       if (!pickedUp && !said && i >= UPDATE_HEARD_SECONDS) {
@@ -1877,12 +1939,17 @@ async function installUpdate() {
       state.updatePhase = "idle";
       return;
     }
-    state.updateDetail = (outcome && outcome.detail) || "";
+    // The key travels with the detail, so the line under the button can say
+    // "the helper never read the request -- run ./setup.sh --check" instead of
+    // "Update did not complete:" and a sentence that stops there.
+    state.updateFailure = {
+      key: outcome.key || "msg.updateFailed", detail: outcome.detail || "",
+    };
     state.updatePhase = "failed";
   } catch (err) {
     const detail = err && err.message ? err.message : String(err);
     log(detail, "err");
-    state.updateDetail = detail;
+    state.updateFailure = { key: "msg.updateFailed", detail };
     state.updatePhase = "failed";
   } finally {
     renderUpdate();
@@ -2235,6 +2302,7 @@ $("plan-keep").addEventListener("change", async (e) => {
     // here should wait on an answer about updates.
     if (state.transport) {
       state.updateCheck = await state.transport.readUpdateCheckResult();
+      await noteAnyInstalledUpdate();
       renderUpdate();
       checkForUpdates(false);
     }

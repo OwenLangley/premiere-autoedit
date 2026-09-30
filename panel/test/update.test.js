@@ -12,7 +12,7 @@ const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
-  updateOutcome, updateButton, updateNote, shortSubject,
+  updateOutcome, updateButton, updateNote, shortSubject, formatElapsed,
 } = require("../src/update");
 
 const i18n = require("../src/i18n");
@@ -184,7 +184,7 @@ test("every label and note this can produce exists in both catalogues", () => {
     const phases = ["idle", "checking", "updating", "restart", "failed"];
     for (const phase of phases) {
       keys.add(updateButton({ check, phase }).key);
-      const note = updateNote({ check, phase, detail: "x" });
+      const note = updateNote({ check, phase, failure: { key: "msg.updateFailed", detail: "x" } });
       if (note) keys.add(note.key);
     }
   }
@@ -228,4 +228,148 @@ test("a commit subject is cut to something a docked panel can hold", () => {
   // A subject that merely begins with a hex word is not a hash: `deadbeef` is
   // eight hex characters and `fade in` starts with four.
   assert.strictEqual(shortSubject("fade in the second shot"), "fade in the second shot");
+});
+
+
+// --- what an editor is told WHILE it runs, and WHY it stopped ---------------
+//
+// The panel could not distinguish success from failure from nothing-happened.
+// Four separate reasons, all of them in the panel rather than the updater:
+// nothing was drawn during the wait, the failure lost its own sentence, `kind`
+// was computed and discarded, and no version was ever shown.
+
+test("elapsed time reads as a clock", () => {
+  assert.strictEqual(formatElapsed(0), "0:00");
+  assert.strictEqual(formatElapsed(9), "0:09");
+  assert.strictEqual(formatElapsed(59), "0:59");
+  assert.strictEqual(formatElapsed(60), "1:00");
+  assert.strictEqual(formatElapsed(600), "10:00");
+  // Nonsense in, still a clock out. "NaN:aN" in a panel is worse than 0:00.
+  assert.strictEqual(formatElapsed(-5), "0:00");
+  assert.strictEqual(formatElapsed(undefined), "0:00");
+  assert.strictEqual(formatElapsed(NaN), "0:00");
+});
+
+test("the line under the button never goes quiet while an update runs", () => {
+  // The complaint that produced all of this. The wait runs to five minutes, the
+  // button is disabled and says one static word, and `log()` only badges lines
+  // marked as errors -- so the narration in the drawer was both shut away and
+  // uncounted. This branch used to `return null`.
+  const sent = updateNote({ check: null, phase: "updating", step: "sent", elapsed: 3 });
+  assert.strictEqual(sent.key, "update.noteSent");
+  assert.strictEqual(sent.params.elapsed, "0:03");
+
+  const running = updateNote({ check: null, phase: "updating", step: "running", elapsed: 92 });
+  assert.strictEqual(running.key, "update.noteRunning");
+  assert.strictEqual(running.params.elapsed, "1:32");
+  assert.notStrictEqual(running.key, sent.key,
+    "waiting to be heard and being worked on are different news");
+});
+
+test("a failure keeps the sentence that explains it", () => {
+  // `msg.updateNeverHeard` names ./setup.sh --check and is a whole sentence. It
+  // used to be forced through "Update did not complete: {detail}" with an empty
+  // detail, so an editor read a colon and nothing, and the sentence went only to
+  // a drawer that was shut.
+  const never = updateNote({
+    check: null, phase: "failed", failure: { key: "msg.updateNeverHeard", detail: "" },
+  });
+  assert.strictEqual(never.key, "msg.updateNeverHeard");
+
+  // update.sh's own classifications still arrive with their detail attached.
+  const dirty = updateNote({
+    check: null, phase: "failed",
+    failure: { key: "msg.updateFailed", detail: "local changes block the update: README.md" },
+  });
+  assert.strictEqual(dirty.key, "msg.updateFailed");
+  assert.match(dirty.params.detail, /README\.md/);
+});
+
+test("no note ever renders as a label and a naked colon", () => {
+  // The defect exactly as it appeared on screen.
+  const failures = [
+    null,
+    { key: "msg.updateFailed", detail: "" },
+    { key: "msg.updateNeverHeard", detail: "" },
+    { key: "msg.updateStillRunning", detail: "" },
+    { key: "msg.updateFailed", detail: "could not reach the repository" },
+  ];
+  for (const failure of failures) {
+    const note = updateNote({ check: null, phase: "failed", failure });
+    assert.ok(note, "a failure always has something to say");
+    for (const lang of ["en", "ja"]) {
+      const text = i18n.translate(lang, note.key, note.params);
+      assert.doesNotMatch(text, /[:\uff1a]\s*$/, `${note.key} in ${lang}: ${text}`);
+      assert.doesNotMatch(text, /[{}]/, `${note.key} in ${lang}: ${text}`);
+    }
+  }
+});
+
+test("an installed update is confirmed, with or without a previous sha", () => {
+  // After the restart the panel read "Up to date", which is also what it says
+  // when the update never ran. update.result.json outlives the restart.
+  const both = updateNote({
+    check: { status: "current" }, installed: { before: "47e8d3f", after: "f6ca4e5" },
+  });
+  assert.strictEqual(both.key, "update.installedNote");
+  assert.strictEqual(both.params.after, "f6ca4e5");
+
+  // `before` is "unknown" when git could not read it, and update.sh can write it
+  // empty -- "updated from ." is not a sentence.
+  const bare = updateNote({
+    check: { status: "current" }, installed: { before: "", after: "f6ca4e5" },
+  });
+  assert.strictEqual(bare.key, "update.installedNoteBare");
+  for (const lang of ["en", "ja"]) {
+    assert.doesNotMatch(i18n.translate(lang, both.key, both.params), /[{}]/, both.key);
+    assert.doesNotMatch(i18n.translate(lang, bare.key, bare.params), /[{}]/, bare.key);
+  }
+});
+
+test("a fresher answer is never masked by the last confirmation", () => {
+  // Priority, not politeness. A press that failed, or one still running, is what
+  // the editor is waiting to hear about -- not an update from ten minutes ago.
+  const failed = updateNote({
+    check: { status: "current" }, phase: "failed",
+    failure: { key: "msg.updateFailed", detail: "x" },
+    installed: { before: "a1b2c3d", after: "e4f5a6b" },
+  });
+  assert.strictEqual(failed.key, "msg.updateFailed");
+
+  const updating = updateNote({
+    check: { status: "current" }, phase: "updating", step: "running", elapsed: 1,
+    installed: { before: "a1b2c3d", after: "e4f5a6b" },
+  });
+  assert.strictEqual(updating.key, "update.noteRunning");
+});
+
+test("a check nobody answered says so where it can be seen", () => {
+  // The other half of the same defect. The update path narrated its failure
+  // under the button; the check path logged it into a drawer that was shut and
+  // let the button revert to whatever it had said before, so an editor had to go
+  // looking to discover the helper was down.
+  const view = updateButton({ check: { status: "noanswer" } });
+  assert.strictEqual(view.key, "update.checkFailed");
+  assert.strictEqual(view.kind, "err", "renderUpdate paints kind err red");
+  assert.strictEqual(view.action, "check", "pressing again has to stay possible");
+
+  const note = updateNote({ check: { status: "noanswer" } });
+  assert.strictEqual(note.key, "msg.updateNeverHeard",
+    "same cause as an unanswered update, so the same sentence");
+  for (const lang of ["en", "ja"]) {
+    const text = i18n.translate(lang, note.key, note.params);
+    assert.match(text, /setup\.sh/, `${lang} has to name the thing to run`);
+    assert.doesNotMatch(text, /[{}]/, text);
+  }
+});
+
+test("an unanswered check is not reported as an unreachable repository", () => {
+  // They used to be indistinguishable, because both produced silence. "Could not
+  // reach the repository" sends somebody off to check a GitHub sign-in that was
+  // never involved -- the same misdiagnosis update.sh was corrected for twice.
+  const noanswer = updateNote({ check: { status: "noanswer" } });
+  const offline = updateNote({ check: { status: "unreachable", detail: "no route to host" } });
+  assert.strictEqual(offline.key, "update.offlineNote");
+  assert.notStrictEqual(noanswer.key, offline.key);
+  assert.doesNotMatch(i18n.translate("en", noanswer.key, noanswer.params), /repositor/i);
 });

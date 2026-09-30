@@ -112,21 +112,70 @@ function shortSubject(subject) {
 }
 
 /**
+ * How long the wait has been going, as a line in a panel.
+ *
+ * A number that moves is the whole point. The button reads "Updating..." and is
+ * disabled for up to five minutes, and a static label cannot tell a slow update
+ * from a dead one -- which is the only thing an editor is actually asking.
+ *
+ * @param {number} seconds
+ */
+function formatElapsed(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
  * The line under the button, when there is something the label cannot hold.
  *
  * It exists because the log moved behind a button: a check that failed used to
  * explain itself in the log, and a drawer nobody opened would have swallowed
- * the explanation.
+ * the explanation. Every branch below is a case where the drawer swallowed it.
  *
- * @param {{check: any, phase?: string, detail?: string}} state
+ * @param {{check: any, phase?: string, elapsed?: number,
+ *          failure?: {key: string, detail: string}|null,
+ *          step?: ""|"sent"|"running",
+ *          installed?: {before: string, after: string}|null}} state
  * @returns {{key: string, params: Record<string, any>}|null}
  */
 function updateNote(state) {
   if (state.phase === "failed") {
-    return { key: "msg.updateFailed", params: { detail: state.detail || "" } };
+    // The outcome's OWN key, not always `msg.updateFailed`.
+    //
+    // `msg.updateNeverHeard` and `msg.updateStillRunning` are whole sentences
+    // carrying no placeholder -- "the helper never read the request, run
+    // ./setup.sh --check" -- and forcing them through "Update did not complete:
+    // {detail}" printed a colon with nothing after it. That happened in exactly
+    // the two cases where the panel knows least and the sentence it discarded
+    // was worth the most.
+    const failure = state.failure || null;
+    const detail = (failure && failure.detail) || "";
+    const key = (failure && failure.key) || "msg.updateFailed";
+    // Last line of defence: `msg.updateFailed` ends in its detail, so an empty
+    // one is the naked-colon bug again. The bare label is shorter and true.
+    if (key === "msg.updateFailed" && !detail) return { key: "update.failed", params: {} };
+    return { key, params: { detail } };
   }
   if (state.phase === "restart") return { key: "msg.updateRestart", params: {} };
-  if (state.phase === "checking" || state.phase === "updating") return null;
+  if (state.phase === "updating") {
+    // Never null. The button is disabled and says one static word, the log sits
+    // behind a shut drawer, and `log()` only badges lines marked as errors -- so
+    // with nothing here a working update and a hung one are indistinguishable
+    // for five minutes, which is the whole complaint.
+    const key = state.step === "running" ? "update.noteRunning" : "update.noteSent";
+    return { key, params: { elapsed: formatElapsed(state.elapsed || 0) } };
+  }
+  if (state.phase === "checking") return null;
+  // Said once, after the restart that made it true. Before this the panel came
+  // back reading "Up to date", which is also what it says when the update never
+  // ran at all. Two wordings rather than one: `before` is "unknown" when git
+  // could not read it, and "updated from ." is not a sentence.
+  if (state.installed) {
+    const { before, after } = state.installed;
+    return before
+      ? { key: "update.installedNote", params: { before, after } }
+      : { key: "update.installedNoteBare", params: { after } };
+  }
   const check = state.check;
   if (!check) return null;
   if (check.status === "behind") {
@@ -141,10 +190,15 @@ function updateNote(state) {
       ? { key: "update.behindNote", params: { ...params, latest } }
       : { key: "update.behindNoteCount", params };
   }
+  // Nobody answered, as distinct from the repository being unreachable. Same
+  // cause as an update request nothing read, so deliberately the same sentence
+  // -- and no new string, because the existing one already says it in both
+  // languages and names the thing to run.
+  if (check.status === "noanswer") return { key: "msg.updateNeverHeard", params: {} };
   if (check.status === "unreachable" || check.status === "failed") {
     return { key: "update.offlineNote", params: { detail: check.detail || "" } };
   }
   return null;
 }
 
-module.exports = { updateOutcome, updateButton, updateNote, shortSubject };
+module.exports = { updateOutcome, updateButton, updateNote, shortSubject, formatElapsed };
