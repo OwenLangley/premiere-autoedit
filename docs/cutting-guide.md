@@ -1,5 +1,7 @@
 # Steering the cut
 
+**English · [日本語](cutting-guide.ja.md)**
+
 The [README](../README.md) covers the three things that decide most edits: what
 you type, a reference video, and the settings behind them. This is the rest —
 what each control actually does, what the engine does with silent footage, how

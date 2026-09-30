@@ -56,6 +56,33 @@ The Japanese throughout was written by the author, who is not a native speaker.
 `story.py` carry the word lists that decide what gets cut. Terms like 尺 and
 テロップ are exactly where a translation comes out fluent and wrong.
 
+## Translations
+
+`README.ja.md` and `docs/cutting-guide.ja.md` sit beside their English sources
+rather than under a `docs/ja/`, so a stale translation is visible in the
+directory listing next to the file it has fallen behind.
+
+`panel/test/docs.test.js` holds every pair to three things: the tagged code
+fences must be identical in both directions, every version and measurement in
+the English must survive into the translation, and the two must link to each
+other. Prose is deliberately not compared -- wording drifts, and a test that
+fires on a reworded sentence gets switched off. A stale `brew install` line does
+not.
+
+Two rules when writing one:
+
+- **The glossary is `panel/src/i18n.js`, not your own translation.** If the docs
+  tell someone to press a button, they must use the string that is on it.
+  素材フォルダ and 映像フォルダ are both reasonable Japanese; only one of them is
+  in the panel.
+- **Do not hard-wrap CJK prose.** A soft line break renders as a space, which is
+  invisible in English and a gap in the middle of a Japanese sentence. One
+  paragraph per line. Tables and list items are unaffected.
+
+A new language is a row in `PAIRS` at the top of that test and nothing else.
+Translations of languages the author does not read are welcome as
+community-maintained, and are held to the same three assertions.
+
 ## Reporting a bug
 
 From the panel: **Report a problem** (bottom right) → **Collect a report to

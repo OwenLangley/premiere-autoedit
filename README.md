@@ -1,5 +1,7 @@
 # premiere-autoedit
 
+**English · [日本語](README.ja.md)**
+
 **A tool to automate rough cuts from plaintext descriptions or reference videos.**
 
 Describe the video in a sentence. The tool watches every clip you give it, finds
